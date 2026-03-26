@@ -1,0 +1,25 @@
+# Datasets and PCAPs
+data/
+data_/
+*.csv
+*.pcap
+*.pcapng
+
+# Machine Learning Models
+models/
+*.h5
+*.pkl
+
+# Python Virtual Environments
+venv/
+env/
+__pycache__/
+*.pyc
+
+# IDEs
+.vscode/
+.idea/
+
+# Local helper scripts / notebooks
+inspect_datasets.ipynb
+setup_raw_data.py
