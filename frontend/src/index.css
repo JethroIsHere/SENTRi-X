@@ -1,0 +1,60 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+    --color-bg: 245 252 251; /* #F5FCFB */
+    --color-bg-soft: 232 245 242; /* #E8F5F2 */
+    --color-surface: 255 255 255; /* #FFFFFF */
+    --color-surface-subtle: 249 251 251; /* #F9FBFB */
+    --color-accent: 0 199 165; /* #00C7A5 */
+    --color-accent-soft: 224 247 243; /* #E0F7F3 */
+    --color-accent-dark: 0 148 122; /* #00947A */
+    --color-text: 31 41 51; /* #1F2933 */
+    --color-text-muted: 107 114 128; /* #6B7280 */
+    --color-border: 209 228 224; /* #D1E4E0 */
+    
+    --bg-gradient-1: rgba(0, 199, 165, 0.16);
+    --bg-gradient-2: rgba(59, 130, 246, 0.14);
+  }
+
+  .dark {
+    color-scheme: dark;
+    --color-bg: 15 23 42; /* slate-900 */
+    --color-bg-soft: 30 41 59; /* slate-800 */
+    --color-surface: 2 6 23; /* slate-950 */
+    --color-surface-subtle: 15 23 42; /* slate-900 */
+    --color-accent: 0 199 165; /* #00C7A5 kept for branding */
+    --color-accent-soft: 2 44 34; /* teal-950 */
+    --color-accent-dark: 45 212 191; /* teal-400 (lighter for dark mode) */
+    --color-text: 248 250 252; /* slate-50 */
+    --color-text-muted: 148 163 184; /* slate-400 */
+    --color-border: 51 65 85; /* slate-700 */
+    
+    --bg-gradient-1: rgba(0, 199, 165, 0.10);
+    --bg-gradient-2: rgba(59, 130, 246, 0.08);
+  }
+
+  html {
+  font-size: 18px;
+  }
+  @media (min-width: 1024px) {
+    html {
+    font-size: 20px;
+    }
+  }
+}
+
+body {
+  @apply bg-background text-text antialiased transition-colors duration-300;
+  background-image:
+    radial-gradient(circle at top left, var(--bg-gradient-1), transparent 55%),
+    radial-gradient(circle at bottom right, var(--bg-gradient-2), transparent 55%);
+  background-attachment: fixed;
+}
+
+#root {
+  @apply min-h-screen;
+}
