@@ -1,6 +1,61 @@
 import { ShieldCheck, Crosshair, Target, Clock, Zap, Activity } from 'lucide-react'
+import { useState, useEffect } from 'react'
+
+interface SystemStatus {
+	node_status: string;
+	core_model: string;
+	processed_packets: number;
+	threats_detected: number;
+	cpu_usage: number;
+	memory_usage: number;
+}
+
+interface ThreatLog {
+	id: string;
+	timestamp: string;
+	source_ip: string;
+	dest_ip: string;
+	attack_type: string;
+	confidence: number;
+	action_taken: string;
+}
 
 export function DashboardPage() {
+	const [status, setStatus] = useState<SystemStatus>({
+		node_status: 'Connecting...',
+		core_model: 'Loading...',
+		processed_packets: 0,
+		threats_detected: 0,
+		cpu_usage: 0,
+		memory_usage: 0,
+	})
+	const [threats, setThreats] = useState<ThreatLog[]>([])
+
+	useEffect(() => {
+		const fetchData = async () => {
+			try {
+				const [statusRes, threatsRes] = await Promise.all([
+					fetch('http://127.0.0.1:8000/api/status'),
+					fetch('http://127.0.0.1:8000/api/threat-logs')
+				])
+				
+				if (statusRes.ok) {
+					setStatus(await statusRes.json())
+				}
+				if (threatsRes.ok) {
+					const threatsData = await threatsRes.json()
+					setThreats(threatsData.logs)
+				}
+			} catch (error) {
+				console.error('Failed to fetch dashboard data:', error)
+			}
+		}
+
+		fetchData()
+		const interval = setInterval(fetchData, 2000)
+		return () => clearInterval(interval)
+	}, [])
+
 	return (
 		<div className="flex flex-col gap-6 bg-background-soft rounded-3xl border border-border/60 shadow-lg px-8 py-7 relative overflow-hidden">
 			{/* Decorative background flare */}
@@ -13,14 +68,14 @@ export function DashboardPage() {
 			
 			<div className="grid grid-cols-1 md:grid-cols-4 gap-5 relative z-10">
 				{[
-					{ label: 'Total Flows Monitored', value: '2,830,743', icon: Activity, metric: 'Flows in current window' },
-					{ label: 'Detected Attacks', value: '471,454', icon: ShieldCheck, metric: 'Total alerts flagged as malicious' },
-					{ label: 'Model Confidence', value: 'High', icon: Crosshair, metric: 'Avg attack prediction: 0.98' },
-					{ label: 'Explainability', value: '100%', icon: Zap, metric: 'Alerts with SHAP, LIME, and rules' },
+					{ label: 'Total Packets Scanned', value: status.processed_packets.toLocaleString(), icon: Activity, metric: 'Simulated stream matching' },
+					{ label: 'Detected Attacks', value: status.threats_detected.toLocaleString(), icon: ShieldCheck, metric: 'Total alerts flagged as malicious' },
+					{ label: 'CPU Usage', value: `${status.cpu_usage}%`, icon: Zap, metric: 'Inference engine load' },
+					{ label: 'Memory Usage', value: `${status.memory_usage}%`, icon: Clock, metric: 'Buffer utilization' },
 				].map((card) => (
 					<div
 						key={card.label}
-						className="rounded-2xl bg-surface backdrop-blur-md shadow-md border border-border/80 px-5 py-5 flex flex-col gap-3 transition-transform hover:-translate-y-1 hover:shadow-lg"
+						className="col-span-1 rounded-2xl bg-surface backdrop-blur-md shadow-md border border-border/80 px-5 py-5 flex flex-col gap-3 transition-transform hover:-translate-y-1 hover:shadow-lg"
 					>
 						<div className="flex items-center gap-3 text-text font-semibold">
 							<div className="bg-accent-soft p-2 rounded-xl text-accent-dark">
@@ -84,34 +139,27 @@ export function DashboardPage() {
 							</tr>
 						</thead>
 						<tbody className="text-sm font-medium">
-							{[
-								{
-									ts: '10:14:32',
-									flow: '192.168.1.105 → 10.0.0.5',
-									cls: 'DoS Hulk',
-									conf: '98.1%',
-									action: 'Dropped via iptables',
-								},
-								{
-									ts: '10:13:08',
-									flow: '192.168.1.88 → 10.0.0.5',
-									cls: 'PortScan',
-									conf: '96.4%',
-									action: 'Source IP blocked',
-								},
-							].map((row) => (
-								<tr key={row.ts} className="bg-surface-subtle hover:bg-background-soft transition-colors shadow-sm rounded-lg overflow-hidden group">
-									<td className="px-4 py-3 text-text rounded-l-lg border-y border-l border-border/40 group-hover:border-border">{row.ts}</td>
-									<td className="px-4 py-3 border-y border-border/40 group-hover:border-border">{row.flow}</td>
-									<td className="px-4 py-3 border-y border-border/40 group-hover:border-border">
-										<span className="px-2.5 py-1 rounded-md bg-accent/20 text-accent-dark font-semibold border border-accent/20">
-											{row.cls}
-										</span>
+							{threats.length > 0 ? (
+								threats.map((row) => (
+									<tr key={row.id} className="bg-surface-subtle hover:bg-background-soft transition-colors shadow-sm rounded-lg overflow-hidden group">
+										<td className="px-4 py-3 text-text border-y border-l border-border/40 group-hover:border-border">{row.timestamp.split(' ')[1]}</td>
+										<td className="px-4 py-3 border-y border-border/40 group-hover:border-border font-mono">{row.source_ip} &rarr; {row.dest_ip}</td>
+										<td className="px-4 py-3 border-y border-border/40 group-hover:border-border">
+											<span className="px-2.5 py-1 rounded-md bg-red-100 text-red-700 font-bold border border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800">
+												{row.attack_type}
+											</span>
+										</td>
+										<td className="px-4 py-3 text-accent-dark font-bold border-y border-border/40 group-hover:border-border">{(row.confidence * 100).toFixed(1)}%</td>
+										<td className="px-4 py-3 text-text-muted rounded-r-lg border-y border-r border-border/40 group-hover:border-border">{row.action_taken}</td>
+									</tr>
+								))
+							) : (
+								<tr>
+									<td colSpan={5} className="text-center py-8 text-text-muted italic">
+										No recent intrusions intercepted... monitoring active stream.
 									</td>
-									<td className="px-4 py-3 text-accent-dark font-bold border-y border-border/40 group-hover:border-border">{row.conf}</td>
-									<td className="px-4 py-3 text-text-muted rounded-r-lg border-y border-r border-border/40 group-hover:border-border">{row.action}</td>
 								</tr>
-							))}
+							)}
 						</tbody>
 					</table>
 				</div>

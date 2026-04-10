@@ -31,6 +31,10 @@ interface AppShellProps {
 
 export function AppShell({ children }: AppShellProps) {
 	const location = useLocation()
+	const [systemStatus, setSystemStatus] = useState({
+		node_status: 'Connecting...',
+		core_model: 'Loading...',
+	})
 	
 	// Check initial theme preference
 	const [isDark, setIsDark] = useState(() => {
@@ -52,6 +56,29 @@ export function AppShell({ children }: AppShellProps) {
 			localStorage.setItem('theme', 'light')
 		}
 	}, [isDark])
+
+	// Fetch backend status
+	useEffect(() => {
+		const fetchStatus = async () => {
+			try {
+				const response = await fetch('http://127.0.0.1:8000/api/status')
+				if (response.ok) {
+					const data = await response.json()
+					setSystemStatus(data)
+				}
+			} catch (error) {
+				setSystemStatus({ node_status: 'Offline', core_model: 'Unreachable' })
+				console.error('Failed to fetch status:', error)
+			}
+		}
+
+		// Initial fetch
+		fetchStatus()
+
+		// Poll every 2 seconds to keep it live
+		const interval = setInterval(fetchStatus, 2000)
+		return () => clearInterval(interval)
+	}, [])
 
 	return (
 		<div className="flex min-h-screen bg-background text-text">
@@ -86,11 +113,17 @@ export function AppShell({ children }: AppShellProps) {
 			<main className="flex-1 flex flex-col">
 				<header className="h-16 border-b border-border/80 flex items-center justify-between px-8 bg-surface/80 backdrop-blur-md shadow-sm">
 					<div className="flex items-center gap-3 text-sm">
-						<span className="px-2 py-0.5 rounded-full bg-accent-soft text-accent-dark border border-accent text-xs font-medium">
-							● NODE ACTIVE
+						<span
+							className={`px-2 py-0.5 rounded-full text-xs font-medium border ${
+								systemStatus.node_status === 'Active'
+									? 'bg-accent-soft text-accent-dark border-accent'
+									: 'bg-red-100 text-red-600 border-red-300 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800'
+							}`}
+						>
+							● {systemStatus.node_status === 'Active' ? 'NODE ACTIVE' : systemStatus.node_status.toUpperCase()}
 						</span>
 						<span className="text-text-muted">Core Model</span>
-						<span className="text-accent-dark font-semibold">Hybrid Ensemble (RF+CNN)</span>
+						<span className="text-accent-dark font-semibold">{systemStatus.core_model}</span>
 					</div>
 					<div className="flex items-center gap-4 text-text-muted">
 						<button
