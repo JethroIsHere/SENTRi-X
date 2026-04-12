@@ -19,7 +19,7 @@ const navItems = [
 	{ label: 'Dashboard', path: '/', icon: LayoutDashboard },
 	{ label: 'Network Graph', path: '/network-graph', icon: Network },
 	{ label: 'Threat Logs', path: '/threat-logs', icon: ListTree },
-	{ label: 'Explainable AI (XAI)', path: '/xai', icon: BrainCircuit },
+	{ label: 'Security Rules', path: '/xai', icon: BrainCircuit },
 	{ label: 'AI Engine Status', path: '/engine-status', icon: ActivitySquare },
 	{ label: 'Terminal CLI', path: '/terminal', icon: TerminalSquare },
 	{ label: 'System Settings', path: '/settings', icon: Settings },

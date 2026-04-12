@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
-type LogLevel = 'system' | 'info' | 'alert' | 'action'
+type LogLevel = 'system' | 'info' | 'alert' | 'warn'
 
 type LogLine = { level: LogLevel; text: string }
 
@@ -21,8 +21,8 @@ export function TerminalCliPage() {
 				text: 'Intrusion Detected! Flow: 192.168.1.105 → 10.0.0.5 | Type: DoS Hulk | Conf: 98.1%',
 			},
 			{
-				level: 'action',
-				text: 'Executing mitigation. Dropping packets from 192.168.1.105 via iptables PREROUTING.',
+				level: 'warn',
+				text: 'Raising Alert to SOC Dashboard. Threshold > 95% met.',
 			},
 			{ level: 'info', text: 'Analyzing Flow: 192.168.1.110 → 10.0.0.5 | Prediction: Normal' },
 		])
@@ -40,7 +40,7 @@ export function TerminalCliPage() {
 		const cmd = input.trim()
 		setLines((prev) => [
 			...prev,
-			{ level: 'action', text: `sentri-x@edge-node:~$ ${cmd}` },
+			{ level: 'warn', text: `sentri-x@edge-node:~$ ${cmd}` },
 			{ level: 'info', text: `Echo: ${cmd}` },
 		])
 		setInput('')
@@ -54,7 +54,7 @@ export function TerminalCliPage() {
 				return 'text-sky-400'
 			case 'alert':
 				return 'text-rose-400'
-			case 'action':
+			case 'warn':
 				return 'text-amber-300'
 			default:
 				return 'text-slate-100'
@@ -69,8 +69,8 @@ export function TerminalCliPage() {
 				return '[INFO]'
 			case 'alert':
 				return '[ALERT]'
-			case 'action':
-				return '[ACTION]'
+			case 'warn':
+				return '[WARN]'
 		}
 	}
 

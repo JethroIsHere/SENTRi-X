@@ -16,17 +16,30 @@ export function AiEngineStatusPage() {
 	const [status, setStatus] = useState<EngineStatus | null>(null)
 
 	useEffect(() => {
-		setStatus({
-			cpuUtilization: 42,
-			cpuLabel: 'ARM Cortex-A72 (Quad-Core)',
-			memoryUsedGb: 1.2,
-			memoryTotalGb: 4.0,
-			networkStatus: 'Active',
-			rfOnline: true,
-			cnnOnline: true,
-			latestPrecision: 0.94,
-			latestRecall: 0.97,
-		})
+		const fetchStatus = async () => {
+			try {
+				const response = await fetch("http://localhost:8000/api/status");
+				const data = await response.json();
+				
+				setStatus({
+					cpuUtilization: data.cpu_usage || Math.floor(Math.random() * 30 + 30),
+					cpuLabel: 'Core i7 (Quad-Core Simulator)',
+					memoryUsedGb: parseFloat(((data.memory_usage / 100) * 8.0).toFixed(1)) || 2.4,
+					memoryTotalGb: 8.0,
+					networkStatus: 'Active',
+					rfOnline: data.rf_online !== undefined ? data.rf_online : true,
+					cnnOnline: data.cnn_online !== undefined ? data.cnn_online : false,
+					latestPrecision: 0.94,
+					latestRecall: 0.97,
+				})
+			} catch (error) {
+				console.error("Failed to fetch engine status:", error);
+			}
+		}
+
+		fetchStatus()
+		const interval = setInterval(fetchStatus, 2000)
+		return () => clearInterval(interval)
 	}, [])
 
 	if (!status) return null
@@ -100,7 +113,7 @@ export function AiEngineStatusPage() {
 							<div className="bg-surface-subtle rounded-xl px-4 py-3 border border-border">
 								<div className="text-[11px] text-text-muted mb-1">CNN FEATURE EXTRACTOR</div>
 							<div className="flex items-center gap-2">
-									<span className="h-2 w-2 rounded-full bg-emerald-500" />
+										<span className={`h-2 w-2 rounded-full ${status.cnnOnline ? 'bg-emerald-500' : 'bg-rose-500'}`} />
 									<span className="text-sm font-semibold text-text">{status.cnnOnline ? 'Online' : 'Offline'}</span>
 							</div>
 						</div>
