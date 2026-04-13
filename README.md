@@ -69,6 +69,20 @@ npm run dev
 ```
 Navigate to `http://localhost:5173` in your browser. The dashboard will automatically connect to the backend, populate the XAI rules, and begin streaming live, concatenated global IoT/Enterprise traffic.
 
+### 3. Triggering Simulated Attacks (Terminal 3)
+To simulate a cyber attack on the dashboard, you can use the Red Team injection script. Ensure the backend is running, then open a **third** terminal:
+```bash
+# Navigate to project root
+cd SENTRi-X
+
+# Use the virtual environment Python
+venv\Scripts\activate
+
+# Launch an attack
+python launch_attack.py --type "DDoS" --intensity 10
+```
+*Supported types include: "DDoS", "Web Attack (SQLi)", etc. The dashboard will instantly visualize the anomaly and the XAI module will explain the mitigation.*
+
 ---
 
 ## 🛠️ Installation & Setup (For Training)
