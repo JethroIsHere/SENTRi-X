@@ -83,49 +83,90 @@ def load_models_and_data(target="ton_iot", dataset="ton_iot"):
             print(f"Error loading CNN: {e}")
 
     # 3. CSV Dataset
-    if dataset == "ton_iot":
-        csv_file = "Network_dataset_1.csv"
-        sub_dir = "ton_iot"
-    elif dataset == "bot_iot":
-        csv_file = "bot_iot_mapped.csv"
-        sub_dir = "bot_iot"
-    else:
-        csv_file = "Friday-WorkingHours-Afternoon-DDos.pcap_ISCX.csv"
-        sub_dir = "cic_ids2017"
-
-    data_path = os.path.join(os.path.dirname(__file__), "..", "data", "raw", sub_dir, csv_file)
-    if os.path.exists(data_path):
-        try:
-            # We now separate clean traffic and malicious traffic to demo realistic live attacks!
-            full_df = pd.read_csv(data_path)
+    try:
+        if dataset == "omni":
+            print("Loading OMNI Global Dataset (ToN + BoT + CIC)...")
             
-            label_col = 'Label' if 'Label' in full_df.columns else 'label'
+            # Load ToN
+            ton_path = os.path.join(os.path.dirname(__file__), "..", "data", "raw", "ton_iot", "Network_dataset_1.csv")
+            ton_df = pd.read_csv(ton_path, low_memory=False)
+            t_col = 'Label' if 'Label' in ton_df.columns else 'label'
+            ton_normal_pool = ton_df[ton_df[t_col].astype(str).isin(['0', '0.0', 'Normal', 'benign', 'nan'])]
+            ton_attack_pool = ton_df[~ton_df[t_col].astype(str).isin(['0', '0.0', 'Normal', 'benign', 'nan'])]
+            ton_normal = ton_normal_pool.sample(n=min(2000, len(ton_normal_pool)))
+            ton_attack = ton_attack_pool.sample(n=min(500, len(ton_attack_pool)))
             
-            if label_col in full_df.columns:
-                normal_rows = full_df[full_df[label_col].astype(str).isin(['0', '0.0', 'Normal', 'benign', 'nan'])]
-                attack_rows = full_df[~full_df[label_col].astype(str).isin(['0', '0.0', 'Normal', 'benign', 'nan'])]
-            else:
-                normal_rows = full_df
-                attack_rows = full_df.head(100) # Fallback
-
-            # Keep only normal traffic for ambient background noise
-            engine.df = normal_rows.sample(n=min(5000, len(normal_rows))).reset_index(drop=True)
+            # Load BoT
+            bot_path = os.path.join(os.path.dirname(__file__), "..", "data", "raw", "bot_iot", "bot_iot_mapped.csv")
+            bot_df = pd.read_csv(bot_path, low_memory=False)
+            b_col = 'Label' if 'Label' in bot_df.columns else 'label'
+            bot_normal_pool = bot_df[bot_df[b_col].astype(str).isin(['0', '0.0', 'Normal', 'benign', 'nan'])]
+            bot_attack_pool = bot_df[~bot_df[b_col].astype(str).isin(['0', '0.0', 'Normal', 'benign', 'nan'])]
+            bot_normal = bot_normal_pool.sample(n=min(2000, len(bot_normal_pool)))
+            bot_attack = bot_attack_pool.sample(n=min(500, len(bot_attack_pool)))
             
-            # Pool attacks to be injected via Red Team script
-            engine.malicious_pool = attack_rows.sample(n=min(1000, len(attack_rows))).reset_index(drop=True)
+            # Load CIC
+            cic_path = os.path.join(os.path.dirname(__file__), "..", "data", "raw", "cic_ids2017", "cic_ids2017_mapped.csv")
+            if not os.path.exists(cic_path):
+                cic_path = os.path.join(os.path.dirname(__file__), "..", "data", "raw", "cic_ids2017", "Friday-WorkingHours-Afternoon-DDos.pcap_ISCX.csv")
+            cic_df = pd.read_csv(cic_path, low_memory=False)
+            c_col = 'Label' if 'Label' in cic_df.columns else 'label'
+            cic_normal_pool = cic_df[cic_df[c_col].astype(str).isin(['0', '0.0', 'Normal', 'benign', 'nan'])]
+            cic_attack_pool = cic_df[~cic_df[c_col].astype(str).isin(['0', '0.0', 'Normal', 'benign', 'nan'])]
+            cic_normal = cic_normal_pool.sample(n=min(2000, len(cic_normal_pool)))
+            cic_attack = cic_attack_pool.sample(n=min(500, len(cic_attack_pool)))
+            
+            # Unify and align columns (using expected_features from Omni Notebook implicitly by fillna down the line)
+            engine.df = pd.concat([ton_normal, bot_normal, cic_normal], ignore_index=True).sample(frac=1).reset_index(drop=True)
+            engine.malicious_pool = pd.concat([ton_attack, bot_attack, cic_attack], ignore_index=True).sample(frac=1).reset_index(drop=True)
             
             engine.row_idx = 0
             engine.attack_queue = []
-            del full_df
-        except Exception as e:
-            print(f"Error loading dataset: {e}")
+            del ton_df, bot_df, cic_df
+            
+        else:
+            if dataset == "ton_iot":
+                csv_file = "Network_dataset_1.csv"
+                sub_dir = "ton_iot"
+            elif dataset == "bot_iot":
+                csv_file = "bot_iot_mapped.csv"
+                sub_dir = "bot_iot"
+            else:
+                csv_file = "Friday-WorkingHours-Afternoon-DDos.pcap_ISCX.csv"
+                sub_dir = "cic_ids2017"
 
-    system_status["core_model"] = f"Hybrid Ensemble (RF+CNN) - {dataset.upper()}"
+            data_path = os.path.join(os.path.dirname(__file__), "..", "data", "raw", sub_dir, csv_file)
+            if os.path.exists(data_path):
+                # We now separate clean traffic and malicious traffic to demo realistic live attacks!
+                full_df = pd.read_csv(data_path)
+                
+                label_col = 'Label' if 'Label' in full_df.columns else 'label'
+                
+                if label_col in full_df.columns:
+                    normal_rows = full_df[full_df[label_col].astype(str).isin(['0', '0.0', 'Normal', 'benign', 'nan'])]
+                    attack_rows = full_df[~full_df[label_col].astype(str).isin(['0', '0.0', 'Normal', 'benign', 'nan'])]
+                else:
+                    normal_rows = full_df
+                    attack_rows = full_df.head(100) # Fallback
+
+                # Keep only normal traffic for ambient background noise
+                engine.df = normal_rows.sample(n=min(5000, len(normal_rows))).reset_index(drop=True)
+                
+                # Pool attacks to be injected via Red Team script
+                engine.malicious_pool = attack_rows.sample(n=min(1000, len(attack_rows))).reset_index(drop=True)
+                
+                engine.row_idx = 0
+                engine.attack_queue = []
+                del full_df
+    except Exception as e:
+        print(f"Error loading dataset: {e}")
+
+    system_status["core_model"] = f"Hybrid Ensemble (RF+CNN) - {'OMNI (GLOBAL)' if target == 'omni' else dataset.upper()}"
 
 
 @app.on_event("startup")
 async def startup_event():
-    load_models_and_data("ton_iot", "ton_iot")
+    load_models_and_data("omni", "omni")
     asyncio.create_task(simulate_live_traffic())
 @app.get("/")
 def read_root():
@@ -197,7 +238,12 @@ def switch_engine(req: SwitchRequest):
     system_status["cnn_online"] = False
     
     # Load Finetuned target models dynamically based on the dropdown!
-    target_model_file = f"{req.model_type}_finetuned" if req.model_type != "ton_iot" else "ton_iot"
+    if req.model_type == "ton_iot":
+        target_model_file = "ton_iot"
+    elif req.model_type == "omni":
+        target_model_file = "omni"
+    else:
+        target_model_file = f"{req.model_type}_finetuned"
     
     # Block live traffic briefly
     old_df = engine.df
@@ -374,5 +420,5 @@ async def simulate_live_traffic():
 # End of file
 @app.on_event("startup")
 async def startup_event():
-    load_models_and_data("ton_iot", "ton_iot")
+    load_models_and_data("omni", "omni")
     asyncio.create_task(simulate_live_traffic())

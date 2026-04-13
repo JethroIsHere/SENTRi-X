@@ -12,7 +12,7 @@ export function SystemSettingsPage() {
         })
         const [switchStatus, setSwitchStatus] = useState<string | null>(null)
         const [isSwitching, setIsSwitching] = useState(false)
-        const [activeModel, setActiveModel] = useState("ton_iot")
+        const [activeModel, setActiveModel] = useState("omni")
 
         const handleToggle = () => {
                 setSettings((s) => ({ ...s, activeAlerting: !s.activeAlerting }))
@@ -52,38 +52,18 @@ export function SystemSettingsPage() {
                         </div>
                         
                         <div className="bg-surface/80 backdrop-blur-md border border-border/80 rounded-2xl p-6 max-w-4xl shadow-md">
-                                <h2 className="text-sm font-semibold text-text mb-4 border-b border-border pb-2 text-blue-500">Academic Deployment Controls (50% Defense)</h2>
+                                <h2 className="text-sm font-semibold text-text mb-4 border-b border-border pb-2 text-blue-500">Academic Deployment Controls</h2>
                                 <p className="text-xs text-text-muted mb-4">Dynamically toggle active data streams and inference models to demonstrate Domain Adaptation & Transfer Learning.</p>
                                 
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                                <div className="grid grid-cols-1 gap-4 mb-4">
                                         <button
-                                                onClick={() => triggerModelSwitch('ton_iot', 'ton_iot')}
+                                                onClick={() => triggerModelSwitch('omni', 'omni')}
                                                 disabled={isSwitching}
-                                                className={`p-4 rounded-xl border text-left transition-all ${activeModel === 'ton_iot' ? 'border-blue-500 bg-blue-500/10' : 'border-border/50 bg-background-soft hover:bg-surface-subtle'}`}
+                                                className={`p-4 rounded-xl border text-left transition-all ${activeModel === 'omni' ? 'border-purple-500 bg-purple-500/10' : 'border-border/50 bg-background-soft hover:bg-surface-subtle'}`}
                                         >
-                                                <div className="text-sm font-medium text-text mb-1">Baseline Model</div>
-                                                <div className="text-xs text-text-muted">Source: ToN_IoT</div>
-                                                <div className="text-[10px] text-blue-400 mt-2 font-mono">rf_model_ton_iot</div>
-                                        </button>
-
-                                        <button
-                                                onClick={() => triggerModelSwitch('bot_iot', 'bot_iot')}
-                                                disabled={isSwitching}
-                                                className={`p-4 rounded-xl border text-left transition-all ${activeModel === 'bot_iot' ? 'border-rose-500 bg-rose-500/10' : 'border-border/50 bg-background-soft hover:bg-surface-subtle'}`}
-                                        >
-                                                <div className="text-sm font-medium text-text mb-1">Zero-Day Variant A</div>
-                                                <div className="text-xs text-text-muted">Source: BoT-IoT</div>
-                                                <div className="text-[10px] text-rose-400 mt-2 font-mono">rf_model_bot_iot_finetuned</div>
-                                        </button>
-
-                                        <button
-                                                onClick={() => triggerModelSwitch('cic_ids2017', 'cic_ids2017')}
-                                                disabled={isSwitching}
-                                                className={`p-4 rounded-xl border text-left transition-all ${activeModel === 'cic_ids2017' ? 'border-emerald-500 bg-emerald-500/10' : 'border-border/50 bg-background-soft hover:bg-surface-subtle'}`}
-                                        >
-                                                <div className="text-sm font-medium text-text mb-1">Zero-Day Variant B</div>
-                                                <div className="text-xs text-text-muted">Source: CIC-IDS2017</div>
-                                                <div className="text-[10px] text-emerald-400 mt-2 font-mono">rf_model_cic_finetuned</div>
+                                                <div className="text-sm font-medium text-text mb-1">Omni Defense Mode (Global Model)</div>
+                                                <div className="text-xs text-text-muted">Source: All Datasets Combined (ToN-IoT, BoT-IoT, CIC-IDS2017)</div>
+                                                <div className="text-[10px] text-purple-400 mt-2 font-mono">rf_model_omni & cnn_model_omni</div>
                                         </button>
                                 </div>
                                 {switchStatus && (

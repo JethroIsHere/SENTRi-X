@@ -5,28 +5,32 @@ type RipperRule = { text: string; meta: string }
 export function ExplainableAiPage() {
     const [ripperRules] = useState<RipperRule[]>([
         {
-            text: "IF 'Data sent (Source Bytes)' is abnormally high AND 'Connection Time' is suspiciously short THEN Flag as Attack",
-            meta: 'Matches typical Denial of Service (DoS) behavior',
+            text: "When a device rapidly blasts huge amounts of data but the connection closes almost instantly, the AI flags it as a flood.",
+            meta: 'Denial of Service (DoS / DDoS) attacks overload services with heavy, rapid-fire requests.',
         },
         {
-            text: "IF 'Packets received' > Threshold AND 'Connection State' is Rejected THEN Flag as Port Scan",
-            meta: 'Matches automated scanning (Nmap/ZMap) behavior',
+            text: "If an external IP triggers consecutive rejected or disconnected attempts across multiple ports, it is flagged as reconnaissance.",
+            meta: 'Automated Port Scanning (like Nmap or ZMap) probing for vulnerabilities.',
         },
         {
-            text: "IF 'Total Destination IP Data' spikes AND 'Normal Connection Finished' is FALSE THEN Flag as Malicious",
-            meta: 'Matches incomplete handshake patterns of Botnet activity',   
+            text: "When a device starts making rhythmic, incomplete handshakes and sending irregular data spikes outward, it suggests a compromised host.",
+            meta: 'Botnet Command & Control (C2) malware phoning home.',   
         },
         {
-            text: "IF 'Data sent' > 'Packets received' AND 'Abnormal Connection State' is TRUE THEN Flag as Infiltration Attempt",
-            meta: 'Matches initial reconnaissance and remote exploitation phases',
+            text: "If a small incoming web request generates an unusually massive response body, or frequently triggers HTTP error codes, it points to an exploit.",
+            meta: 'Web Application Attacks (SQL Injection, XSS) attempting to dump databases.',
         },
         {
-            text: "IF 'Connection Time' is severely prolonged AND 'Data sent' is unusually uniform THEN Flag as Data Exfiltration",
-            meta: 'Matches attempts to stealthily siphon internal network asset data',
+            text: "When an external attacker sends a massive payload inward but the server barely responds, the system suspects a remote code execution payload.",
+            meta: 'Network Infiltration and initial exploitation phases.',
         },
         {
-            text: "IF 'Abnormal Connection State' occurs consecutively > 100 times THEN Flag as DDoS",
-            meta: 'Matches intense UDP/TCP flooding characteristics',
+            text: "If an internal connection stays open for an unnaturally long time while slowly and steadily streaming data outward, it is flagged as theft.",
+            meta: 'Data Exfiltration by an insider threat or persistent malware.',
+        },
+        {
+            text: "Repeated, identical small-packet requests fired at a service that constantly drop before fully completing are categorized as password guessing.",
+            meta: 'Brute Force Authentication attacks on SSH, FTP, or Telnet.',
         }
     ])
 

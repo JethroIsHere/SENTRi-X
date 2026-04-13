@@ -12,8 +12,8 @@ export function TerminalCliPage() {
 	useEffect(() => {
 		setLines([
 			{ level: 'system', text: 'Initializing Hybrid Ensemble Engine (SENTRi-X v1.0.0)...' },
-			{ level: 'system', text: 'Loaded Random Forest Checkpoint: rf_model_ton_iot.joblib' },
-			{ level: 'system', text: 'Loaded CNN Checkpoint: cnn_model_ton_iot.h5' },
+			{ level: 'system', text: 'Loaded Random Forest Checkpoint: rf_model_omni.joblib' },
+			{ level: 'system', text: 'Loaded CNN Checkpoint: cnn_model_omni.h5' },
 			{ level: 'system', text: 'Models synchronized. Awaiting packet stream on interface eth0...' },
 			{ level: 'info', text: 'Analyzing Flow: 192.168.1.50 → 8.8.8.8 | Prediction: Normal' },
 			{
