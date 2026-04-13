@@ -10,9 +10,6 @@ export function SystemSettingsPage() {
                 activeAlerting: true,
                 confidenceThreshold: 85,
         })
-        const [switchStatus, setSwitchStatus] = useState<string | null>(null)
-        const [isSwitching, setIsSwitching] = useState(false)
-        const [activeModel, setActiveModel] = useState("omni")
 
         const handleToggle = () => {
                 setSettings((s) => ({ ...s, activeAlerting: !s.activeAlerting }))
@@ -23,27 +20,6 @@ export function SystemSettingsPage() {
                 setSettings((s) => ({ ...s, confidenceThreshold: value }))      
         }
 
-        const triggerModelSwitch = async (model: string, dataset: string) => {
-                setIsSwitching(true)
-                setSwitchStatus('Swapping core engine to ...')
-                try {
-                        const response = await fetch('http://127.0.0.1:8000/api/switch', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ model_type: model, dataset: dataset })
-                        })
-                        const data = await response.json()
-                        setSwitchStatus(data.message)
-                        setActiveModel(model)
-                } catch (error) {
-                        setSwitchStatus('Error contacting local API server.')
-                        console.error(error)
-                } finally {
-                        setIsSwitching(false)
-                        setTimeout(() => setSwitchStatus(null), 5000)
-                }
-        }
-
         return (
                 <div className="flex flex-col gap-6 h-full">
                         <div>
@@ -52,25 +28,19 @@ export function SystemSettingsPage() {
                         </div>
                         
                         <div className="bg-surface/80 backdrop-blur-md border border-border/80 rounded-2xl p-6 max-w-4xl shadow-md">
-                                <h2 className="text-sm font-semibold text-text mb-4 border-b border-border pb-2 text-blue-500">Academic Deployment Controls</h2>
-                                <p className="text-xs text-text-muted mb-4">Dynamically toggle active data streams and inference models to demonstrate Domain Adaptation & Transfer Learning.</p>
+                                <h2 className="text-sm font-semibold text-text mb-4 border-b border-border pb-2 text-blue-500">Active Defense Engine</h2>
+                                <p className="text-xs text-text-muted mb-4">SENTRi-X is currently running in its unified global state, leveraging Transfer Learning to process heterogeneous networks simultaneously.</p>
                                 
                                 <div className="grid grid-cols-1 gap-4 mb-4">
-                                        <button
-                                                onClick={() => triggerModelSwitch('omni', 'omni')}
-                                                disabled={isSwitching}
-                                                className={`p-4 rounded-xl border text-left transition-all ${activeModel === 'omni' ? 'border-purple-500 bg-purple-500/10' : 'border-border/50 bg-background-soft hover:bg-surface-subtle'}`}
-                                        >
-                                                <div className="text-sm font-medium text-text mb-1">Omni Defense Mode (Global Model)</div>
+                                        <div className="p-4 rounded-xl border border-purple-500 bg-purple-500/10 text-left transition-all">
+                                                <div className="text-sm font-bold text-text mb-1 flex items-center gap-2">
+                                                        <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+                                                        Omni Defense Mode (Global Model) - Active
+                                                </div>
                                                 <div className="text-xs text-text-muted">Source: All Datasets Combined (ToN-IoT, BoT-IoT, CIC-IDS2017)</div>
                                                 <div className="text-[10px] text-purple-400 mt-2 font-mono">rf_model_omni & cnn_model_omni</div>
-                                        </button>
-                                </div>
-                                {switchStatus && (
-                                        <div className="px-4 py-3 rounded-lg bg-background-soft border border-border text-xs text-text-muted animate-pulse">
-                                                {switchStatus}
                                         </div>
-                                )}
+                                </div>
                         </div>
 
                         <div className="bg-surface/80 backdrop-blur-md border border-border/80 rounded-2xl p-6 max-w-4xl shadow-md">

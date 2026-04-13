@@ -34,7 +34,7 @@ export function ThreatLogsPage() {
 					<button className="px-3 py-1.5 rounded-xl bg-surface-subtle border border-border text-xs text-text">
 						Filter Rules
 					</button>
-					<button className="px-3 py-1.5 rounded-xl bg-accent hover:bg-accent-dark text-xs text-accent-dark border border-accent">
+					<button className="px-3 py-1.5 rounded-xl bg-accent hover:bg-accent-dark text-xs text-white border border-accent">
 						Export CSV
 					</button>
 				</div>

@@ -7,7 +7,6 @@ import {
 	ListTree,
 	BrainCircuit,
 	ActivitySquare,
-	TerminalSquare,
 	Settings,
 	Bell,
 	Menu,
@@ -21,7 +20,6 @@ const navItems = [
 	{ label: 'Threat Logs', path: '/threat-logs', icon: ListTree },
 	{ label: 'Security Rules', path: '/xai', icon: BrainCircuit },
 	{ label: 'AI Engine Status', path: '/engine-status', icon: ActivitySquare },
-	{ label: 'Terminal CLI', path: '/terminal', icon: TerminalSquare },
 	{ label: 'System Settings', path: '/settings', icon: Settings },
 ]
 
@@ -31,9 +29,10 @@ interface AppShellProps {
 
 export function AppShell({ children }: AppShellProps) {
 	const location = useLocation()
-	const [systemStatus, setSystemStatus] = useState({
+	const [systemStatus, setSystemStatus] = useState<any>({
 		node_status: 'Connecting...',
 		core_model: 'Loading...',
+		threats_detected: 0,
 	})
 	
 	// Check initial theme preference
@@ -133,12 +132,18 @@ export function AppShell({ children }: AppShellProps) {
 						>
 							{isDark ? <Sun className="w-4 h-4 text-accent-dark" /> : <Moon className="w-4 h-4 text-accent-dark" />}
 						</button>
-						<button className="h-9 w-9 rounded-full bg-background flex items-center justify-center border border-border/60 hover:bg-background-soft transition-colors shadow-sm">
+						<Link 
+							to="/threat-logs" 
+							className="relative h-9 w-9 rounded-full bg-background flex items-center justify-center border border-border/60 hover:bg-background-soft transition-colors shadow-sm"
+							title="View Threat Logs"
+						>
 							<Bell className="w-4 h-4" />
-						</button>
-						<button className="h-9 w-9 rounded-full bg-background flex items-center justify-center border border-border/60 hover:bg-background-soft transition-colors shadow-sm">
-							<Menu className="w-4 h-4" />
-						</button>
+							{systemStatus.threats_detected > 0 && (
+								<span className="absolute top-0 right-0 -mt-1 -mr-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white shadow-sm ring-2 ring-background">
+									{systemStatus.threats_detected > 99 ? '99+' : systemStatus.threats_detected}
+								</span>
+							)}
+						</Link>
 						<div className="h-9 w-9 rounded-full bg-accent text-white flex items-center justify-center shadow-sm font-semibold text-sm">
 							JD
 						</div>
