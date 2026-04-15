@@ -5,11 +5,6 @@ data_/
 *.pcap
 *.pcapng
 
-# Machine Learning Models
-models/
-*.h5
-*.pkl
-
 # Python Virtual Environments
 venv/
 env/
