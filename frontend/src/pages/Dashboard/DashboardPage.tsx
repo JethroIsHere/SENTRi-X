@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { ShieldCheck, Clock, Zap, Activity } from '../../components/Icons'
+import { ShieldCheck, Clock, Zap, Activity } from '../../components/Icons.tsx'
 
 interface SystemStatus {
         node_status: string;
@@ -208,9 +208,20 @@ export function DashboardPage() {
 
                         {/* Live Intrusion Intercept Table */}
                         <div className="rounded-2xl bg-surface backdrop-blur-md border border-border/60 p-6 shadow-md relative z-10 transition-shadow hover:shadow-lg">
-                                <h2 className="text-xl font-bold tracking-tight text-text mb-2">Live Intrusion Intercepts</h2>
-                                <p className="text-sm text-text-muted mb-5">Recent flows classified as attacks and mitigated.</p>
-                                <div className="overflow-x-auto max-h-72">
+                                <div className="flex items-center justify-between mb-4">
+                                        <div>
+                                                <h2 className="text-xl font-bold tracking-tight text-text mb-2">Live Intrusion Intercepts</h2>
+                                                <p className="text-sm text-text-muted">Recent flows classified as attacks and mitigated.</p>
+                                        </div>
+                                        <button
+                                                onClick={handleClearData}
+                                                className="px-4 py-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-500 hover:bg-red-500/20 hover:border-red-500/50 transition-colors font-medium text-sm"
+                                                title="Clear threat log table (server + UI)"
+                                        >
+                                                Clear Table
+                                        </button>
+                                </div>
+                                <div className="overflow-x-auto max-h-72 mt-4">
                                         <table className="min-w-full border-separate border-spacing-y-2">
                                                 <thead className="sticky top-0 bg-surface z-10">
                                                         <tr className="text-text-muted text-sm font-medium border-b border-border">
