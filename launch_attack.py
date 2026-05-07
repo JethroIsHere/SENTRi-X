@@ -19,8 +19,13 @@ def launch(attack_type, intensity):
         )
         
         if response.status_code == 200:
-            print("[+] Target Server breached successfully!")
-            print(f"    Result: {response.json().get('message')}")
+            data = response.json()
+            if "error" in data:
+                print(f"[-] Exploit failed: {data['error']}")
+            else:
+                print("[+] Target Server breached successfully!")
+                print(f"    Result: {data.get('message')}")
+                print(f"    Attack Queue Size: {data.get('queue_size')}")
         else:
             print(f"[-] Exploit failed. Target returned HTTP {response.status_code}")
     except requests.exceptions.ConnectionError:

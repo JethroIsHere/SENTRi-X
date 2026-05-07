@@ -211,7 +211,7 @@ class AttackRequest(BaseModel):
 @app.post("/api/inject-attack")
 def deploy_attack(req: AttackRequest):
     if engine.malicious_pool is None or len(engine.malicious_pool) == 0:
-        return {"error": "Target Domain has no malicious pool loaded."}
+        return {"message": "Failed", "error": "Target Domain has no malicious pool loaded."}
         
     print(f"RED TEAM INJECTION: Blasting backend with {req.intensity} {req.type} attack nodes!")
     
@@ -230,7 +230,7 @@ def deploy_attack(req: AttackRequest):
         engine.attack_queue.append(packet)
         
     system_status["node_status"] = f"CRITICAL: {req.type.upper()} ATTACK DETECTED!"
-    return {"message": f"Successfully injected {req.intensity} malicious packets.", "queue_size": len(engine.attack_queue)}
+    return {"message": f"Successfully injected {req.intensity} malicious packets of type '{req.type}'.", "queue_size": len(engine.attack_queue)}
 
 @app.post("/api/switch")
 def switch_engine(req: SwitchRequest):

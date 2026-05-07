@@ -9,10 +9,9 @@ import {
 	ActivitySquare,
 	Settings,
 	Bell,
-	Menu,
 	Sun,
 	Moon
-} from 'lucide-react'
+	} from '../components/Icons.tsx'
 
 const navItems = [
 	{ label: 'Dashboard', path: '/', icon: LayoutDashboard },

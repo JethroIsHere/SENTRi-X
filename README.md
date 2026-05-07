@@ -41,36 +41,62 @@ The repository is structured sequentially to follow the exact research methodolo
 
 ---
 
-## 💻 Running the Intercative Dashboard
+## 💻 Running the Interactive Dashboard
 
 SENTRi-X features a full-stack React and FastAPI dashboard to simulate live traffic inference. Because the engine processes heavy TensorFlow dependencies, **you must start the backend from within the virtual environment.**
 
 ### 1. Start the FastAPI Backend (Terminal 1)
 Open a terminal and activate the virtual environment so the Python engine can load the models correctly:
+
+**Windows:**
 ```bash
 # Navigate to project root
 cd SENTRi-X
 
-# Activate the Virtual Environment (Windows)
+# Activate the Virtual Environment
 venv\Scripts\activate
-# OR on Linux/Mac: source venv/bin/activate
 
 # Navigate to backend and start the Uvicorn server
 cd backend
-python -m uvicorn main:app
+python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
+
+**Linux/WSL:**
+```bash
+# Navigate to project root
+cd ~/SENTRi-X
+
+# Activate the Virtual Environment
+source venv/bin/activate
+
+# Navigate to backend and start the Uvicorn server
+cd backend
+python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+```
+
 *Wait until the terminal outputs:* `Application startup complete.`
 
 ### 2. Start the React Frontend (Terminal 2)
 Open a **second** terminal to host the UI:
+
+**Windows:**
 ```bash
-cd SENTRi-X/frontend
+cd SENTRi-X\frontend
 npm run dev
 ```
-Navigate to `http://localhost:5173` in your browser. The dashboard will automatically connect to the backend, populate the XAI rules, and begin streaming live, concatenated global IoT/Enterprise traffic.
+
+**Linux/WSL:**
+```bash
+cd ~/SENTRi-X/frontend
+PATH="$HOME/.nvm/versions/node/v20.20.2/bin:$PATH" npm run dev
+```
+
+Navigate to `http://localhost:5173` (or `http://localhost:4173` if 5173 is in use) in your browser. The dashboard will automatically connect to the backend, populate the XAI rules, and begin streaming live, concatenated global IoT/Enterprise traffic.
 
 ### 3. Triggering Simulated Attacks (Terminal 3)
 To simulate a cyber attack on the dashboard, you can use the Red Team injection script. Ensure the backend is running, then open a **third** terminal:
+
+**Windows:**
 ```bash
 # Navigate to project root
 cd SENTRi-X
@@ -81,6 +107,19 @@ venv\Scripts\activate
 # Launch an attack
 python launch_attack.py --type "DDoS" --intensity 10
 ```
+
+**Linux/WSL:**
+```bash
+# Navigate to project root
+cd ~/SENTRi-X
+
+# Use the virtual environment Python
+source venv/bin/activate
+
+# Launch an attack
+python launch_attack.py --type "DDoS" --intensity 10
+```
+
 *Supported types include: "DDoS", "Web Attack (SQLi)", etc. The dashboard will instantly visualize the anomaly and the XAI module will explain the mitigation.*
 
 ---
@@ -94,15 +133,39 @@ python launch_attack.py --type "DDoS" --intensity 10
    ```
 
 2. **Create a virtual environment:**
-    ```bash
-    python -m venv venv
-    venv\Scripts\activate  # On Windows
-    ```
+   
+   **Windows:**
+   ```bash
+   python -m venv venv
+   venv\Scripts\activate
+   ```
+   
+   **Linux/WSL:**
+   ```bash
+   python3 -m venv venv
+   source venv/bin/activate
+   ```
 
 3. **Install the dependencies:**
     ```bash
     pip install -r requirements.txt
     ```
+
+4. **Build the frontend (for deployment):**
+   
+   **Windows:**
+   ```bash
+   cd frontend
+   npm install
+   npm run build
+   ```
+   
+   **Linux/WSL:**
+   ```bash
+   cd frontend
+   PATH="$HOME/.nvm/versions/node/v20.20.2/bin:$PATH" npm install
+   PATH="$HOME/.nvm/versions/node/v20.20.2/bin:$PATH" npm run build
+   ```
 
 *Note: The raw PCAP/CSV datasets (ToN-IoT, BoT-IoT, CIC-IDS2017) are excluded from this repository due to size constraints. To reproduce the training notebooks, download the respective datasets and place them in a local `data/raw/` directory.*
 

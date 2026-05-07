@@ -1,5 +1,5 @@
-import { ShieldCheck, Clock, Zap, Activity } from 'lucide-react'
 import { useState, useEffect } from 'react'
+import { ShieldCheck, Clock, Zap, Activity } from '../../components/Icons'
 
 interface SystemStatus {
         node_status: string;
