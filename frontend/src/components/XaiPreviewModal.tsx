@@ -1,0 +1,230 @@
+import { useState } from 'react'
+import { X } from 'lucide-react'
+
+interface XaiPreviewModalProps {
+	threatId: string
+	threatType: string
+	confidence: number
+	sourceIp: string
+	destIp: string
+	timestamp: string
+	shafeatures?: Array<{ f: string; v: number }>
+	isOpen: boolean
+	onClose: () => void
+}
+
+const FEATURE_NAMES: Record<string, string> = {
+	'src_bytes': 'Data sent (Source Bytes)',
+	'dst_pkts': 'Packets received (Destination)',
+	'duration': 'Connection Time (Duration)',
+	'src_ip_bytes': 'Total Source IP Data',
+	'dst_ip_bytes': 'Total Destination IP Data',
+	'conn_state_SF': 'Normal Connection Finished',
+	'conn_state_': 'Abnormal Connection State',
+	'proto_tcp': 'TCP Protocol',
+	'proto_udp': 'UDP Protocol',
+	'src_pkts': 'Packets sent (Source)',
+	'dst_bytes': 'Data received (Destination)',
+	'missed_bytes': 'Missed Bytes',
+}
+
+const getFeatureName = (f: string) => FEATURE_NAMES[f] || f.replace(/_/g, ' ')
+
+export function XaiPreviewModal({
+	threatId,
+	threatType,
+	confidence,
+	sourceIp,
+	destIp,
+	timestamp,
+	shafeatures = [],
+	isOpen,
+	onClose,
+}: XaiPreviewModalProps) {
+	if (!isOpen) return null
+
+	const outputScore = shafeatures.reduce((acc, val) => acc + val.v, 0.15)
+	const isHigh = outputScore > 0.6
+	const threatLevel = isHigh ? 'High' : outputScore > 0.4 ? 'Medium' : 'Low'
+
+	let humanSummary = 'Analyzing network traffic...'
+	if (shafeatures.length > 0) {
+		const topFeature = shafeatures[0]
+		const secondFeature = shafeatures[1]
+		if (isHigh) {
+			humanSummary = `SENTRi-X classified this traffic as a Severe Threat because "${getFeatureName(topFeature.f)}" and "${getFeatureName(secondFeature?.f || 'other metrics')}" were highly abnormal.`
+		} else {
+			humanSummary = `This traffic looks relatively safe. The primary defining factor was standard "${getFeatureName(topFeature.f)}", aligning with normal baselines.`
+		}
+	}
+
+	return (
+		<>
+			{/* Backdrop */}
+			<div
+				className="fixed inset-0 bg-black/50 z-40 transition-opacity"
+				onClick={onClose}
+			/>
+
+			{/* Modal */}
+			<div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-xl max-h-[85vh] flex flex-col">
+				<div className="rounded-2xl bg-surface/95 backdrop-blur-xl border border-border/60 shadow-2xl p-6 mx-4 flex flex-col overflow-hidden">
+					{/* Header */}
+					<div className="flex items-start justify-between mb-5 shrink-0">
+						<div>
+							<h2 className="text-xl font-bold tracking-tight text-text">
+								XAI Threat Analysis
+							</h2>
+							<p className="text-xs text-text-muted mt-0.5">
+								Explainable AI breakdown for flow {threatId.slice(-6)}
+							</p>
+						</div>
+						<button
+							onClick={onClose}
+							className="text-text-muted hover:text-text transition-colors p-1 hover:bg-background-soft rounded-lg"
+						>
+							<X className="w-5 h-5" />
+						</button>
+					</div>
+
+					{/* Scrollable Content */}
+					<div className="overflow-y-auto overflow-x-hidden pr-2 -mr-2 space-y-5 custom-scrollbar">
+						{/* Threat Info Grid */}
+						<div className="grid grid-cols-2 gap-3">
+							<div className="bg-background-soft rounded-xl p-3 border border-border/40 hover:border-accent/40 transition-colors">
+								<div className="text-[10px] text-text-muted uppercase tracking-wider font-semibold mb-1">
+									Threat Type
+								</div>
+								<div className="text-base font-bold text-text truncate">{threatType}</div>
+							</div>
+							<div className="bg-background-soft rounded-xl p-3 border border-border/40 hover:border-accent/40 transition-colors">
+								<div className="text-[10px] text-text-muted uppercase tracking-wider font-semibold mb-1">
+									AI Confidence
+								</div>
+								<div className="flex items-center gap-2">
+									<div className="text-base font-bold text-accent-dark">
+										{(confidence * 100).toFixed(1)}%
+									</div>
+									<div className="flex-1 h-2 bg-surface rounded-full overflow-hidden">
+										<div
+											className="h-full bg-accent-dark transition-all"
+											style={{
+												width: `${Math.min(confidence * 100, 100)}%`,
+											}}
+										/>
+									</div>
+								</div>
+							</div>
+							<div className="bg-background-soft rounded-xl p-3 border border-border/40 hover:border-accent/40 transition-colors">
+								<div className="text-[10px] text-text-muted uppercase tracking-wider font-semibold mb-1">
+									Source IP
+								</div>
+								<div className="text-xs font-mono text-text break-all">{sourceIp}</div>
+							</div>
+							<div className="bg-background-soft rounded-xl p-3 border border-border/40 hover:border-accent/40 transition-colors">
+								<div className="text-[10px] text-text-muted uppercase tracking-wider font-semibold mb-1">
+									Destination IP
+								</div>
+								<div className="text-xs font-mono text-text break-all">{destIp}</div>
+							</div>
+						</div>
+
+						{/* Human Readable XAI Summary */}
+						<div
+							className={
+								'p-4 rounded-xl border shadow-inner ' +
+								(threatLevel === 'High'
+									? 'bg-rose-500/10 border-rose-500/30'
+									: threatLevel === 'Medium'
+										? 'bg-amber-500/10 border-amber-500/30'
+										: 'bg-emerald-500/10 border-emerald-500/30')
+							}
+						>
+							<div className="text-xs font-semibold mb-1.5 flex items-center gap-2">
+								Threat Level:
+								<span
+									className={`px-2 py-0.5 rounded-md text-[10px] uppercase tracking-wider font-bold ${
+										threatLevel === 'High'
+											? 'bg-rose-500/20 text-rose-500'
+											: threatLevel === 'Medium'
+												? 'bg-amber-500/20 text-amber-500'
+												: 'bg-emerald-500/20 text-emerald-500'
+									}`}
+								>
+									{threatLevel}
+								</span>
+							</div>
+							<p className="text-[13px] text-text leading-relaxed font-medium">
+								{humanSummary}
+							</p>
+						</div>
+
+						{/* Key Triggers */}
+						{shafeatures.length > 0 && (
+							<div>
+								<div className="flex items-center justify-between mb-3">
+									<h3 className="text-sm font-bold tracking-tight text-text">
+										Key AI Triggers (SHAP Values)
+									</h3>
+									<span className="text-[10px] text-text-muted font-medium px-2 py-0.5 bg-background-soft rounded-md">
+										Top Factors
+									</span>
+								</div>
+								<div className="space-y-3">
+									{shafeatures.slice(0, 5).map((feature, idx) => (
+										<div key={idx} className="group cursor-default">
+											<div className="flex justify-between mb-1.5 text-[13px]">
+												<span className="font-semibold text-text group-hover:text-accent-dark transition-colors">
+													{getFeatureName(feature.f)}
+												</span>
+												<span
+													className={
+														feature.v >= 0.3
+															? 'text-rose-500 font-bold'
+															: 'text-emerald-500 font-semibold'
+													}
+												>
+													{feature.v >= 0.3 ? 'Suspicious' : 'Normal'}
+												</span>
+											</div>
+											<div className="h-2 bg-background-soft rounded-full overflow-hidden shadow-inner flex items-center relative">
+												{/* Zero baseline indicator */}
+												<div className="absolute left-[50%] h-full w-[1px] bg-border/80 z-10" />
+												
+												{/* Bar */}
+												<div
+													className={
+														'h-full transition-all duration-300 rounded-full relative z-0 ' +
+														(feature.v >= 0.3 ? 'bg-rose-500' : 'bg-emerald-500')
+													}
+													style={{
+														width: `${Math.min(Math.abs(feature.v) * 50, 50)}%`,
+														marginLeft: feature.v >= 0 ? '50%' : `${50 - Math.min(Math.abs(feature.v) * 50, 50)}%`
+													}}
+												/>
+											</div>
+											<div className="flex justify-between items-center text-[10px] text-text-muted mt-1 opacity-70 group-hover:opacity-100 transition-opacity">
+												<span>Base Baseline</span>
+												<span>Impact Score: {feature.v.toFixed(3)}</span>
+											</div>
+										</div>
+									))}
+								</div>
+							</div>
+						)}
+					</div>
+
+					{/* Footer */}
+					<div className="mt-5 pt-3 border-t border-border/40 text-[11px] text-text-muted shrink-0 flex justify-between items-center bg-background-soft/30 -mx-6 -mb-6 px-6 py-4">
+						<p>
+							Timestamp: <span className="font-mono bg-background-soft px-1 py-0.5 rounded border border-border/40">{timestamp}</span>
+						</p>
+						<p className="font-medium text-text-muted/80">
+							Hybrid Ensemble Model
+						</p>
+					</div>
+				</div>
+			</div>
+		</>
+	)
+}

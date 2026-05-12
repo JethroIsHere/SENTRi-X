@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { ShieldCheck, Clock, Zap, Activity } from '../../components/Icons.tsx'
+import { XaiPreviewModal } from '../../components/XaiPreviewModal'
 
 interface SystemStatus {
         node_status: string;
@@ -51,22 +52,25 @@ export function DashboardPage() {
                 ]
         })
         const [threats, setThreats] = useState<ThreatLog[]>([])
+	const [selectedThreat, setSelectedThreat] = useState<ThreatLog | null>(null)
+	const [hoveredThreat, setHoveredThreat] = useState<ThreatLog | null>(null)
+	const [mousePos, setMousePos] = useState({ x: 0, y: 0 })
 
-        // XAI Merged Compute
-        const topFeature = status.latest_shap[0];
-        const secondFeature = status.latest_shap[1];
-        const outputScore = status.latest_shap.reduce((acc, val) => acc + val.v, 0.15);
-        const isHigh = outputScore > 0.6;
-        const threatLevel = isHigh ? 'High' : (outputScore > 0.4 ? 'Medium' : 'Low');
-        
-        let humanSummary = 'Analyzing network traffic...';
-        if (topFeature && secondFeature) {
-            if (isHigh) {
-                humanSummary = `SENTRi-X classified the recent traffic as a Severe Threat because "${getFeatureName(topFeature.f)}" and "${getFeatureName(secondFeature.f)}" were highly abnormal.`;
-            } else {
-                humanSummary = `Recent traffic looks relatively safe. The primary defining factor was standard "${getFeatureName(topFeature.f)}", aligning with normal baselines.`;
-            }
-        }
+	// XAI Merged Compute
+	const topFeature = status.latest_shap[0];
+	const secondFeature = status.latest_shap[1];
+	const outputScore = status.latest_shap.reduce((acc, val) => acc + val.v, 0.15);
+	const isHigh = outputScore > 0.6;
+	const threatLevel = isHigh ? 'High' : (outputScore > 0.4 ? 'Medium' : 'Low');
+	
+	let humanSummary = 'Analyzing network traffic...';
+	if (topFeature && secondFeature) {
+		if (isHigh) {
+			humanSummary = `SENTRi-X classified the recent traffic as a Severe Threat because "${getFeatureName(topFeature.f)}" and "${getFeatureName(secondFeature.f)}" were highly abnormal.`;
+		} else {
+			humanSummary = `Recent traffic looks relatively safe. The primary defining factor was standard "${getFeatureName(topFeature.f)}", aligning with normal baselines.`;
+		}
+	}
 
         useEffect(() => {
                 const fetchData = async () => {
@@ -115,6 +119,7 @@ export function DashboardPage() {
         }
 
         return (
+		<>
                 <div className="flex flex-col gap-6 bg-background-soft rounded-3xl border border-border/60 shadow-lg px-8 py-7 relative overflow-hidden">
                         <div className="absolute -top-40 -right-40 w-96 h-96 bg-accent/10 rounded-full blur-3xl pointer-events-none" />
 
@@ -235,7 +240,15 @@ export function DashboardPage() {
                                                 <tbody className="text-sm font-medium">
                                                         {threats.length > 0 ? ( 
                                                                 [...threats].reverse().map((row) => (
-                                                                        <tr key={row.id} className="bg-surface-subtle hover:bg-background-soft transition-colors shadow-sm rounded-lg overflow-hidden group">
+                                                                <tr key={row.id} className="bg-surface-subtle hover:bg-background-soft transition-colors shadow-sm rounded-lg overflow-hidden group cursor-pointer hover:border-accent/50 relative"
+                                                        onClick={() => setSelectedThreat(row)}
+                                                        onMouseEnter={(e) => {
+                                                        	setHoveredThreat(row)
+                                                        	setMousePos({ x: e.clientX, y: e.clientY })
+                                                        }}
+                                                        onMouseMove={(e) => setMousePos({ x: e.clientX, y: e.clientY })}
+                                                        onMouseLeave={() => setHoveredThreat(null)}
+                                                >
                                                                                <td className="px-4 py-3 text-text border-y border-l border-border/40 group-hover:border-border">{row.timestamp.split(' ')[1]}</td>
                                                                                <td className="px-4 py-3 border-y border-border/40 group-hover:border-border font-mono">{row.source_ip} &rarr; {row.dest_ip}</td>
                                                                                <td className="px-4 py-3 border-y border-border/40 group-hover:border-border">   
@@ -249,7 +262,7 @@ export function DashboardPage() {
                                                                                                 {row.confidence > 0.95 ? 'CRITICAL' : 'WARNING'}
                                                                                         </span>
                                                                                 </td>
-                                                                        </tr>   
+                                                                        </tr>
                                                                 ))
                                                         ) : (
                                                                 <tr>
@@ -263,5 +276,44 @@ export function DashboardPage() {
                                 </div>
                         </div>
                 </div>
+
+				{/* XAI Preview Modal */}
+				{selectedThreat && (
+					<XaiPreviewModal
+						threatId={selectedThreat.id}
+						threatType={selectedThreat.attack_type}
+						confidence={selectedThreat.confidence}
+						sourceIp={selectedThreat.source_ip}
+						destIp={selectedThreat.dest_ip}
+						timestamp={selectedThreat.timestamp}
+						shafeatures={status.latest_shap}
+						isOpen={true}
+						onClose={() => setSelectedThreat(null)}
+					/>
+				)}
+		{/* Hover Tooltip */}
+		{hoveredThreat && (
+			<div 
+				className="fixed z-[100] pointer-events-none bg-surface/95 backdrop-blur-xl border border-border/80 shadow-2xl p-4 rounded-xl w-72 transition-opacity"
+				style={{ 
+					left: Math.min(mousePos.x + 16, window.innerWidth - 300), 
+					top: Math.min(mousePos.y + 16, window.innerHeight - 150) 
+				}}
+			>
+				<div className="flex items-center justify-between mb-2">
+					<span className="font-bold text-text">{hoveredThreat.attack_type}</span>
+					<span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${hoveredThreat.confidence > 0.95 ? 'bg-rose-500/20 text-rose-500' : 'bg-amber-500/20 text-amber-500'}`}>
+						{(hoveredThreat.confidence * 100).toFixed(1)}% Conf
+					</span>
+				</div>
+				<p className="text-xs text-text-muted mb-2">
+					Flow from <span className="font-mono text-text">{hoveredThreat.source_ip}</span>
+				</p>
+				<div className="text-[11px] bg-background-soft p-2 rounded-lg border border-border/40 text-text/90 italic">
+					"Click to view full XAI analysis and SHAP feature breakdowns."
+				</div>
+			</div>
+		)}
+		</>
         )
 }
