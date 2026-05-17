@@ -9,6 +9,10 @@ import joblib
 import os
 import psutil
 import numpy as np
+import json
+import pickle
+import re
+import importlib
 
 app = FastAPI(title="SENTRi-X Backend API", description="Data Simulator for 50% Thesis Defense")
 
@@ -36,6 +40,15 @@ class ActiveEngine:
 engine = ActiveEngine()
 current_threats = []
 
+# Explainability artifacts container
+explainability = {
+    "shap_values": None,
+    "X_sample": None,
+    "ripper_rules": None,
+    "lime_explainer": None,
+    "lime_feature_names": None,
+}
+
 # Network traffic tracking for real metrics
 traffic_metrics = {
     "bytes_processed": 0,
@@ -57,8 +70,113 @@ system_status = {
         {"f": "src_bytes", "v": 0.62},
         {"f": "dst_pkts", "v": 0.31},
         {"f": "duration", "v": 0.14},
-    ]
+    ],
+    "latest_lime": [
+        {"f": "src_bytes", "v": 0.0},
+        {"f": "dst_pkts", "v": 0.0},
+        {"f": "duration", "v": 0.0},
+    ],
 }
+
+
+def classify_threat_level(confidence: float) -> str:
+    if confidence >= 0.98:
+        return "Critical"
+    if confidence >= 0.95:
+        return "High"
+    if confidence >= 0.90:
+        return "Medium"
+    return "Low"
+
+
+def initialize_lime_explainer():
+    """Initialize a reusable LIME explainer from preloaded explainability samples."""
+    try:
+        lime_tabular = importlib.import_module("lime.lime_tabular")
+    except Exception as e:
+        print(f"LIME import unavailable: {e}")
+        explainability["lime_explainer"] = None
+        explainability["lime_feature_names"] = None
+        return
+
+    X_sample_df = explainability.get("X_sample")
+    if X_sample_df is None or len(X_sample_df) == 0:
+        explainability["lime_explainer"] = None
+        explainability["lime_feature_names"] = None
+        print("LIME explainer not initialized: X_sample unavailable")
+        return
+
+    try:
+        X_numeric = X_sample_df.apply(pd.to_numeric, errors="coerce").fillna(0.0)
+        feature_names = list(X_numeric.columns)
+        explainability["lime_feature_names"] = feature_names
+        explainability["lime_explainer"] = lime_tabular.LimeTabularExplainer(
+            training_data=X_numeric.to_numpy(dtype=float),
+            feature_names=feature_names,
+            class_names=["Benign", "Attack"],
+            mode="classification",
+            discretize_continuous=True,
+        )
+        print(f"LIME explainer initialized with {len(feature_names)} features")
+    except Exception as e:
+        explainability["lime_explainer"] = None
+        explainability["lime_feature_names"] = None
+        print(f"Failed to initialize LIME explainer: {e}")
+
+
+def _extract_lime_feature_key(feature_expr: str, known_feature_names: list[str]) -> str:
+    """Map LIME's human-readable condition (e.g. 'src_bytes <= 0.5') back to feature key."""
+    for feature_name in sorted(known_feature_names, key=len, reverse=True):
+        if re.search(rf"\b{re.escape(feature_name)}\b", feature_expr):
+            return feature_name
+    return feature_expr
+
+
+def compute_lime_explanation_for_packet(inference_df: pd.DataFrame):
+    """Compute top LIME contributors for one inference packet."""
+    explainer = explainability.get("lime_explainer")
+    feature_names = explainability.get("lime_feature_names")
+
+    if explainer is None or not feature_names:
+        return []
+
+    try:
+        row_df = inference_df.reindex(columns=feature_names, fill_value=0.0)
+        row_df = row_df.apply(pd.to_numeric, errors="coerce").fillna(0.0)
+        row_arr = row_df.to_numpy(dtype=float)[0]
+
+        def predict_fn(samples_np):
+            samples_df = pd.DataFrame(samples_np, columns=feature_names).fillna(0.0)
+            model_input = samples_df
+            if hasattr(engine, "scaler") and engine.scaler is not None:
+                model_input = engine.scaler.transform(samples_df)
+            if hasattr(engine.rf_model, "predict_proba"):
+                return engine.rf_model.predict_proba(model_input)
+
+            preds = engine.rf_model.predict(model_input)
+            preds = np.array(preds, dtype=float).reshape(-1, 1)
+            return np.hstack([1 - preds, preds])
+
+        explanation = explainer.explain_instance(
+            data_row=row_arr,
+            predict_fn=predict_fn,
+            num_features=3,
+            top_labels=1,
+        )
+
+        labels = explanation.available_labels()
+        target_label = 1 if 1 in labels else labels[0]
+        lime_pairs = explanation.as_list(label=target_label)
+        return [
+            {
+                "f": _extract_lime_feature_key(str(feature_expr), feature_names),
+                "v": round(float(weight), 4),
+            }
+            for feature_expr, weight in lime_pairs
+        ]
+    except Exception as e:
+        print(f"Failed to compute LIME explanation: {e}")
+        return []
 
 def load_models_and_data(target="ton_iot", dataset="ton_iot"):
     print(f"Loading {target} models and {dataset} dataset...")
@@ -188,7 +306,35 @@ async def startup_event():
         {"f": "dst_pkts", "v": 0.0},
         {"f": "duration", "v": 0.0}
     ]
+    system_status["latest_lime"] = [
+        {"f": "src_bytes", "v": 0.0},
+        {"f": "dst_pkts", "v": 0.0},
+        {"f": "duration", "v": 0.0}
+    ]
     load_models_and_data("omni", "omni")
+    # Attempt to load precomputed explainability artifacts (SHAP/LIME/RIPPER)
+    try:
+        expl_dir = os.path.join(os.path.dirname(__file__), "..", "data", "processed", "explainability")
+        shap_path = os.path.join(expl_dir, "shap_values_attack.npy")
+        sample_path = os.path.join(expl_dir, "X_sample.pkl")
+        ripper_path = os.path.join(expl_dir, "ripper_rules.txt")
+
+        if os.path.exists(shap_path):
+            explainability["shap_values"] = np.load(shap_path, allow_pickle=True)
+        if os.path.exists(sample_path):
+            try:
+                explainability["X_sample"] = pd.read_pickle(sample_path)
+            except Exception:
+                # fallback to pickle load
+                with open(sample_path, "rb") as f:
+                    explainability["X_sample"] = pickle.load(f)
+        if os.path.exists(ripper_path):
+            with open(ripper_path, "r", encoding="utf-8") as f:
+                explainability["ripper_rules"] = f.read()
+        initialize_lime_explainer()
+        print("Explainability artifacts loaded:", {k: (v is not None) for k, v in explainability.items()})
+    except Exception as e:
+        print("Failed to load explainability artifacts:", e)
     asyncio.create_task(simulate_live_traffic())
 @app.get("/")
 def read_root():
@@ -210,6 +356,40 @@ def get_status():
 def get_threat_logs():
     return {"logs": current_threats[-10:]}
 
+
+@app.get("/api/explainability/sample/{idx}")
+def get_explainability_sample(idx: int):
+    """Return a sampled input and its precomputed SHAP vector by index, if available."""
+    shap_arr = explainability.get("shap_values")
+    X_sample_df = explainability.get("X_sample")
+    if shap_arr is None or X_sample_df is None:
+        return {"error": "Explainability artifacts not available"}
+    if idx < 0 or idx >= len(X_sample_df):
+        return {"error": "Index out of range"}
+
+    sample_row = X_sample_df.iloc[idx].to_dict()
+    shap_vec = None
+    try:
+        shap_np = np.array(shap_arr)
+        if shap_np.ndim == 3:
+            shap_vec = shap_np[-1, idx, :].tolist()
+        elif shap_np.ndim == 2:
+            shap_vec = shap_np[idx, :].tolist()
+        else:
+            shap_vec = shap_np[idx].tolist()
+    except Exception:
+        shap_vec = None
+
+    return {"index": idx, "sample": sample_row, "shap": shap_vec}
+
+
+@app.get("/api/explainability/ripper")
+def get_ripper_rules():
+    rules = explainability.get("ripper_rules")
+    if not rules:
+        return {"error": "RIPPER rules not available"}
+    return {"rules": rules}
+
 @app.post("/api/clear")
 def clear_dashboard_data():
     global current_threats, system_status
@@ -220,6 +400,11 @@ def clear_dashboard_data():
     system_status["node_status"] = "Active"
     system_status["chart_data"] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
     system_status["latest_shap"] = [
+        {"f": "src_bytes", "v": 0.0},
+        {"f": "dst_pkts", "v": 0.0},
+        {"f": "duration", "v": 0.0}
+    ]
+    system_status["latest_lime"] = [
         {"f": "src_bytes", "v": 0.0},
         {"f": "dst_pkts", "v": 0.0},
         {"f": "duration", "v": 0.0}
@@ -278,6 +463,7 @@ def switch_engine(req: SwitchRequest):
     engine.df = None 
     
     load_models_and_data(target_model_file, req.dataset)
+    initialize_lime_explainer()
     
     engine.current_dataset = req.dataset
     engine.current_model = req.model_type
@@ -380,8 +566,8 @@ async def simulate_live_traffic():
 
             packet_data = current_packet.iloc[0]
 
-            # Prefer the dataset label when it exists: malicious rows alert immediately,
-            # normal rows pass freely unless the model is explicitly used for diagnostics.
+            # Only high-confidence injected packets should become threat records.
+            # The label is still used for display, but it does not bypass the cutoff.
             label_value = None
             for label_col in ['type', 'Label', 'label', 'attack_type', 'Attack']:
                 if label_col in packet_data.index:
@@ -394,41 +580,82 @@ async def simulate_live_traffic():
             is_dataset_attack = label_lower not in ['', 'normal', 'benign', '0', '0.0', 'none', 'nan']
 
             # Only explicit injected packets should create logged threats.
-            # Ambient rows stay visible in metrics but do not create threat records.
-            is_threat = from_attack_queue and (is_dataset_attack or ((prediction == 1) and (confidence > 0.87)))
+            # Confidence must clear the 87% threshold to avoid low-confidence false alarms.
+            is_threat = from_attack_queue and ((prediction == 1) and (confidence > 0.87))
 
             if is_threat:
                 system_status["threats_detected"] += 1
                 
-                # Use actual RF feature importances for SHAP proxy
+                # Prefer precomputed SHAP snapshot nearest to this packet when available
+                threat_shap = None
+                threat_lime = []
                 try:
-                    if hasattr(engine.rf_model, "feature_importances_"):
-                        importances = engine.rf_model.feature_importances_
-                        feature_names = getattr(engine.rf_model, "feature_names_in_", None)
-                        if feature_names is None:
-                            feature_names = [f"feature_{i}" for i in range(len(importances))]
-                        
-                        # Get top 3 features by importance
-                        top_indices = np.argsort(importances)[-3:][::-1]
-                        system_status["latest_shap"] = [
-                            {"f": str(feature_names[idx]) if idx < len(feature_names) else f"feature_{idx}", 
-                             "v": round(float(importances[idx]), 2)}
-                            for idx in top_indices
-                        ]
-                    else:
-                        raise AttributeError("No feature_importances_ found")
+                    shap_loaded = explainability.get("shap_values")
+                    X_sample_loaded = explainability.get("X_sample")
+                    if shap_loaded is not None and X_sample_loaded is not None:
+                        # Align columns that exist in both sample and inference_df
+                        common_cols = [c for c in X_sample_loaded.columns if c in inference_df.columns]
+                        if len(common_cols) > 0:
+                            try:
+                                # Prepare vectors
+                                sample_matrix = X_sample_loaded[common_cols].to_numpy(dtype=float)
+                                target_vec = inference_df[common_cols].to_numpy(dtype=float)[0]
+                                # Compute squared euclidean distances
+                                dists = np.sum((sample_matrix - target_vec) ** 2, axis=1)
+                                nearest_idx = int(np.argmin(dists))
+                                shap_arr = np.array(shap_loaded)
+                                # Handle shap values shape (n_samples, n_features) or list
+                                if shap_arr.ndim == 3:
+                                    # e.g., shap values with shape (classes, samples, features)
+                                    shap_vec = shap_arr[-1, nearest_idx, :]
+                                elif shap_arr.ndim == 2:
+                                    shap_vec = shap_arr[nearest_idx, :]
+                                else:
+                                    shap_vec = shap_arr[nearest_idx]
+
+                                # Map top 3 absolute-impact features
+                                feat_names = list(X_sample_loaded.columns)
+                                abs_idx = np.argsort(np.abs(shap_vec))[-3:][::-1]
+                                threat_shap = [
+                                    {"f": str(feat_names[i]) if i < len(feat_names) else f"feature_{i}", "v": round(float(shap_vec[i]), 4)}
+                                    for i in abs_idx
+                                ]
+                                system_status["latest_shap"] = threat_shap
+                            except Exception as e:
+                                print("Error using precomputed SHAP snapshot:", e)
+                                shap_loaded = None
+                    # Fallback to RF importances if no precomputed SHAP
+                    if shap_loaded is None:
+                        if hasattr(engine.rf_model, "feature_importances_"):
+                            importances = engine.rf_model.feature_importances_
+                            feature_names = getattr(engine.rf_model, "feature_names_in_", None)
+                            if feature_names is None:
+                                feature_names = [f"feature_{i}" for i in range(len(importances))]
+                            top_indices = np.argsort(importances)[-3:][::-1]
+                            threat_shap = [
+                                {"f": str(feature_names[idx]) if idx < len(feature_names) else f"feature_{idx}", "v": round(float(importances[idx]), 2)}
+                                for idx in top_indices
+                            ]
+                            system_status["latest_shap"] = threat_shap
+                        else:
+                            raise AttributeError("No feature_importances_ found")
                 except Exception as e:
                     # Fallback if feature importances unavailable
-                    print(f"Cannot extract feature importances: {e}")
+                    print(f"Cannot extract feature importances or precomputed SHAP: {e}")
                     feature_sample = random.sample([
                         'src_bytes', 'dst_bytes', 'missed_bytes', 'src_pkts',
                         'src_ip_bytes', 'dst_pkts', 'dst_ip_bytes', 'duration'
                     ], 3)
-                    system_status["latest_shap"] = [
+                    threat_shap = [
                         {"f": feature_sample[0], "v": round(random.uniform(0.40, 0.75), 2)},
                         {"f": feature_sample[1], "v": round(random.uniform(0.20, 0.39), 2)},
                         {"f": feature_sample[2], "v": round(random.uniform(0.05, 0.19), 2)},
                     ]
+                    system_status["latest_shap"] = threat_shap
+
+                threat_lime = compute_lime_explanation_for_packet(inference_df)
+                if threat_lime:
+                    system_status["latest_lime"] = threat_lime
 
                 # Extract real IPs from packet data if available, with safe fallbacks
                 src_ip = None
@@ -459,6 +686,8 @@ async def simulate_live_traffic():
                 if not is_dataset_attack:
                     actual_type = "Anomaly Detected"
 
+                threat_level = classify_threat_level(confidence)
+
                 new_threat = {
                     "id": str(int(time.time() * 1000)),
                     "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -467,7 +696,10 @@ async def simulate_live_traffic():
                     "dest_ip": str(dst_ip),
                     "attack_type": str(actual_type),
                     "confidence": confidence,
-                    "status": f"Alerted (RF-{engine.current_model.upper()})"
+                    "threat_level": threat_level,
+                    "status": f"{threat_level.upper()} ALERT (RF-{engine.current_model.upper()})",
+                    "shap_values": threat_shap if threat_shap else [],
+                    "lime_values": threat_lime if threat_lime else []
                 }
                 current_threats.append(new_threat)
                 if len(current_threats) > 100:
@@ -477,6 +709,11 @@ async def simulate_live_traffic():
                     {"f": "src_bytes", "v": 0.03},
                     {"f": "dst_pkts", "v": 0.02},
                     {"f": "duration", "v": 0.01},
+                ]
+                system_status["latest_lime"] = [
+                    {"f": "src_bytes", "v": 0.02},
+                    {"f": "dst_pkts", "v": 0.01},
+                    {"f": "duration", "v": -0.01},
                 ]
 
         else:

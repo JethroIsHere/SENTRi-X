@@ -8,7 +8,7 @@ type Settings = {
 export function SystemSettingsPage() {
         const [settings, setSettings] = useState<Settings>({
                 activeAlerting: true,
-                confidenceThreshold: 85,
+                confidenceThreshold: 87,
         })
 
         const handleToggle = () => {

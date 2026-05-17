@@ -1,36 +1,36 @@
 ﻿import { useState } from 'react'
 
-type RipperRule = { text: string; meta: string }
+type SecurityRule = { title: string; description: string }
 
 export function ExplainableAiPage() {
-    const [ripperRules] = useState<RipperRule[]>([
+    const [rules] = useState<SecurityRule[]>([
         {
-            text: "When a device rapidly blasts huge amounts of data but the connection closes almost instantly, the AI flags it as a flood.",
-            meta: 'Denial of Service (DoS / DDoS) attacks overload services with heavy, rapid-fire requests.',
+            title: "Flood Attack (DDoS)",
+            description: "Someone sends tons of data at super-high speed to crash a service. The AI spots sudden huge amounts of traffic that come and go quickly.",
         },
         {
-            text: "If an external IP triggers consecutive rejected or disconnected attempts across multiple ports, it is flagged as reconnaissance.",
-            meta: 'Automated Port Scanning (like Nmap or ZMap) probing for vulnerabilities.',
+            title: "Port Scanning",
+            description: "Someone tries to find open doors on a computer by testing many ports really fast. The AI sees lots of connection attempts that all fail.",
         },
         {
-            text: "When a device starts making rhythmic, incomplete handshakes and sending irregular data spikes outward, it suggests a compromised host.",
-            meta: 'Botnet Command & Control (C2) malware phoning home.',   
+            title: "Botnet Activity",
+            description: "A hacked computer keeps sending weird little messages on a repeating pattern, trying to contact its master. The AI notices strange rhythmic patterns.",
         },
         {
-            text: "If a small incoming web request generates an unusually massive response body, or frequently triggers HTTP error codes, it points to an exploit.",
-            meta: 'Web Application Attacks (SQL Injection, XSS) attempting to dump databases.',
+            title: "Web Attack (Hacking Website)",
+            description: "Someone tries to trick a website into giving them data or letting them run code. The AI spots tiny requests that cause huge strange responses.",
         },
         {
-            text: "When an external attacker sends a massive payload inward but the server barely responds, the system suspects a remote code execution payload.",
-            meta: 'Network Infiltration and initial exploitation phases.',
+            title: "Attempted Break-In",
+            description: "Someone tries to send harmful code to run on a computer. The AI watches for big messy data coming in that the server doesn't properly handle.",
         },
         {
-            text: "If an internal connection stays open for an unnaturally long time while slowly and steadily streaming data outward, it is flagged as theft.",
-            meta: 'Data Exfiltration by an insider threat or persistent malware.',
+            title: "Data Theft",
+            description: "A connection stays open for way too long while data slowly leaks out in a steady stream. The AI flags connections that stay alive unnaturally long.",
         },
         {
-            text: "Repeated, identical small-packet requests fired at a service that constantly drop before fully completing are categorized as password guessing.",
-            meta: 'Brute Force Authentication attacks on SSH, FTP, or Telnet.',
+            title: "Password Guessing",
+            description: "Someone rapidly tries thousands of password combinations to break in. The AI sees the exact same tiny failed requests happening over and over.",
         }
     ])
 
@@ -38,25 +38,28 @@ export function ExplainableAiPage() {
         <div className="flex flex-col gap-6 h-full">
             <div className="flex items-center justify-between">
                 <div>
-                    <h1 className="text-2xl font-semibold text-text">Extracted Attack Rules</h1>
-                    <p className="text-sm text-text-muted">Boolean rule-sets reverse-engineered from the active Random Forest classifier.</p>
+                    <h1 className="text-3xl font-bold text-text">Security Attack Rules</h1>
+                    <p className="text-base text-text-muted mt-2">Here's what the AI looks for. These are the types of attacks it can recognize:</p>
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-6">
-                {/* Behavioral Rules Only */}
-                <div className="bg-surface/80 backdrop-blur-md border border-border/80 rounded-2xl p-6 shadow-md">
-                    <h2 className="text-lg font-semibold text-text mb-2">Known Attack Behaviors Observed</h2>
-                    <p className="text-sm text-text-muted mb-6">When the AI categorizes traffic, it implicitly checks for these behavioral patterns.</p>    
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">     
-                        {ripperRules.map((r, idx) => (
-                            <div key={idx} className="bg-background-soft rounded-xl px-5 py-5 border border-border/50">
-                                <div className="text-sm font-medium text-blue-400 mb-3">{r.text}</div>
-                                <div className="text-xs text-text-muted bg-surface/50 p-2.5 rounded-lg border border-border/30">{r.meta}</div>
-                            </div>
-                        ))}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                {rules.map((rule, idx) => (
+                    <div key={idx} className="bg-surface/80 backdrop-blur-md border border-border/80 rounded-2xl p-6 shadow-md hover:shadow-lg transition-shadow">
+                        <h3 className="text-lg font-bold text-text mb-3 flex items-start gap-3">
+                            <span className="text-2xl font-bold text-accent-dark min-w-[2rem]">{idx + 1}.</span>
+                            {rule.title}
+                        </h3>
+                        <p className="text-base text-text-muted leading-relaxed">{rule.description}</p>
                     </div>
-                </div>
+                ))}
+            </div>
+
+            <div className="bg-surface/80 backdrop-blur-md border border-border/80 rounded-2xl p-6 shadow-md mt-4">
+                <h2 className="text-lg font-semibold text-text mb-3">How It Works</h2>
+                <p className="text-base text-text-muted leading-relaxed">
+                    The AI watches network traffic and looks for suspicious patterns. When it sees something that matches one of these attack behaviors, it raises an alert and shows you what it found. Each alert includes a confidence score (how sure the AI is) and an explanation of what features triggered the alarm.
+                </p>
             </div>
         </div>
     )

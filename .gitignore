@@ -19,3 +19,19 @@ __pycache__/
 inspect_datasets.ipynb
 setup_raw_data.py
 project_context.md
+
+# Demo and thesis-related files
+WSL_DEMO_SETUP.md
+attack_scripts/
+backend/requirements_xai.txt
+backend_error.log
+backend_start.log
+chapter_text/
+frontend/src/lib/
+presentation_assets/
+reports/
+requirements.wsl.txt
+scripts/
+snort/
+thesis_defense/
+wsl_venv/

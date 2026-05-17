@@ -1,14 +1,16 @@
-import { useState } from 'react'
 import { X } from 'lucide-react'
+import { classifyThreatLevel, threatLevelTone, type ThreatLevel } from '../utils/threatLevel'
 
 interface XaiPreviewModalProps {
 	threatId: string
 	threatType: string
 	confidence: number
+	threatLevel?: ThreatLevel
 	sourceIp: string
 	destIp: string
 	timestamp: string
 	shafeatures?: Array<{ f: string; v: number }>
+	limefeatures?: Array<{ f: string; v: number }>
 	isOpen: boolean
 	onClose: () => void
 }
@@ -34,27 +36,29 @@ export function XaiPreviewModal({
 	threatId,
 	threatType,
 	confidence,
+	threatLevel,
 	sourceIp,
 	destIp,
 	timestamp,
 	shafeatures = [],
+	limefeatures = [],
 	isOpen,
 	onClose,
 }: XaiPreviewModalProps) {
 	if (!isOpen) return null
 
-	const outputScore = shafeatures.reduce((acc, val) => acc + val.v, 0.15)
-	const isHigh = outputScore > 0.6
-	const threatLevel = isHigh ? 'High' : outputScore > 0.4 ? 'Medium' : 'Low'
+	const resolvedThreatLevel = threatLevel || classifyThreatLevel(confidence)
 
 	let humanSummary = 'Analyzing network traffic...'
 	if (shafeatures.length > 0) {
 		const topFeature = shafeatures[0]
 		const secondFeature = shafeatures[1]
-		if (isHigh) {
-			humanSummary = `SENTRi-X classified this traffic as a Severe Threat because "${getFeatureName(topFeature.f)}" and "${getFeatureName(secondFeature?.f || 'other metrics')}" were highly abnormal.`
-		} else {
-			humanSummary = `This traffic looks relatively safe. The primary defining factor was standard "${getFeatureName(topFeature.f)}", aligning with normal baselines.`
+		const riskDirection = topFeature.v >= 0 ? 'looks risky' : 'looks normal'
+		humanSummary = `This traffic was marked as ${resolvedThreatLevel} risk with ${(confidence * 100).toFixed(1)}% certainty. The biggest warning signs were "${getFeatureName(topFeature.f)}"${secondFeature ? ` and "${getFeatureName(secondFeature.f)}"` : ''}. In simple terms, red factors make the AI think "possible attack," while green factors make it think "likely normal traffic." The strongest factor right now ${riskDirection}.`
+
+		if (limefeatures.length > 0) {
+			const topLime = limefeatures[0]
+			humanSummary += ` A second explanation method (LIME) also highlighted "${getFeatureName(topLime.f)}" as an important reason for this decision.`
 		}
 	}
 
@@ -133,25 +137,23 @@ export function XaiPreviewModal({
 						<div
 							className={
 								'p-4 rounded-xl border shadow-inner ' +
-								(threatLevel === 'High'
-									? 'bg-rose-500/10 border-rose-500/30'
-									: threatLevel === 'Medium'
-										? 'bg-amber-500/10 border-amber-500/30'
-										: 'bg-emerald-500/10 border-emerald-500/30')
+								threatLevelTone(resolvedThreatLevel)
 							}
 						>
 							<div className="text-xs font-semibold mb-1.5 flex items-center gap-2">
 								Threat Level:
 								<span
 									className={`px-2 py-0.5 rounded-md text-[10px] uppercase tracking-wider font-bold ${
-										threatLevel === 'High'
+										resolvedThreatLevel === 'Critical'
 											? 'bg-rose-500/20 text-rose-500'
-											: threatLevel === 'Medium'
-												? 'bg-amber-500/20 text-amber-500'
-												: 'bg-emerald-500/20 text-emerald-500'
+											: resolvedThreatLevel === 'High'
+												? 'bg-orange-500/20 text-orange-500'
+												: resolvedThreatLevel === 'Medium'
+													? 'bg-amber-500/20 text-amber-500'
+													: 'bg-emerald-500/20 text-emerald-500'
 									}`}
 								>
-									{threatLevel}
+									{resolvedThreatLevel}
 								</span>
 							</div>
 							<p className="text-[13px] text-text leading-relaxed font-medium">
@@ -179,12 +181,12 @@ export function XaiPreviewModal({
 												</span>
 												<span
 													className={
-														feature.v >= 0.3
+														feature.v >= 0
 															? 'text-rose-500 font-bold'
 															: 'text-emerald-500 font-semibold'
 													}
 												>
-													{feature.v >= 0.3 ? 'Suspicious' : 'Normal'}
+													{feature.v >= 0 ? 'Looks Dangerous' : 'Looks Safe'}
 												</span>
 											</div>
 											<div className="h-2 bg-background-soft rounded-full overflow-hidden shadow-inner flex items-center relative">
@@ -195,7 +197,7 @@ export function XaiPreviewModal({
 												<div
 													className={
 														'h-full transition-all duration-300 rounded-full relative z-0 ' +
-														(feature.v >= 0.3 ? 'bg-rose-500' : 'bg-emerald-500')
+														(feature.v >= 0 ? 'bg-rose-500' : 'bg-emerald-500')
 													}
 													style={{
 														width: `${Math.min(Math.abs(feature.v) * 50, 50)}%`,
@@ -204,8 +206,50 @@ export function XaiPreviewModal({
 												/>
 											</div>
 											<div className="flex justify-between items-center text-[10px] text-text-muted mt-1 opacity-70 group-hover:opacity-100 transition-opacity">
-												<span>Base Baseline</span>
-												<span>Impact Score: {feature.v.toFixed(3)}</span>
+												<span>Neutral Point</span>
+												<span>Influence: {feature.v.toFixed(3)}</span>
+											</div>
+										</div>
+									))}
+								</div>
+							</div>
+						)}
+
+						{limefeatures.length > 0 && (
+							<div>
+								<div className="flex items-center justify-between mb-3">
+									<h3 className="text-sm font-bold tracking-tight text-text">
+										LIME Check (Second Opinion)
+									</h3>
+									<span className="text-[10px] text-text-muted font-medium px-2 py-0.5 bg-background-soft rounded-md">
+										Top Factors
+									</span>
+								</div>
+								<div className="space-y-3">
+									{limefeatures.slice(0, 3).map((feature, idx) => (
+										<div key={idx} className="group cursor-default">
+											<div className="flex justify-between mb-1.5 text-[13px]">
+												<span className="font-semibold text-text group-hover:text-accent-dark transition-colors">
+													{getFeatureName(feature.f)}
+												</span>
+												<span
+													className={
+														feature.v >= 0
+															? 'text-rose-500 font-bold'
+															: 'text-emerald-500 font-semibold'
+													}
+												>
+													{feature.v >= 0 ? 'Raises Risk' : 'Lowers Risk'}
+												</span>
+											</div>
+											<div className="h-2 bg-background-soft rounded-full overflow-hidden shadow-inner">
+												<div
+													className={
+														'h-full transition-all duration-300 rounded-full ' +
+														(feature.v >= 0 ? 'bg-rose-500' : 'bg-emerald-500')
+													}
+													style={{ width: `${Math.min(Math.abs(feature.v) * 100, 100)}%` }}
+												/>
 											</div>
 										</div>
 									))}

@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { XaiPreviewModal } from "../../components/XaiPreviewModal";
+import { classifyThreatLevel, type ThreatLevel } from "../../utils/threatLevel";
 
 interface ThreatLog {
 	id: string;
@@ -8,7 +9,10 @@ interface ThreatLog {
 	dest_ip: string;
 	attack_type: string;
 	confidence: number;
+	threat_level?: ThreatLevel;
 	status: string;
+	shap_values?: Array<{ f: string; v: number }>;
+	lime_values?: Array<{ f: string; v: number }>;
 }
 
 interface FilterRules {
@@ -275,11 +279,15 @@ export function ThreatLogsPage() {
 									</td>
 									<td className="px-3 py-2 border-y border-r border-border/40 group-hover:border-border rounded-r-lg">
 										<span className={`px-2 py-0.5 rounded-full inline-block text-[10px] font-bold ${
-											log.confidence > 0.95 
-												? 'bg-rose-500/10 text-rose-500 border border-rose-500/20' 
-												: 'bg-amber-500/10 text-amber-500 border border-amber-500/20'
+											(log.threat_level || classifyThreatLevel(log.confidence)) === 'Critical'
+												? 'bg-rose-500/10 text-rose-500 border border-rose-500/20'
+												: (log.threat_level || classifyThreatLevel(log.confidence)) === 'High'
+													? 'bg-orange-500/10 text-orange-500 border border-orange-500/20'
+													: (log.threat_level || classifyThreatLevel(log.confidence)) === 'Medium'
+														? 'bg-amber-500/10 text-amber-500 border border-amber-500/20'
+														: 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
 										}`}>
-											{log.status || 'Alerted'}
+											{log.threat_level || classifyThreatLevel(log.confidence)}
 										</span>
 									</td>
 								</tr>
@@ -295,16 +303,18 @@ export function ThreatLogsPage() {
 					threatId={selectedThreat.id}
 					threatType={selectedThreat.attack_type}
 					confidence={selectedThreat.confidence}
+					threatLevel={selectedThreat.threat_level || classifyThreatLevel(selectedThreat.confidence)}
 					sourceIp={selectedThreat.source_ip}
 					destIp={selectedThreat.dest_ip}
 					timestamp={selectedThreat.timestamp}
-					shafeatures={[
+					shafeatures={selectedThreat.shap_values || [
 						{ f: "src_bytes", v: 0.35 },
 						{ f: "dst_pkts", v: 0.25 },
 						{ f: "duration", v: 0.15 },
 						{ f: "proto_tcp", v: 0.10 },
 						{ f: "dst_bytes", v: 0.08 },
 					]}
+					limefeatures={selectedThreat.lime_values || []}
 					isOpen={true}
 					onClose={() => setSelectedThreat(null)}
 				/>
@@ -321,8 +331,8 @@ export function ThreatLogsPage() {
 				>
 					<div className="flex items-center justify-between mb-2">
 						<span className="font-bold text-text">{hoveredThreat.attack_type}</span>
-						<span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${hoveredThreat.confidence > 0.95 ? 'bg-rose-500/20 text-rose-500' : 'bg-amber-500/20 text-amber-500'}`}>
-							{(hoveredThreat.confidence * 100).toFixed(1)}% Conf
+						<span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${(hoveredThreat.threat_level || classifyThreatLevel(hoveredThreat.confidence)) === 'Critical' ? 'bg-rose-500/20 text-rose-500' : (hoveredThreat.threat_level || classifyThreatLevel(hoveredThreat.confidence)) === 'High' ? 'bg-orange-500/20 text-orange-500' : (hoveredThreat.threat_level || classifyThreatLevel(hoveredThreat.confidence)) === 'Medium' ? 'bg-amber-500/20 text-amber-500' : 'bg-emerald-500/20 text-emerald-500'}`}>
+							{hoveredThreat.threat_level || classifyThreatLevel(hoveredThreat.confidence)}
 						</span>
 					</div>
 					<p className="text-xs text-text-muted mb-2">
