@@ -35,3 +35,23 @@ scripts/
 snort/
 thesis_defense/
 wsl_venv/
+
+# Edge sensor (Raspberry Pi deployment only)
+edge_sensor.py
+
+# Thesis chapter documents
+Ch3*.docx
+Ch4*.docx
+*.docx
+
+# Demo/guide markdown docs (root level)
+GUIDE.md
+SENTRIX_VS_SNORT_METRICS.md
+SNORT_SENTRIX_RESPONSE_COMPARISON.md
+THESIS_HARDWARE_TRANSITION_AND_CHAPTER_GAPS.md
+
+# Docs folder (thesis transition guides)
+docs/
+
+# SQLite database (runtime generated)
+*.db
