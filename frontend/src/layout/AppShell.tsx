@@ -11,7 +11,7 @@ import {
 	Bell,
 	Sun,
 	Moon
-	} from '../components/Icons.tsx'
+} from '../components/Icons.tsx'
 
 const navItems = [
 	{ label: 'Dashboard', path: '/', icon: LayoutDashboard },
@@ -31,9 +31,15 @@ export function AppShell({ children }: AppShellProps) {
 	const [systemStatus, setSystemStatus] = useState<any>({
 		node_status: 'Connecting...',
 		core_model: 'Loading...',
+		current_dataset: 'omni',
+		current_model: 'omni',
+		execution_mode: 'hybrid',
+		is_hardware_live: false,
 		threats_detected: 0,
 	})
 	
+	const [isSwitching, setIsSwitching] = useState(false)
+
 	// Check initial theme preference
 	const [isDark, setIsDark] = useState(() => {
 		if (typeof window !== 'undefined') {
@@ -56,27 +62,46 @@ export function AppShell({ children }: AppShellProps) {
 	}, [isDark])
 
 	// Fetch backend status
-	useEffect(() => {
-		const fetchStatus = async () => {
-			try {
-				const response = await fetch('http://127.0.0.1:8000/api/status')
-				if (response.ok) {
-					const data = await response.json()
-					setSystemStatus(data)
-				}
-			} catch (error) {
-				setSystemStatus({ node_status: 'Offline', core_model: 'Unreachable' })
-				console.error('Failed to fetch status:', error)
+	const fetchStatus = async () => {
+		try {
+			const response = await fetch('http://127.0.0.1:8000/api/status')
+			if (response.ok) {
+				const data = await response.json()
+				setSystemStatus(data)
 			}
+		} catch (error) {
+			setSystemStatus((prev: any) => ({ ...prev, node_status: 'Offline', core_model: 'Unreachable' }))
 		}
+	}
 
-		// Initial fetch
+	useEffect(() => {
 		fetchStatus()
-
-		// Poll every 2 seconds to keep it live
 		const interval = setInterval(fetchStatus, 2000)
 		return () => clearInterval(interval)
 	}, [])
+
+	// Quick Switch Handler
+	const handleSwitch = async (domain: string, mode: string) => {
+		setIsSwitching(true)
+		try {
+			const res = await fetch('http://127.0.0.1:8000/api/switch', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					model_type: domain,
+					dataset: domain,
+					mode: mode
+				})
+			})
+			if (res.ok) {
+				await fetchStatus()
+			}
+		} catch (err) {
+			console.error('Failed to switch engine:', err)
+		} finally {
+			setIsSwitching(false)
+		}
+	}
 
 	return (
 		<div className="flex min-h-screen bg-background text-text">
@@ -107,23 +132,81 @@ export function AppShell({ children }: AppShellProps) {
 						)
 					})}
 				</nav>
-		</aside>
+			</aside>
 			<main className="flex-1 flex flex-col">
-				<header className="h-16 border-b border-border/80 flex items-center justify-between px-8 bg-surface/80 backdrop-blur-md shadow-sm">
+				<header className="h-16 border-b border-border/80 flex items-center justify-between px-6 bg-surface/80 backdrop-blur-md shadow-sm gap-4">
+					{/* Left status badge */}
 					<div className="flex items-center gap-3 text-sm">
 						<span
-							className={`px-2 py-0.5 rounded-full text-xs font-medium border ${
-								systemStatus.node_status === 'Active'
+							className={`px-2.5 py-0.5 rounded-full text-xs font-semibold border flex items-center gap-1.5 ${
+								systemStatus.node_status.includes('Active') || systemStatus.node_status.includes('Live')
 									? 'bg-accent-soft text-accent-dark border-accent'
 									: 'bg-red-100 text-red-600 border-red-300 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800'
 							}`}
 						>
-							● {systemStatus.node_status === 'Active' ? 'NODE ACTIVE' : systemStatus.node_status.toUpperCase()}
+							<span className={`w-2 h-2 rounded-full ${systemStatus.is_hardware_live ? 'bg-emerald-500 animate-pulse' : 'bg-accent'}`} />
+							{systemStatus.is_hardware_live ? 'RPI 3B+ (LIVE)' : 'SIM REPLAY'}
 						</span>
-						<span className="text-text-muted">Core Model</span>
-						<span className="text-accent-dark font-semibold">{systemStatus.core_model}</span>
 					</div>
-					<div className="flex items-center gap-4 text-text-muted">
+
+					{/* Center: Quick Model & Architecture Switcher */}
+					<div className="flex items-center gap-2 bg-background-soft/80 border border-border/80 rounded-xl p-1 shadow-inner text-xs">
+						{/* Domain Selector */}
+						<select
+							value={systemStatus.current_model || 'omni'}
+							disabled={isSwitching}
+							onChange={(e) => handleSwitch(e.target.value, systemStatus.execution_mode || 'hybrid')}
+							className="bg-surface text-text font-medium text-xs rounded-lg px-2.5 py-1 border border-border focus:outline-none focus:ring-1 focus:ring-accent cursor-pointer"
+						>
+							<option value="omni">🌐 Omni Global Defense</option>
+							<option value="ton_iot">📡 ToN-IoT (Baseline)</option>
+							<option value="bot_iot">🤖 BoT-IoT (Transfer)</option>
+							<option value="cic_ids2017">🏢 CIC-IDS2017 (Enterprise)</option>
+						</select>
+
+						{/* Architecture Mode Buttons */}
+						<div className="flex items-center bg-surface rounded-lg p-0.5 border border-border">
+							<button
+								type="button"
+								onClick={() => handleSwitch(systemStatus.current_model || 'omni', 'hybrid')}
+								disabled={isSwitching}
+								className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all ${
+									(systemStatus.execution_mode || 'hybrid') === 'hybrid'
+										? 'bg-accent text-white shadow-sm'
+										: 'text-text-muted hover:text-text'
+								}`}
+							>
+								Hybrid (RF+CNN)
+							</button>
+							<button
+								type="button"
+								onClick={() => handleSwitch(systemStatus.current_model || 'omni', 'rf')}
+								disabled={isSwitching}
+								className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all ${
+									systemStatus.execution_mode === 'rf'
+										? 'bg-emerald-600 text-white shadow-sm'
+										: 'text-text-muted hover:text-text'
+								}`}
+							>
+								RF Only
+							</button>
+							<button
+								type="button"
+								onClick={() => handleSwitch(systemStatus.current_model || 'omni', 'cnn')}
+								disabled={isSwitching}
+								className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all ${
+									systemStatus.execution_mode === 'cnn'
+										? 'bg-fuchsia-600 text-white shadow-sm'
+										: 'text-text-muted hover:text-text'
+								}`}
+							>
+								1D CNN Only
+							</button>
+						</div>
+					</div>
+
+					{/* Right controls */}
+					<div className="flex items-center gap-3 text-text-muted">
 						<button
 							onClick={() => setIsDark(!isDark)}
 							className="h-9 w-9 rounded-full bg-background flex items-center justify-center border border-border/60 hover:bg-background-soft transition-colors shadow-sm"
@@ -138,19 +221,16 @@ export function AppShell({ children }: AppShellProps) {
 						>
 							<Bell className="w-4 h-4" />
 							{systemStatus.threats_detected > 0 && (
-								<span className="absolute top-0 right-0 -mt-1 -mr-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white shadow-sm ring-2 ring-background">
+								<span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white shadow">
 									{systemStatus.threats_detected > 99 ? '99+' : systemStatus.threats_detected}
 								</span>
 							)}
 						</Link>
-						<div className="h-9 w-9 rounded-full bg-accent text-white flex items-center justify-center shadow-sm font-semibold text-sm">
-							JD
-						</div>
 					</div>
 				</header>
-				<section className="flex-1 px-8 py-6 overflow-auto bg-background">
+				<div className="flex-1 p-8 overflow-y-auto">
 					{children}
-				</section>
+				</div>
 			</main>
 		</div>
 	)

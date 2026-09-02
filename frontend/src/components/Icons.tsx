@@ -61,3 +61,7 @@ export function Zap(props: IconProps) {
 export function Activity(props: IconProps) {
 	return <BaseIcon {...props}><path d="M3 12h4l2-6 4 12 2-6h6" /></BaseIcon>
 }
+
+export function X(props: IconProps) {
+	return <BaseIcon {...props}><path d="M18 6 6 18" /><path d="m6 6 12 12" /></BaseIcon>
+}

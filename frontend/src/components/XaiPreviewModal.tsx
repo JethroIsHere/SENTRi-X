@@ -1,4 +1,4 @@
-import { X } from 'lucide-react'
+import { X } from './Icons'
 import { classifyThreatLevel, threatLevelTone, type ThreatLevel } from '../utils/threatLevel'
 
 interface XaiPreviewModalProps {
@@ -11,6 +11,7 @@ interface XaiPreviewModalProps {
 	timestamp: string
 	shafeatures?: Array<{ f: string; v: number }>
 	limefeatures?: Array<{ f: string; v: number }>
+	ripperRules?: string
 	isOpen: boolean
 	onClose: () => void
 }
@@ -42,12 +43,23 @@ export function XaiPreviewModal({
 	timestamp,
 	shafeatures = [],
 	limefeatures = [],
+	ripperRules = '',
 	isOpen,
 	onClose,
 }: XaiPreviewModalProps) {
 	if (!isOpen) return null
 
 	const resolvedThreatLevel = threatLevel || classifyThreatLevel(confidence)
+	const ripperPreview = ripperRules.trim()
+		? ripperRules
+				.trim()
+				.split(/\r?\n/)
+				.map(line => line.trim())
+				.filter(Boolean)
+				.slice(0, 3)
+				.join(' ')
+				.slice(0, 220)
+		: ''
 
 	let humanSummary = 'Analyzing network traffic...'
 	if (shafeatures.length > 0) {
@@ -59,6 +71,10 @@ export function XaiPreviewModal({
 		if (limefeatures.length > 0) {
 			const topLime = limefeatures[0]
 			humanSummary += ` A second explanation method (LIME) also highlighted "${getFeatureName(topLime.f)}" as an important reason for this decision.`
+		}
+
+		if (ripperRules.trim().length > 0) {
+			humanSummary += ' A rule-based cross-check (RIPPER) is also available below for comparison.'
 		}
 	}
 
@@ -253,6 +269,27 @@ export function XaiPreviewModal({
 											</div>
 										</div>
 									))}
+								</div>
+							</div>
+						)}
+
+						{ripperRules.trim().length > 0 && (
+							<div>
+								<div className="flex items-center justify-between mb-3">
+									<h3 className="text-sm font-bold tracking-tight text-text">
+										RIPPER Rule Check
+									</h3>
+									<span className="text-[10px] text-text-muted font-medium px-2 py-0.5 bg-background-soft rounded-md">
+										Rule-Based
+									</span>
+								</div>
+								<div className="rounded-xl border border-border/40 bg-background-soft p-3 text-[12px] text-text-muted leading-relaxed">
+									<p className="font-medium text-text mb-1">
+										Rule-based summary
+									</p>
+									<p>
+										RIPPER is loaded as a static rule set for cross-checking. Sample excerpt: <span className="font-mono text-text">{ripperPreview || 'rule text unavailable'}</span>{ripperPreview.length >= 220 ? '...' : ''}
+									</p>
 								</div>
 							</div>
 						)}
