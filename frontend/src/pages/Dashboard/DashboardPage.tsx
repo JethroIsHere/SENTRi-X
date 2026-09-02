@@ -68,6 +68,7 @@ export function DashboardPage() {
 	const [selectedThreat, setSelectedThreat] = useState<ThreatLog | null>(null)
 	const [hoveredThreat, setHoveredThreat] = useState<ThreatLog | null>(null)
 	const [mousePos, setMousePos] = useState({ x: 0, y: 0 })
+        const [ripperRules, setRipperRules] = useState('')
         const hasLoadedThreatsRef = useRef(false)
         const lastNotifiedThreatIdRef = useRef<string | null>(null)
 
@@ -100,9 +101,10 @@ export function DashboardPage() {
         useEffect(() => {
                 const fetchData = async () => {
                         try {
-                                const [statusRes, threatsRes] = await Promise.all([
+                                const [statusRes, threatsRes, ripperRes] = await Promise.all([
                                         fetch('http://127.0.0.1:8000/api/status'),
-                                        fetch('http://127.0.0.1:8000/api/threat-logs')
+                                        fetch('http://127.0.0.1:8000/api/threat-logs'),
+                                        fetch('http://127.0.0.1:8000/api/explainability/ripper')
                                 ])
 
                                 if (statusRes.ok) {
@@ -123,6 +125,10 @@ export function DashboardPage() {
                                         }
 
                                         setThreats(incomingThreats)
+                                }
+                                if (ripperRes.ok) {
+                                        const ripperData = await ripperRes.json()
+                                        setRipperRules(ripperData.rules || '')
                                 }
                         } catch (error) {
                                 console.error('Failed to fetch dashboard data:', error)
@@ -352,6 +358,7 @@ export function DashboardPage() {
 						timestamp={selectedThreat.timestamp}
                                                                         shafeatures={selectedThreat.shap_values || status.latest_shap}
                                                 limefeatures={selectedThreat.lime_values || []}
+                                                                        ripperRules={ripperRules}
 						isOpen={true}
 						onClose={() => setSelectedThreat(null)}
 					/>

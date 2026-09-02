@@ -31,13 +31,21 @@ export function ThreatLogsPage() {
 	const [hoveredThreat, setHoveredThreat] = useState<ThreatLog | null>(null);
 	const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
 	const [showFilterPanel, setShowFilterPanel] = useState(false);
+	const [ripperRules, setRipperRules] = useState("");
 
 	useEffect(() => {
 		const fetchLogs = async () => {
 			try {
-				const response = await fetch("http://localhost:8000/api/threat-logs");
-				const data = await response.json();
+				const [logsResponse, ripperResponse] = await Promise.all([
+					fetch("http://localhost:8000/api/threat-logs"),
+					fetch("http://localhost:8000/api/explainability/ripper"),
+				]);
+				const data = await logsResponse.json();
 				setLogs(data.logs || []);
+				if (ripperResponse.ok) {
+					const ripperData = await ripperResponse.json();
+					setRipperRules(ripperData.rules || "");
+				}
 			} catch (error) {
 				console.error("Failed to fetch threat logs:", error);
 			}
@@ -315,6 +323,7 @@ export function ThreatLogsPage() {
 						{ f: "dst_bytes", v: 0.08 },
 					]}
 					limefeatures={selectedThreat.lime_values || []}
+					ripperRules={ripperRules}
 					isOpen={true}
 					onClose={() => setSelectedThreat(null)}
 				/>
