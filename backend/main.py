@@ -47,6 +47,9 @@ EXPECTED_FEATURES = [
     'conn_state_S3', 'conn_state_SF', 'conn_state_SH', 'conn_state_SHR'
 ]
 
+# Hardware heartbeat/liveness timeout in seconds.
+HARDWARE_LIVE_TIMEOUT = 10.0
+
 # Active Model Refs Object
 class ActiveEngine:
     def __init__(self):
@@ -625,9 +628,20 @@ def get_status():
         system_status["cpu_usage"] = 45
         system_status["memory_usage"] = 55
 
-    is_hw_live = (time.time() - engine.last_hardware_ping) < 5.0
+    is_hw_live = (
+        engine.last_hardware_ping > 0
+        and (time.time() - engine.last_hardware_ping) < HARDWARE_LIVE_TIMEOUT
+    )
     system_status["is_hardware_live"] = is_hw_live
-    system_status["data_source"] = "live_hardware" if is_hw_live else "simulation"
+
+    if is_hw_live:
+        engine.data_source = "live_hardware"
+        system_status["node_status"] = "Live Monitoring (RPi 3B+ Edge Sensor)"
+    else:
+        engine.data_source = "simulation"
+        system_status["node_status"] = "Active"
+
+    system_status["data_source"] = engine.data_source
     update_core_model_label()
     return system_status
 
@@ -752,6 +766,23 @@ def switch_engine(req: SwitchRequest):
     }
 
 
+@app.post("/api/heartbeat")
+def hardware_heartbeat(heartbeat: dict = None):
+    """Receives a lightweight heartbeat from the Raspberry Pi edge sensor."""
+    engine.last_hardware_ping = time.time()
+    engine.data_source = "live_hardware"
+
+    system_status["node_status"] = "Live Monitoring (RPi 3B+ Edge Sensor)"
+    system_status["is_hardware_live"] = True
+    system_status["data_source"] = "live_hardware"
+
+    return {
+        "status": "ok",
+        "sensor_id": (heartbeat or {}).get("sensor_id", "rpi3b-edge-01"),
+        "hardware_live": True,
+    }
+
+
 @app.post("/api/ingest-flow")
 def ingest_live_flow(flow: dict):
     """Receives real-time bidirectional flow features from Raspberry Pi 3B+ edge sensor."""
@@ -807,8 +838,11 @@ async def simulate_live_traffic():
     while True:
         await asyncio.sleep(1.5)
 
-        # If real Raspberry Pi hardware is actively streaming, pause simulator to avoid clutter
-        if (time.time() - engine.last_hardware_ping) < 4.0:
+        # Pause simulation while the Raspberry Pi heartbeat confirms the live sensor is online.
+        if (
+            engine.last_hardware_ping > 0
+            and (time.time() - engine.last_hardware_ping) < HARDWARE_LIVE_TIMEOUT
+        ):
             continue
 
         system_status["processed_packets"] += 1
