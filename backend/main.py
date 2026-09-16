@@ -93,7 +93,8 @@ system_status = {
     "execution_mode": "hybrid",
     "data_source": "simulation",
     "is_hardware_live": False,
-    "processed_packets": 0,
+    "processed_flows": 0,
+    "simulated_events": 0,
     "threats_detected": 0,
     "cpu_usage": 45,
     "memory_usage": 60,
@@ -570,7 +571,8 @@ async def startup_event():
     current_threats.clear()
     engine.attack_queue.clear()
     engine.row_idx = 0
-    system_status["processed_packets"] = 0
+    system_status["processed_flows"] = 0
+    system_status["simulated_events"] = 0
     system_status["threats_detected"] = 0
     system_status["chart_data"] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
     
@@ -694,7 +696,8 @@ def clear_dashboard_data():
     global current_threats
     current_threats.clear()
     engine.attack_queue.clear()
-    system_status["processed_packets"] = 0
+    system_status["processed_flows"] = 0
+    system_status["simulated_events"] = 0
     system_status["threats_detected"] = 0
     system_status["chart_data"] = [0] * 10
     try:
@@ -789,7 +792,7 @@ def ingest_live_flow(flow: dict):
     engine.data_source = "live_hardware"
     engine.last_hardware_ping = time.time()
     system_status["node_status"] = "Live Monitoring (RPi 3B+ Edge Sensor)"
-    system_status["processed_packets"] += 1
+    system_status["processed_flows"] += 1
 
     flow_bytes = flow.get("src_bytes", 500) + flow.get("dst_bytes", 0)
     traffic_metrics["bytes_processed"] += flow_bytes
@@ -845,7 +848,7 @@ async def simulate_live_traffic():
         ):
             continue
 
-        system_status["processed_packets"] += 1
+        system_status["simulated_events"] += 1
         estimated_packet_size = random.randint(100, 2000)
         traffic_metrics["bytes_processed"] += estimated_packet_size
 
