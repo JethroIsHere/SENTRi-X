@@ -29,7 +29,16 @@ function ShellContent({ children }: { children: ReactNode }) {
     localStorage.setItem('theme', isDark ? 'dark' : 'light')
   }, [isDark])
   const disabled = !online || busy || !!status?.switching
-  const badge = !online ? error ? 'BACKEND UNAVAILABLE' : 'CONNECTING' : status?.is_hardware_live ? 'PI CONNECTED' : 'SIMULATION MODE'
+  const isLive = online && !!status?.is_hardware_live
+  const badge = !online
+    ? error
+      ? 'BACKEND UNAVAILABLE'
+      : 'CONNECTING'
+    : isLive
+      ? 'PI CONNECTED'
+      : status?.node_status === 'Pi disconnected'
+        ? 'PI DISCONNECTED'
+        : 'WAITING FOR PI'
   return <div className="min-h-screen bg-background text-text flex flex-col lg:flex-row">
     <aside className="lg:w-64 shrink-0 border-r border-border bg-surface">
       <Link to="/" className="h-16 flex items-center gap-3 px-6 font-bold text-accent-dark tracking-wide">
@@ -42,7 +51,7 @@ function ShellContent({ children }: { children: ReactNode }) {
     </aside>
     <main className="flex-1 min-w-0">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-surface px-5 py-4">
-        <span role="status" className={`rounded-full border px-3 py-1 text-xs font-bold ${online && status?.is_hardware_live ? 'border-emerald-500/50 text-emerald-600 dark:text-emerald-400' : 'border-amber-500/50 text-amber-600 dark:text-amber-400'}`}>{badge}</span>
+        <span role="status" className={`rounded-full border px-3 py-1 text-xs font-bold ${!online ? 'border-rose-500/50 text-rose-600 dark:text-rose-400' : isLive ? 'border-emerald-500/50 text-emerald-600 dark:text-emerald-400' : 'border-amber-500/50 text-amber-600 dark:text-amber-400'}`}>{badge}</span>
         <div className="flex flex-wrap items-center gap-2">
           <select aria-label="Active model" value={status?.current_model || ''} disabled={disabled}
             onChange={event => status && void switchEngine(event.target.value as Domain, status.execution_mode)}

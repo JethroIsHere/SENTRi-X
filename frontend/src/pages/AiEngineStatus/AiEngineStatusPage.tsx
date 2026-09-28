@@ -11,7 +11,7 @@ export function AiEngineStatusPage() {
     ? `${(status.memory_used_bytes / 1024 ** 3).toFixed(2)} / ${(status.memory_total_bytes / 1024 ** 3).toFixed(2)} GiB` : 'Unavailable'
   return <div className="space-y-6 max-w-6xl">
     <header><h1 className="text-3xl font-bold">AI Engine Status</h1><p className="mt-2 text-sm text-text-muted">Backend resources, active models, and documented offline evaluation results.</p></header>
-    <section className={panelClass}><h2 className="text-xl font-semibold">{online ? status?.core_model : 'Backend status unavailable'}</h2><p className="mt-2 text-sm text-text-muted">Mode: {online ? status?.execution_mode : 'Unknown'} · {online ? status?.is_hardware_live ? 'Pi connected' : 'Simulation mode' : 'Connection unavailable'}</p>
+    <section className={panelClass}><h2 className="text-xl font-semibold">{online ? status?.core_model : 'Backend status unavailable'}</h2><p className="mt-2 text-sm text-text-muted">Mode: {online ? status?.execution_mode : 'Unknown'} · {online ? status?.node_status ?? (status?.is_hardware_live ? 'Pi connected' : 'Waiting for Pi') : 'Connection unavailable'}</p>
       {online && status?.engine_error && <RequestState error={`Inference issue: ${status.engine_error}`} />}
     </section>
     <div className="grid gap-5 md:grid-cols-2"><section className={panelClass}><h2 className="mb-4 text-lg font-semibold">Backend Host Resources</h2>

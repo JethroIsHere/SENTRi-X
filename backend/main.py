@@ -63,7 +63,7 @@ class ActiveEngine:
         self.current_dataset = "omni"
         self.current_model = "omni"
         self.execution_mode = "hybrid"  # "hybrid" | "rf" | "cnn"
-        self.data_source = "simulation"  # "simulation" | "live_hardware"
+        self.data_source = "live_hardware"
         self.last_hardware_ping = 0.0
         self.row_idx = 0
         self.last_flow_received = 0.0
@@ -546,18 +546,11 @@ async def startup_event():
         except Exception as exc:
             print(f'Explanation artifact unavailable ({filename}): {exc}')
     initialize_lime_explainer()
-    app.state.simulation_task = asyncio.create_task(simulate_live_traffic())
 
 
 @app.on_event('shutdown')
 async def shutdown_event():
-    task = getattr(app.state, 'simulation_task', None)
-    if task:
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
+    pass
 
 
 @app.get('/')
@@ -569,20 +562,26 @@ def read_root():
 @app.get('/api/status')
 def get_status():
     live = hardware_live()
-    engine.data_source = 'live_hardware' if live else 'simulation'
+    engine.data_source = 'live_hardware'
     update_core_model_label()
     counts = get_alert_counts()
+    if live:
+        node_status = 'Pi connected'
+    elif engine.last_hardware_ping > 0:
+        node_status = 'Pi disconnected'
+    else:
+        node_status = 'Waiting for Pi'
     result = dict(system_status)
     result.update(api_version=2, is_hardware_live=live,
-                  node_status='Pi connected' if live else 'Simulation mode',
+                  node_status=node_status,
                   data_source=engine.data_source, threats_detected=sum(counts.values()), alert_counts=counts,
                   last_flow_at=(datetime.fromtimestamp(engine.last_flow_received, timezone.utc).isoformat()
                                 if engine.last_flow_received else None),
                   last_heartbeat_at=(datetime.fromtimestamp(engine.last_hardware_ping, timezone.utc).isoformat()
-                                     if engine.last_hardware_ping else None),
+                                     if engine.last_hardware_ping > 0 else None),
                   settings=dict(settings), classification_threshold=0.5,
                   engine_error=engine.last_error, switching=engine.switching,
-                  simulation_active=not live and engine.df is not None and len(engine.df) > 0)
+                  simulation_active=False)
     try:
         memory = psutil.virtual_memory()
         result.update(cpu_usage=float(psutil.cpu_percent(interval=None)), memory_usage=float(memory.percent),
@@ -771,39 +770,14 @@ def ingest_live_flow(flow: dict):
 
 @app.post('/api/inject-attack')
 def deploy_attack(request: AttackRequest):
-    with engine_lock:
-        if hardware_live():
-            raise HTTPException(409, 'Dataset injection is paused while the Pi is connected.')
-        if engine.malicious_pool is None or len(engine.malicious_pool) == 0:
-            raise HTTPException(409, 'No labelled attack samples are loaded.')
-        rows = engine.malicious_pool.sample(n=min(request.intensity, len(engine.malicious_pool)))
-        # Keep the original dataset labels; do not relabel random rows as the requested subtype.
-        engine.attack_queue.extend(rows.iloc[[i]].copy() for i in range(len(rows)))
-    return {'queued': len(rows), 'data_source': 'simulation', 'message': 'Labelled dataset samples queued.'}
+    raise HTTPException(403, 'Attack injection is disabled. SENTRi-X operates exclusively in live hardware capture mode.')
 
 
 def process_simulation():
-    with engine_lock:
-        if hardware_live() or engine.df is None or len(engine.df) == 0:
-            return
-        if engine.attack_queue:
-            row = engine.attack_queue.pop(0).iloc[0]
-        else:
-            row = engine.df.iloc[engine.row_idx % len(engine.df)]
-            engine.row_idx += 1
-        frame = prepare_feature_dataframe(row)
-        try:
-            prediction, confidence, _, _ = run_inference(frame)
-            engine.last_error = None
-            system_status['simulated_events'] += 1
-            if alert_allowed(prediction, confidence):
-                record_threat_alert(row, frame, confidence, 'simulation')
-        except Exception as exc:
-            engine.last_error = str(exc)
+    # Background simulation processing is disabled for live hardware capture mode.
+    pass
 
 
 async def simulate_live_traffic():
-    while True:
-        await asyncio.sleep(1.5)
-        if not hardware_live():
-            await asyncio.to_thread(process_simulation)
+    # Background simulation worker is disabled for live hardware capture mode.
+    pass

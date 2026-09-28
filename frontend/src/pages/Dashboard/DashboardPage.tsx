@@ -63,9 +63,8 @@ export function DashboardPage() {
       <h2 className="text-sm font-semibold">{label}</h2><p className="my-4 text-3xl font-bold">{value}</p><p className="text-xs text-text-muted">{detail}</p>
     </article>)}</div>
     <div className="flex flex-wrap gap-3 text-xs text-text-muted">
-      <span>Simulation events: {status?.simulated_events.toLocaleString() ?? '—'}</span>
-      <span>Live alerts: {status?.alert_counts.live_hardware ?? '—'}</span><span>Simulation alerts: {status?.alert_counts.simulation ?? '—'}</span>
-      <span>Origin unknown: {status?.alert_counts.unknown ?? '—'}</span>
+      <span>Live alerts: {status?.alert_counts.live_hardware ?? '—'}</span>
+      <span>Connection: {online ? status?.node_status ?? (live ? 'Pi connected' : 'Waiting for Pi') : 'Offline'}</span>
       <span>RF: {online ? status?.rf_online ? 'enabled and loaded' : 'inactive' : 'unknown'}</span>
       <span>CNN: {online ? status?.cnn_online ? 'enabled and loaded' : 'inactive' : 'unknown'}</span>
     </div>
@@ -79,7 +78,7 @@ export function DashboardPage() {
           {rates.map((rate, index) => <div key={index} className="flex h-full flex-1 flex-col justify-end" title={`${rate.toFixed(2)} flows/s`}><div className="rounded-t bg-accent" style={{ height: `${rate / rateMax * 100}%` }} /></div>)}
         </div><p className="mt-2 text-xs text-text-muted">Latest: {latestRate?.toFixed(2)} flows/s · scale maximum: {rateMax.toFixed(2)} flows/s</p>
       </> : <p className="py-8 text-sm text-text-muted">{live ? 'Waiting for two live counter samples.' : 'Live measurements appear when the backend confirms the Pi connection.'}</p>}
-      <p className="mt-3 text-sm">{!online ? 'Backend unavailable.' : !live ? 'No recent Pi heartbeat. Dataset simulation is selected.' : latestRate === 0 ? 'Pi connected; no additional flow windows in the latest interval.' : 'Pi connected. Flow arrivals are measured above.'}</p>
+      <p className="mt-3 text-sm">{!online ? 'Backend unavailable.' : !live ? (status?.node_status === 'Pi disconnected' ? 'Pi disconnected. Retaining last recorded observations while waiting to reconnect.' : 'Waiting for Pi sensor connection...') : latestRate === 0 ? 'Pi connected; no additional flow windows in the latest interval.' : 'Pi connected. Flow arrivals are measured above.'}</p>
       <p className="mt-1 text-xs text-text-muted">Last live flow: {formatTime(status?.last_flow_at)}</p>
     </section>
     <section className={panelClass}><h2 className="mb-2 text-lg font-semibold">Observed IoT Devices</h2><p className="mb-4 text-xs text-text-muted">Identity and last observation from saved live flows. Stored totals persist across counter resets; a quiet device is not necessarily offline.</p>

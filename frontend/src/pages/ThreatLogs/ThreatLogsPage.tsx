@@ -30,7 +30,7 @@ export function ThreatLogsPage() {
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
   return <div className="space-y-5">
-    <header><h1 className="text-3xl font-bold">Threat Logs</h1><p className="mt-2 text-sm text-text-muted">Latest 500 saved alerts, newest first. Live and simulation records retain their origin. Benign flows are shown on the dashboard.</p></header>
+    <header><h1 className="text-3xl font-bold">Threat Logs</h1><p className="mt-2 text-sm text-text-muted">Latest 500 saved alerts, newest first. Live hardware and historical records retain their origin. Benign flows are shown on the dashboard.</p></header>
     <div className="flex flex-wrap gap-3 items-end text-xs">
       <label className="flex flex-col gap-1">Search<input value={query} onChange={event => setQuery(event.target.value)} placeholder="Device, address, model or label" className="rounded-lg border border-border bg-surface px-3 py-2" /></label>
       <label className="flex flex-col gap-1">Origin<select value={source} onChange={event => setSource(event.target.value)} className="rounded-lg border border-border bg-surface px-3 py-2"><option value="all">All origins</option><option value="live_hardware">Live hardware</option><option value="simulation">Simulation</option><option value="unknown">Origin unknown</option></select></label>
