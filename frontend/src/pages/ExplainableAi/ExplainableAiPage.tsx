@@ -1,66 +1,22 @@
-﻿import { useState } from 'react'
+import { useApiPoll } from '../../lib/api'
+import { panelClass, RequestState } from '../../components/LiveTelemetry'
 
-type SecurityRule = { title: string; description: string }
+const guide = [
+  ['Denial of service / DDoS', 'Large traffic volumes or repeated requests can exhaust a service. Flow counts and byte totals provide context, but a traffic spike alone does not establish an attack.'],
+  ['Port scanning', 'Repeated attempts to reach different ports may indicate service discovery. Investigating it requires examining the related connections, timing, and endpoints.'],
+  ['Password guessing', 'Repeated authentication attempts can indicate brute force. Network flow statistics alone do not reveal whether a password was accepted.'],
+  ['Botnet communication', 'Compromised devices may contact remote infrastructure. A remote connection by itself is not proof of compromise.'],
+]
 
 export function ExplainableAiPage() {
-    const [rules] = useState<SecurityRule[]>([
-        {
-            title: "Flood Attack (DDoS)",
-            description: "Someone sends tons of data at super-high speed to crash a service. The AI spots sudden huge amounts of traffic that come and go quickly.",
-        },
-        {
-            title: "Port Scanning",
-            description: "Someone tries to find open doors on a computer by testing many ports really fast. The AI sees lots of connection attempts that all fail.",
-        },
-        {
-            title: "Botnet Activity",
-            description: "A hacked computer keeps sending weird little messages on a repeating pattern, trying to contact its master. The AI notices strange rhythmic patterns.",
-        },
-        {
-            title: "Web Attack (Hacking Website)",
-            description: "Someone tries to trick a website into giving them data or letting them run code. The AI spots tiny requests that cause huge strange responses.",
-        },
-        {
-            title: "Attempted Break-In",
-            description: "Someone tries to send harmful code to run on a computer. The AI watches for big messy data coming in that the server doesn't properly handle.",
-        },
-        {
-            title: "Data Theft",
-            description: "A connection stays open for way too long while data slowly leaks out in a steady stream. The AI flags connections that stay alive unnaturally long.",
-        },
-        {
-            title: "Password Guessing",
-            description: "Someone rapidly tries thousands of password combinations to break in. The AI sees the exact same tiny failed requests happening over and over.",
-        }
-    ])
-
-    return (
-        <div className="flex flex-col gap-6 h-full">
-            <div className="flex items-center justify-between">
-                <div>
-                    <h1 className="text-3xl font-bold text-text">Security Attack Rules</h1>
-                    <p className="text-base text-text-muted mt-2">Here's what the AI looks for. These are the types of attacks it can recognize:</p>
-                </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                {rules.map((rule, idx) => (
-                    <div key={idx} className="bg-surface/80 backdrop-blur-md border border-border/80 rounded-2xl p-6 shadow-md hover:shadow-lg transition-shadow">
-                        <h3 className="text-lg font-bold text-text mb-3 flex items-start gap-3">
-                            <span className="text-2xl font-bold text-accent-dark min-w-[2rem]">{idx + 1}.</span>
-                            {rule.title}
-                        </h3>
-                        <p className="text-base text-text-muted leading-relaxed">{rule.description}</p>
-                    </div>
-                ))}
-            </div>
-
-            <div className="bg-surface/80 backdrop-blur-md border border-border/80 rounded-2xl p-6 shadow-md mt-4">
-                <h2 className="text-lg font-semibold text-text mb-3">How It Works</h2>
-                <p className="text-base text-text-muted leading-relaxed">
-                    The AI watches network traffic and looks for suspicious patterns. When it sees something that matches one of these attack behaviors, it raises an alert and shows you what it found. Each alert includes a confidence score (how sure the AI is) and an explanation of what features triggered the alarm.
-                </p>
-            </div>
-        </div>
-    )
+  const rules = useApiPoll<{ rules: string; scope: string; evaluated_on_live_flow: boolean }>('/api/explainability/ripper', 10000)
+  return <div className="space-y-6 max-w-6xl">
+    <header><h1 className="text-3xl font-bold">Attack Guide & Reference Rules</h1><p className="mt-2 text-sm text-text-muted">Background information and stored explanation artifacts for reviewing alerts.</p></header>
+    <section className={panelClass}><h2 className="mb-3 text-lg font-semibold">What the Live Classifier Reports</h2><p className="text-sm text-text-muted">The current live models classify a flow as benign or attack. They do not produce the attack subtypes listed below. A live alert is recorded as a malicious flow anomaly; simulation labels may come from the replay dataset.</p></section>
+    <div className="grid gap-4 md:grid-cols-2">{guide.map(([title, detail]) => <article key={title} className={panelClass}><h2 className="mb-3 font-semibold">{title}</h2><p className="text-sm text-text-muted">{detail}</p></article>)}</div>
+    <section className={panelClass}><h2 className="text-lg font-semibold">Stored RIPPER Rules</h2><p className="my-3 text-xs text-text-muted">Reference text loaded by the backend. These rules are not an enforced firewall policy and are not evaluated against each arriving flow.</p><RequestState error={rules.error} loading={rules.loading} />
+      <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-xl bg-background-soft p-4 text-xs">{rules.data?.rules || 'No RIPPER rule artifact is available.'}</pre>
+    </section>
+    <section className={panelClass}><h2 className="mb-3 font-semibold">Reviewing an Alert</h2><p className="text-sm text-text-muted">Open an alert in Threat Logs to inspect its origin, addresses, model, confidence, and saved explanation. Reference-sample SHAP, global RF importance, and local RF LIME are labelled separately. Missing explanations remain unavailable.</p></section>
+  </div>
 }

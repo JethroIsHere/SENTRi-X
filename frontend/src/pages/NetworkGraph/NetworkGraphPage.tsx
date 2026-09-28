@@ -1,153 +1,59 @@
-﻿import { useEffect, useState, useMemo } from 'react';
-
-type Threat = {
-    id: string;
-    timestamp: string;
-    source_ip: string;
-    target_ip: string;
-    attack_type: string;
-    confidence: number;
-    status: string;
-};
-
-type Node = {
-    id: string;
-    x: number;
-    y: number;
-    ip: string;
-    isCore: boolean;
-    threats: number;
-    lastSeen: string;
-};
+import { useMemo, useState } from 'react'
+import { formatTime, useApiPoll } from '../../lib/api'
+import type { Device, Flow } from '../../lib/api'
+import { DeviceCards, FlowTable, panelClass, RequestState } from '../../components/LiveTelemetry'
 
 export function NetworkGraphPage() {
-    const [threats, setThreats] = useState<Threat[]>([]);
-    const [selectedNode, setSelectedNode] = useState<Node | null>(null);
-
-    useEffect(() => {
-        const fetchThreats = async () => {
-            try {
-                const response = await fetch('http://127.0.0.1:8000/api/threat-logs');
-                const data = await response.json();
-                setThreats(data.slice(0, 15));
-            } catch (err) {
-                console.error(err);
-            }
-        };
-        fetchThreats();
-        const interval = setInterval(fetchThreats, 3000);
-        return () => clearInterval(interval);
-    }, []);
-
-    const nodes = useMemo(() => {
-        const core: Node = { id: 'core', x: 50, y: 50, ip: '10.0.0.X (Gateway)', isCore: true, threats: 0, lastSeen: 'Now' };
-        const map = new Map<string, Node>();
-        map.set('core', core);
-
-        threats.forEach((t, i) => {
-            if (!map.has(t.source_ip)) {
-                // Randomish position around center
-                const angle = (i * 137.5) * (Math.PI / 180);
-                const radius = 25 + Math.random() * 20;
-                map.set(t.source_ip, {
-                    id: t.source_ip,
-                    ip: t.source_ip,
-                    x: 50 + radius * Math.cos(angle),
-                    y: 50 + radius * Math.sin(angle),
-                    isCore: false,
-                    threats: 1,
-                    lastSeen: t.timestamp
-                });
-            } else {
-                map.get(t.source_ip)!.threats += 1;
-                map.get(t.source_ip)!.lastSeen = t.timestamp;
-            }
-        });
-        return Array.from(map.values());
-    }, [threats]);
-
-    const activeThreat = threats.length > 0 ? threats[0] : null;
-
-    return (
-        <div className="flex flex-col gap-6 h-full">
-            <header>
-                <h1 className="text-2xl font-semibold text-text">Network Graph</h1>
-                <p className="text-sm text-text-muted">Live topology of interacting endpoint identifiers.</p>
-            </header>
-
-            <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 flex-1">
-                <div className="xl:col-span-2 rounded-2xl bg-surface/80 backdrop-blur-md border border-border/80 shadow-md p-5 relative overflow-hidden min-h-[400px] flex items-center justify-center">
-                    <svg className="absolute inset-0 w-full h-full pointer-events-none">
-                        {nodes.filter(n => !n.isCore).map(n => (
-                            <line 
-                                key={"line-" + n.id}
-                                x1="50%" y1="50%"
-                                x2={n.x + "%"} y2={n.y + "%"}
-                                className={"stroke-[1.5] " + (n.threats > 2 ? 'stroke-rose-500/50' : 'stroke-blue-500/30')}
-                                strokeDasharray={n.threats > 2 ? "4" : undefined}
-                            />
-                        ))}
-                    </svg>
-
-                    {nodes.map(n => (
-                        <div
-                            key={n.id}
-                            onClick={() => setSelectedNode(n)}
-                            className={"absolute transform -translate-x-1/2 -translate-y-1/2 rounded-full flex items-center justify-center cursor-pointer transition-all hover:scale-110 " + (
-                                n.isCore ? 'w-16 h-16 bg-blue-600/20 border-2 border-blue-500 shadow-[0_0_20px_rgba(59,130,246,0.5)] z-20' :
-                                n.threats > 2 ? 'w-10 h-10 bg-rose-500/20 border-2 border-rose-500 shadow-[0_0_15px_rgba(244,63,94,0.5)] z-10' :
-                                'w-8 h-8 bg-surface-subtle border border-border z-10'
-                            )}
-                            style={{ left: n.x + "%", top: n.y + "%" }}
-                        >
-                            {!n.isCore && <span className="text-[10px] absolute -bottom-5 text-text-muted whitespace-nowrap bg-background/80 px-1 rounded">{n.ip}</span>}
-                            {n.isCore && <span className="text-xs font-bold text-blue-400">IDS</span>}
-                        </div>
-                    ))}
-                </div>
-
-                <div className="rounded-2xl bg-surface/80 backdrop-blur-md border border-border/80 shadow-md p-5 space-y-3 text-sm">
-                    <h2 className="text-sm font-semibold text-text">Node Properties</h2>
-                    <div className="text-xs text-text-muted">
-                        Selected Node: {selectedNode ? selectedNode.ip : 'Click a node on map'}
-                    </div>
-                    {selectedNode && (
-                        <>
-                            <div className="space-y-2 text-xs text-text mt-4">
-                                <div className="flex justify-between">
-                                    <span>Type</span>
-                                    <span className="text-accent-dark">{selectedNode.isCore ? 'IDS Core Gateway' : 'External Host'}</span>
-                                </div>
-                                <div className="flex justify-between">
-                                    <span>Recent Traces</span>
-                                    <span className="text-text-muted">{selectedNode.threats}</span>
-                                </div>
-                                <div className="flex justify-between">
-                                    <span>Last Seen</span>
-                                    <span className="text-text-muted">{selectedNode.lastSeen}</span>
-                                </div>
-                            </div>
-                            {!selectedNode.isCore && (
-                                <button className="w-full mt-4 inline-flex items-center justify-center rounded-lg bg-rose-500/10 text-rose-500 hover:bg-rose-500/20 text-xs font-medium px-3 py-2 border border-rose-500/50 transition-colors">
-                                    Simulate Connection Drop for {selectedNode.ip}
-                                </button>
-                            )}
-                        </>
-                    )}
-                </div>
-            </div>
-
-            {activeThreat && (
-                <div className="rounded-2xl bg-surface/80 backdrop-blur-md border border-border/80 shadow-md px-5 py-4 text-xs text-text flex flex-col md:flex-row items-start md:items-center justify-between gap-2 border-l-4 border-l-rose-500">
-                    <div>
-                        <span className="text-text-muted">Target: </span> 
-                        <span className="font-mono">{activeThreat.source_ip} &rarr; {activeThreat.target_ip} ({activeThreat.attack_type})</span>
-                    </div>
-                    <span className="text-rose-500 font-medium bg-rose-500/10 px-3 py-1 rounded-full uppercase tracking-widest text-[10px]">
-                        {activeThreat.status}: {Math.round(activeThreat.confidence * 100)}% Confidence
-                    </span>
-                </div>
-            )}
-        </div>
-    );
+  const flowPoll = useApiPoll<{ flows: Flow[] }>('/api/flows?limit=100')
+  const devicePoll = useApiPoll<{ devices: Device[] }>('/api/devices')
+  const [selected, setSelected] = useState<string | null>(null)
+  const graph = useMemo(() => {
+    const flows = flowPoll.data?.flows || []
+    const addresses = [...new Set(flows.flatMap(flow => [flow.src_ip, flow.dst_ip]))].sort()
+    const shown = addresses.slice(0, 20)
+    const nodes = shown.map((ip, index) => {
+      const angle = index / Math.max(1, shown.length) * Math.PI * 2 - Math.PI / 2
+      return { ip, x: 400 + 300 * Math.cos(angle), y: 240 + 175 * Math.sin(angle) }
+    })
+    const edges = new Map<string, { src: string; dst: string; windows: number; alert: boolean }>()
+    for (const flow of flows) {
+      if (!shown.includes(flow.src_ip) || !shown.includes(flow.dst_ip)) continue
+      const key = [flow.src_ip, flow.dst_ip].sort().join('|')
+      const old = edges.get(key)
+      edges.set(key, { src: flow.src_ip, dst: flow.dst_ip, windows: (old?.windows || 0) + 1, alert: !!old?.alert || !!flow.is_anomaly })
+    }
+    return { nodes, edges: [...edges.values()], omitted: addresses.length - shown.length }
+  }, [flowPoll.data])
+  const related = (flowPoll.data?.flows || []).filter(flow => flow.src_ip === selected || flow.dst_ip === selected)
+  const devices = devicePoll.data?.devices || []
+  const selectedDevice = devices.find(device => device.last_ip === selected)
+  return <div className="space-y-6">
+    <header><h1 className="text-3xl font-bold">Observed Network Connections</h1><p className="mt-2 text-sm text-text-muted">Connections in the latest 100 saved live flow windows, including benign traffic. This is an observation graph, not the physical switch topology.</p></header>
+    <RequestState error={flowPoll.error} loading={flowPoll.loading} />
+    <div className="grid gap-5 xl:grid-cols-3"><section className={`${panelClass} xl:col-span-2`}>
+      {graph.nodes.length ? <svg viewBox="0 0 800 480" className="w-full" role="img" aria-label="Connections between observed IP addresses">
+        {graph.edges.map(edge => {
+          const from = graph.nodes.find(node => node.ip === edge.src)!
+          const to = graph.nodes.find(node => node.ip === edge.dst)!
+          return <line key={`${edge.src}-${edge.dst}`} x1={from.x} y1={from.y} x2={to.x} y2={to.y} stroke={edge.alert ? '#f43f5e' : '#64748b'} strokeWidth={Math.min(5, 1 + edge.windows / 10)} opacity="0.65"><title>{edge.src} ↔ {edge.dst}: {edge.windows} flow windows</title></line>
+        })}
+        {graph.nodes.map(node => {
+          const device = devices.find(item => item.last_ip === node.ip)
+          return <g key={node.ip} role="button" tabIndex={0} aria-label={`Inspect ${node.ip}`} onClick={() => setSelected(node.ip)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSelected(node.ip) } }} className="cursor-pointer">
+            <circle cx={node.x} cy={node.y} r={device ? 16 : 11} fill={device ? '#14b8a6' : '#64748b'} stroke={selected === node.ip ? '#f59e0b' : 'transparent'} strokeWidth="4" />
+            <text x={node.x} y={node.y + 32} textAnchor="middle" fill="currentColor" fontSize="13">{node.ip}</text>
+            <title>{device?.device_name?.replace(/_/g, ' ') || 'Observed endpoint'}</title>
+          </g>
+        })}
+      </svg> : <p className="py-12 text-sm text-text-muted">Waiting for saved live flows.</p>}
+      <p className="text-xs text-text-muted">Teal: identified IoT device. Gray: other observed address. Red edge: a flow that met the active alert criteria. Node position is for readability.</p>
+      {graph.omitted > 0 && <p className="mt-2 text-xs text-text-muted">{graph.omitted} additional addresses are omitted from the diagram; their records remain in the table.</p>}
+    </section><section className={panelClass}><h2 className="text-lg font-semibold">Selected Endpoint</h2>
+      {selected ? <div className="mt-4 space-y-3 text-sm"><p className="font-mono break-all">{selected}</p><p>{selectedDevice?.device_name?.replace(/_/g, ' ') || 'Observed address; device identity unconfirmed'}</p>
+        <p>{related.length} windows in the displayed sample</p><p className="text-xs text-text-muted">Last observation in this sample: {formatTime(related[0]?.timestamp)}</p><p className="text-xs text-text-muted">Traffic is passively monitored. No connection blocking is performed.</p></div>
+        : <p className="mt-4 text-sm text-text-muted">Select an address in the graph.</p>}
+    </section></div>
+    <section className={panelClass}><h2 className="mb-4 text-lg font-semibold">Observed Devices</h2><RequestState error={devicePoll.error} loading={devicePoll.loading} /><DeviceCards devices={devices} /></section>
+    <section className={panelClass}><h2 className="mb-4 text-lg font-semibold">Saved Live Flow Windows</h2><FlowTable flows={flowPoll.data?.flows || []} /></section>
+  </div>
 }
