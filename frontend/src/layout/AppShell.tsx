@@ -32,7 +32,10 @@ function ShellContent({ children }: { children: ReactNode }) {
   const badge = !online ? error ? 'BACKEND UNAVAILABLE' : 'CONNECTING' : status?.is_hardware_live ? 'PI CONNECTED' : 'SIMULATION MODE'
   return <div className="min-h-screen bg-background text-text flex flex-col lg:flex-row">
     <aside className="lg:w-64 shrink-0 border-r border-border bg-surface">
-      <Link to="/" className="h-16 flex items-center gap-3 px-6 font-bold text-accent-dark"><span className="rounded-full border border-accent px-3 py-2">S</span>SENTRi-X</Link>
+      <Link to="/" className="h-16 flex items-center gap-3 px-6 font-bold text-accent-dark tracking-wide">
+        <img src="/sentrix_logo.png" alt="SENTRi-X Logo" className="h-8 w-8 object-contain shrink-0" />
+        <span>SENTRi-X</span>
+      </Link>
       <nav className="flex lg:flex-col gap-1 overflow-x-auto p-3 text-sm">{navItems.map(item => <Link key={item.path} to={item.path}
         className={`flex items-center gap-3 whitespace-nowrap rounded-xl px-4 py-3 ${location.pathname === item.path ? 'bg-accent-soft text-accent-dark font-semibold' : 'text-text-muted hover:bg-background-soft'}`}>
         <item.icon className="h-5 w-5 shrink-0" />{item.label}</Link>)}</nav>
