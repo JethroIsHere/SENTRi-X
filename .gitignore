@@ -27,7 +27,6 @@ backend/requirements_xai.txt
 backend_error.log
 backend_start.log
 chapter_text/
-frontend/src/lib/
 presentation_assets/
 reports/
 requirements.wsl.txt
@@ -55,3 +54,9 @@ docs/
 
 # SQLite database (runtime generated)
 *.db
+
+# Backups
+backups/
+
+# Update bundles
+SENTRi-X*.html
