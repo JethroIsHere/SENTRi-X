@@ -80,10 +80,26 @@ def run_suite():
             "test_t11_heartbeat_updates_liveness",
             "test_t11_settings_persistence",
         ]),
+        ("T12: Prompt 1 Review Regression Checks", "tests.test_prompt1_review_fixes", [
+            "test_item1_full_training_requires_tf_and_fails_safely",
+            "test_item1_mock_artifacts_cannot_pass_deployment_validation",
+            "test_item2_preflight_nonzero_on_missing_tf_when_required",
+            "test_item3_package_validation_rejects_wrong_schema_and_classes",
+            "test_item3_package_validation_rejects_target_slot_mismatch",
+            "test_item4_parse_binary_flag_string_zero_is_false",
+            "test_item4_contradictory_representations_rejected",
+            "test_item4_canonical_encoding_agreement_across_types",
+            "test_item4_pure_one_hot_series_retains_flags",
+            "test_item5_multimode_metrics_and_prediction_evidence",
+            "test_item5_api_rejects_hash_tampering",
+            "test_item6_ton_iot_imputes_optional_dns_http_without_dropping_rows",
+            "test_item6_cic_ids2017_converts_microseconds_to_seconds",
+            "test_item7_reference_shap_rejects_cross_domain",
+        ]),
     ]
 
     print("=" * 70)
-    print("       SENTRi-X ML Pipeline Corrections — Test Suite (T1-T11)")
+    print("       SENTRi-X ML Pipeline Corrections — Test Suite (T1-T12)")
     print("=" * 70)
 
     total_passed = 0
