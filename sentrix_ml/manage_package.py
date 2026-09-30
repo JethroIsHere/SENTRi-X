@@ -55,9 +55,9 @@ def cmd_activate(candidate_dir: str, target: str):
     candidate_path = Path(candidate_dir).resolve()
     print(f"Activating candidate '{candidate_path}' for target slot '{target}'...")
 
-    # 1. Validate candidate first
+    # 1. Validate candidate first (strict deployable check)
     try:
-        manifest = validate_package(candidate_path)
+        manifest = validate_package(candidate_path, strict_deployable=True, target_domain=target)
     except PackageValidationError as e:
         print(f"ACTIVATION ABORTED: Package validation failed: {e}")
         return False

@@ -1,17 +1,15 @@
 """Source model training routine for ToN-IoT dataset.
 
 Pipeline:
-1. Ingest raw ToN-IoT CSVs through canonical adapter (no leakage)
-2. Stratified train/val/test split (disjoint holdout)
-3. Fit PreprocessingPipeline strictly on training partition
-4. Train Random Forest on train split
-5. Train 1D CNN with explicit validation data
-6. Evaluate hybrid ensemble on independent holdout
-7. Assemble and validate candidate model package
-
-Usage:
-    python -m sentrix_ml.train_source --help
-    python -m sentrix_ml.train_source --sample-n 20000 --epochs 5 --run-type smoke
+1. Validates environment dependencies (TensorFlow required for full run)
+2. Ingests raw ToN-IoT CSVs through canonical adapter (no leakage)
+3. Stratified train/val/test split (disjoint holdout)
+4. Fits PreprocessingPipeline strictly on training partition
+5. Trains Random Forest on train split
+6. Trains 1D CNN with explicit validation data
+7. Evaluates RF, CNN, and Hybrid modes on independent holdout
+8. Exports prediction-level evidence CSV
+9. Assembles and validates candidate model package
 """
 
 from __future__ import annotations
@@ -31,9 +29,8 @@ from sentrix_ml.adapters.ton_iot import load_ton_iot
 from sentrix_ml.splits import stratified_split
 from sentrix_ml.preprocessing import PreprocessingPipeline
 from sentrix_ml.training import train_rf, build_cnn_model, train_cnn
-from sentrix_ml.inference import hybrid_predict
-from sentrix_ml.evaluation import compute_metrics, format_metrics_for_api
-from sentrix_ml.packaging import create_package, validate_package
+from sentrix_ml.evaluation import compute_multimode_metrics, save_prediction_evidence
+from sentrix_ml.packaging import create_package, validate_package, file_sha256
 
 
 def parse_args():
@@ -62,6 +59,24 @@ def run_train_source(args=None):
     print("      SENTRi-X: Source Model Training Pipeline (ToN-IoT)")
     print(f"      Run Type: {args.run_type.upper()} | Seed: {args.seed}")
     print("=" * 70)
+
+    # Step 0: Dependency check
+    try:
+        import tensorflow as tf
+        has_tf = True
+        # Set seeds for determinism
+        tf.random.set_seed(args.seed)
+    except ImportError:
+        has_tf = False
+        if args.run_type == "full":
+            print("\nFATAL ERROR: TensorFlow is required for full model training.", file=sys.stderr)
+            print("Cannot substitute a mock CNN for a full training run.", file=sys.stderr)
+            print("Please run this command in an environment with TensorFlow installed (e.g. WSL venv).", file=sys.stderr)
+            sys.exit(1)
+        else:
+            print("\nWARNING: TensorFlow not installed. Running in mock smoke mode.")
+
+    np.random.seed(args.seed)
 
     # 1. Ingestion
     print(f"\n[Step 1] Loading raw ToN-IoT data from {args.data_dir} (sample_n={args.sample_n})...")
@@ -106,8 +121,7 @@ def run_train_source(args=None):
 
     # 5. Train CNN
     print(f"\n[Step 5] Training 1D-CNN (epochs={args.cnn_epochs}, batch_size={args.batch_size})...")
-    try:
-        import tensorflow as tf
+    if has_tf:
         cnn_model, history = train_cnn(
             X_train_scaled,
             y_train,
@@ -117,51 +131,83 @@ def run_train_source(args=None):
             batch_size=args.batch_size,
             verbose=1,
         )
-        has_tf = True
-    except ImportError:
-        print("TensorFlow not installed in current interpreter; using lightweight mock CNN for plumbing.")
+    else:
         class MockCNN:
             def predict(self, X_3d, verbose=0):
                 return np.ones((len(X_3d), 1)) * 0.5
         cnn_model = MockCNN()
-        has_tf = False
 
-    # 6. Independent Holdout Evaluation
-    print("\n[Step 6] Evaluating Hybrid Ensemble on independent test holdout...")
-    preds, probs, p_rf, p_cnn = hybrid_predict(
-        X_test_scaled, rf_model=rf_model, cnn_model=cnn_model, mode="hybrid"
-    )
-    eval_result = compute_metrics(
-        y_true=y_test.to_numpy(dtype=int),
-        y_pred=preds,
-        y_proba=probs,
-        domain="ton_iot",
-        mode="hybrid",
-        run_type=args.run_type,
-    )
-    print(f"Holdout Results: Accuracy={eval_result.accuracy:.4f}, "
-          f"Precision={eval_result.precision:.4f}, Recall={eval_result.recall:.4f}, "
-          f"F1={eval_result.f1:.4f}, ROC_AUC={eval_result.roc_auc}")
+    # 6. Multi-Mode Independent Holdout Evaluation
+    print("\n[Step 6] Evaluating RF, CNN, and Hybrid modes on independent test holdout...")
+    p_rf = rf_model.predict_proba(X_test_scaled)[:, 1]
+    if has_tf:
+        X_test_3d = X_test_scaled.reshape(X_test_scaled.shape[0], NUM_FEATURES, 1)
+        p_cnn = cnn_model.predict(X_test_3d, verbose=0).reshape(-1)
+    else:
+        p_cnn = np.ones(len(X_test_scaled)) * 0.5
+    p_hybrid = (p_rf + p_cnn) / 2.0
 
-    # 7. Package Candidate
+    y_test_arr = y_test.to_numpy(dtype=int)
+
+    # 7. Package Candidate in Temporary Staging Area
     out_dir = Path(args.output_dir)
-    print(f"\n[Step 7] Assembling model package into: {out_dir}")
+    print(f"\n[Step 7] Assembling and hashing model package into: {out_dir}")
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp_path = Path(tmpdir)
-        rf_path = tmp_path / "rf.joblib"
-        cnn_path = tmp_path / "cnn.h5"
-        pipe_path = tmp_path / "pipe.joblib"
+        rf_path = tmp_path / "rf_model.joblib"
+        cnn_path = tmp_path / "cnn_model.h5"
+        pipe_path = tmp_path / "pipeline.joblib"
         split_path = tmp_path / "split_manifest.json"
-        eval_path = tmp_path / "eval_metrics.json"
+        evidence_path = tmp_path / "prediction_evidence.csv"
+        eval_path = tmp_path / "evaluation_metrics.json"
 
         joblib.dump(rf_model, rf_path)
         if has_tf:
             cnn_model.save(cnn_path)
         else:
-            cnn_path.write_bytes(b"mock_cnn_weights_placeholder")
+            cnn_path.write_bytes(b"mock_cnn_smoke_placeholder")
+
         pipeline.save(pipe_path)
         split_manifest.save(split_path)
+
+        rf_hash = file_sha256(rf_path)
+        cnn_hash = file_sha256(cnn_path)
+        pipe_hash = file_sha256(pipe_path)
+        split_hash = file_sha256(split_path)
+
+        # Save prediction-level evidence CSV
+        evidence_hash = save_prediction_evidence(
+            evidence_path,
+            y_true=y_test_arr,
+            p_rf=p_rf,
+            p_cnn=p_cnn,
+            p_hybrid=p_hybrid,
+            sample_ids=list(X_test.index),
+        )
+
+        # Compute multi-mode metrics with bound artifact hashes
+        eval_result = compute_multimode_metrics(
+            y_true=y_test_arr,
+            p_rf=p_rf,
+            p_cnn=p_cnn,
+            p_hybrid=p_hybrid,
+            domain="ton_iot",
+            run_type=args.run_type,
+            dataset="ton_iot",
+            evaluation_split="independent_test_holdout",
+            rf_hash=rf_hash,
+            cnn_hash=cnn_hash,
+            preprocessor_hash=pipe_hash,
+            split_manifest_file="split_manifest.json",
+            split_manifest_hash=split_hash,
+            evidence_file="prediction_evidence.csv",
+            evidence_hash=evidence_hash,
+        )
         eval_result.save(eval_path)
+
+        for m_name in ("rf", "cnn", "hybrid"):
+            m = eval_result.modes[m_name]
+            print(f"  * Mode [{m_name.upper():6s}]: Acc={m['accuracy']:.4f}, Prec={m['precision']:.4f}, Rec={m['recall']:.4f}, F1={m['f1']:.4f}, AUC={m['roc_auc']}")
 
         manifest = create_package(
             output_dir=out_dir,
@@ -171,14 +217,16 @@ def run_train_source(args=None):
             pipeline_path=pipe_path,
             split_manifest_path=split_path,
             evaluation_path=eval_path,
+            evidence_path=evidence_path,
             training_config=vars(args),
             run_type=args.run_type,
+            is_mock=not has_tf,
             notes=f"Source ToN-IoT candidate trained with seed {args.seed}",
         )
 
     # 8. Validate Package
     print("\n[Step 8] Validating package integrity...")
-    validated = validate_package(out_dir)
+    validated = validate_package(out_dir, strict_deployable=(args.run_type == "full"))
     print(f"Validation SUCCESS! Package manifest verified in {out_dir}")
 
     elapsed = time.time() - start_time

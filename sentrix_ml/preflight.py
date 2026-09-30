@@ -1,20 +1,23 @@
 """Data and environment preflight verification script for SENTRi-X.
 
-Verifies:
-1. Python environment and required ML libraries
-2. Available system RAM and disk space
-3. Raw datasets accessibility, sample loading, and 28-feature schema alignment
-4. Active database and deployment state integrity
+Guarantees:
+* Readiness depends strictly on successful adapter test-runs and valid outputs
+* Adapter failures immediately mark dataset status as FAILED
+* Exit code is non-zero (1) on any blocking failure
+* Scoped to requested target domain (--target all|ton_iot|bot_iot|cic_ids2017|omni)
+* Exact dataset paths matching training loaders
 
 Usage:
     python -m sentrix_ml.preflight
+    python -m sentrix_ml.preflight --target ton_iot --require-tf
 """
 
 from __future__ import annotations
 
+import argparse
+import glob
 import os
 import sys
-import glob
 from pathlib import Path
 
 import numpy as np
@@ -23,10 +26,26 @@ import pandas as pd
 from sentrix_ml.schema import EXPECTED_FEATURES, NUM_FEATURES, SCHEMA_VERSION
 
 
-def check_environment() -> dict:
+def parse_args():
+    parser = argparse.ArgumentParser(description="SENTRi-X Preflight Verification")
+    parser.add_argument(
+        "--target",
+        choices=["all", "ton_iot", "bot_iot", "cic_ids2017", "omni"],
+        default="all",
+        help="Target scope for preflight check",
+    )
+    parser.add_argument(
+        "--require-tf",
+        action="store_true",
+        help="Require TensorFlow to be installed (mandatory before full training runs)",
+    )
+    return parser.parse_args()
+
+
+def check_environment(require_tf: bool = False) -> tuple[dict, bool]:
     info = {"python_version": sys.version.split()[0]}
-    
-    # Check packages
+    has_blocking_error = False
+
     packages = {
         "numpy": "numpy",
         "pandas": "pandas",
@@ -39,16 +58,21 @@ def check_environment() -> dict:
             m = __import__(mod)
             info[name] = getattr(m, "__version__", "installed")
         except ImportError:
-            info[name] = "MISSING"
+            info[name] = "MISSING [BLOCKING]"
+            has_blocking_error = True
 
-    # TensorFlow check (optional on Windows, required in WSL for CNN training)
+    # TensorFlow check
     try:
         import tensorflow as tf
         info["tensorflow"] = tf.__version__
     except ImportError:
-        info["tensorflow"] = "NOT INSTALLED (mock fallback available for smoke runs; required for full retraining)"
+        if require_tf:
+            info["tensorflow"] = "MISSING [BLOCKING for full training]"
+            has_blocking_error = True
+        else:
+            info["tensorflow"] = "NOT INSTALLED (mock fallback allowed for smoke tests only)"
 
-    # Hardware resource check
+    # Hardware resources
     try:
         import psutil
         vm = psutil.virtual_memory()
@@ -59,128 +83,160 @@ def check_environment() -> dict:
     except Exception as e:
         info["resources_error"] = str(e)
 
-    return info
+    return info, not has_blocking_error
 
 
-def check_datasets(project_root: Path) -> dict:
-    results = {}
-    data_dir = project_root / "data" / "raw"
+def check_ton_iot(data_dir: Path) -> dict:
+    ton_files = sorted(glob.glob(str(data_dir / "Network_dataset_*.csv")))
+    if not ton_files:
+        return {"status": "MISSING", "path": str(data_dir), "error": "No raw CSV files matching Network_dataset_*.csv found."}
 
-    # 1. ToN-IoT
-    ton_dir = data_dir / "ton_iot"
-    ton_files = sorted(glob.glob(str(ton_dir / "Network_dataset_*.csv")))
-    if ton_files:
-        total_size_mb = sum(os.path.getsize(f) for f in ton_files) / (1024 * 1024)
-        results["ton_iot"] = {
-            "status": "READY",
-            "file_count": len(ton_files),
-            "total_size_mb": round(total_size_mb, 1),
-            "sample_file": os.path.basename(ton_files[0]),
-        }
-        # Test adapter load
-        try:
-            from sentrix_ml.adapters.ton_iot import load_ton_iot
-            X, y, info = load_ton_iot(ton_dir, max_files=1, nrows_per_file=50)
-            results["ton_iot"]["adapter_test"] = f"PASS (shape={X.shape}, labels={dict(y.value_counts())})"
-        except Exception as e:
-            results["ton_iot"]["adapter_test"] = f"FAIL: {e}"
-    else:
-        results["ton_iot"] = {"status": "MISSING", "path": str(ton_dir)}
+    total_size_mb = sum(os.path.getsize(f) for f in ton_files) / (1024 * 1024)
+    res = {
+        "status": "CHECKING",
+        "file_count": len(ton_files),
+        "total_size_mb": round(total_size_mb, 1),
+        "sample_file": os.path.basename(ton_files[0]),
+    }
 
-    # 2. BoT-IoT
-    bot_dir = data_dir / "bot_iot"
-    bot_files = sorted(glob.glob(str(bot_dir / "UNSW_2018_IoT_Botnet_Full5pc_*.csv")))
-    mapped_bot = project_root / "bot_iot_mapped.csv"
-    if bot_files or mapped_bot.exists():
-        results["bot_iot"] = {
-            "status": "READY",
-            "raw_chunks": len(bot_files),
-            "mapped_fallback_available": mapped_bot.exists(),
-        }
-        try:
-            from sentrix_ml.adapters.bot_iot import load_bot_iot
-            X, y, info = load_bot_iot(bot_dir, max_files=1, nrows_per_file=50)
-            results["bot_iot"]["adapter_test"] = f"PASS (shape={X.shape}, labels={dict(y.value_counts())})"
-        except Exception as e:
-            results["bot_iot"]["adapter_test"] = f"FAIL: {e}"
-    else:
-        results["bot_iot"] = {"status": "MISSING", "path": str(bot_dir)}
+    try:
+        from sentrix_ml.adapters.ton_iot import load_ton_iot
+        X, y, info = load_ton_iot(data_dir, max_files=1, sample_n=50)
+        if len(X) == 0 or len(y) == 0:
+            res["status"] = "FAILED"
+            res["error"] = "Adapter returned 0 rows."
+            return res
+        if X.shape[1] != NUM_FEATURES or list(X.columns) != EXPECTED_FEATURES:
+            res["status"] = "FAILED"
+            res["error"] = f"Schema mismatch: got {X.shape[1]} features, expected {NUM_FEATURES}."
+            return res
+        res["status"] = "READY"
+        res["adapter_test"] = f"PASS (shape={X.shape}, labels={dict(y.value_counts())})"
+        res["exclusions"] = info.get("exclusion_reasons", {})
+    except Exception as e:
+        res["status"] = "FAILED"
+        res["error"] = str(e)
 
-    # 3. CIC-IDS2017
-    cic_dir = data_dir / "cic_ids2017"
-    cic_files = sorted([f for f in glob.glob(str(cic_dir / "*.csv")) if not f.endswith("mapped.csv")])
-    mapped_cic = project_root / "cic_ids2017_mapped.csv"
-    if cic_files or mapped_cic.exists():
-        results["cic_ids2017"] = {
-            "status": "READY",
-            "raw_files": len(cic_files),
-            "mapped_fallback_available": mapped_cic.exists(),
-        }
-        try:
-            from sentrix_ml.adapters.cic_ids2017 import load_cic_ids2017
-            X, y, info = load_cic_ids2017(cic_dir, max_files=1, nrows_per_file=50)
-            results["cic_ids2017"]["adapter_test"] = f"PASS (shape={X.shape}, labels={dict(y.value_counts())})"
-        except Exception as e:
-            results["cic_ids2017"]["adapter_test"] = f"FAIL: {e}"
-    else:
-        results["cic_ids2017"] = {"status": "MISSING", "path": str(cic_dir)}
-
-    return results
+    return res
 
 
-def check_deployment_state(project_root: Path) -> dict:
-    info = {}
-    db_path = project_root / "data" / "sentrix.db"
-    if db_path.exists():
-        info["database"] = f"EXISTS ({round(db_path.stat().st_size / 1024, 1)} KB)"
-    else:
-        info["database"] = "NOT FOUND (will be created on first flow)"
+def check_bot_iot(data_dir: Path) -> dict:
+    bot_files = sorted(glob.glob(str(data_dir / "UNSW_2018_IoT_Botnet_Full5pc_*.csv")))
+    if not bot_files:
+        return {"status": "MISSING", "path": str(data_dir), "error": "No raw BoT-IoT CSV chunks found."}
 
-    candidates_dir = project_root / "models" / "candidates"
-    if candidates_dir.exists():
-        candidates = [d.name for d in candidates_dir.iterdir() if d.is_dir()]
-        info["candidates"] = candidates
-    else:
-        info["candidates"] = []
+    total_size_mb = sum(os.path.getsize(f) for f in bot_files) / (1024 * 1024)
+    res = {
+        "status": "CHECKING",
+        "file_count": len(bot_files),
+        "total_size_mb": round(total_size_mb, 1),
+        "sample_file": os.path.basename(bot_files[0]),
+    }
 
-    return info
+    try:
+        from sentrix_ml.adapters.bot_iot import load_bot_iot
+        X, y, info = load_bot_iot(data_dir, max_files=1, sample_n=50)
+        if len(X) == 0 or len(y) == 0:
+            res["status"] = "FAILED"
+            res["error"] = "Adapter returned 0 rows."
+            return res
+        if X.shape[1] != NUM_FEATURES or list(X.columns) != EXPECTED_FEATURES:
+            res["status"] = "FAILED"
+            res["error"] = f"Schema mismatch: got {X.shape[1]} features, expected {NUM_FEATURES}."
+            return res
+        res["status"] = "READY"
+        res["adapter_test"] = f"PASS (shape={X.shape}, labels={dict(y.value_counts())})"
+        res["exclusions"] = info.get("exclusion_reasons", {})
+        res["unresolved_mappings"] = info.get("unresolved_mappings", [])
+    except Exception as e:
+        res["status"] = "FAILED"
+        res["error"] = str(e)
+
+    return res
+
+
+def check_cic_ids2017(data_dir: Path) -> dict:
+    cic_files = sorted([f for f in glob.glob(str(data_dir / "*.csv")) if not f.endswith("mapped.csv")])
+    if not cic_files:
+        return {"status": "MISSING", "path": str(data_dir), "error": "No raw CIC-IDS2017 CSV files found."}
+
+    total_size_mb = sum(os.path.getsize(f) for f in cic_files) / (1024 * 1024)
+    res = {
+        "status": "CHECKING",
+        "file_count": len(cic_files),
+        "total_size_mb": round(total_size_mb, 1),
+        "sample_file": os.path.basename(cic_files[0]),
+    }
+
+    try:
+        from sentrix_ml.adapters.cic_ids2017 import load_cic_ids2017
+        X, y, info = load_cic_ids2017(data_dir, max_files=1, sample_n=50)
+        if len(X) == 0 or len(y) == 0:
+            res["status"] = "FAILED"
+            res["error"] = "Adapter returned 0 rows."
+            return res
+        if X.shape[1] != NUM_FEATURES or list(X.columns) != EXPECTED_FEATURES:
+            res["status"] = "FAILED"
+            res["error"] = f"Schema mismatch: got {X.shape[1]} features, expected {NUM_FEATURES}."
+            return res
+        res["status"] = "READY"
+        res["adapter_test"] = f"PASS (shape={X.shape}, labels={dict(y.value_counts())})"
+        res["duration_unit"] = info.get("duration_unit", "seconds")
+        res["exclusions"] = info.get("exclusion_reasons", {})
+    except Exception as e:
+        res["status"] = "FAILED"
+        res["error"] = str(e)
+
+    return res
 
 
 def run_preflight():
+    args = parse_args()
     project_root = Path(__file__).resolve().parent.parent
-    print("=" * 70)
+    data_dir = project_root / "data" / "raw"
+
+    print("=" * 75)
     print("           SENTRi-X ML Pipeline: Preflight Verification")
-    print(f"           Schema: {SCHEMA_VERSION} ({NUM_FEATURES} features)")
-    print("=" * 70)
+    print(f"           Schema: {SCHEMA_VERSION} ({NUM_FEATURES} features) | Scope: {args.target.upper()}")
+    print("=" * 75)
 
     print("\n[1] Environment & Dependencies:")
-    env = check_environment()
-    for k, v in env.items():
+    env_info, env_ok = check_environment(require_tf=args.require_tf)
+    for k, v in env_info.items():
         print(f"  - {k:22s}: {v}")
 
     print("\n[2] Raw Datasets & Schema Adapters:")
-    datasets = check_datasets(project_root)
-    all_ready = True
+    datasets = {}
+    if args.target in ("all", "ton_iot", "omni"):
+        datasets["ton_iot"] = check_ton_iot(data_dir / "ton_iot")
+    if args.target in ("all", "bot_iot", "omni"):
+        datasets["bot_iot"] = check_bot_iot(data_dir / "bot_iot")
+    if args.target in ("all", "cic_ids2017", "omni"):
+        datasets["cic_ids2017"] = check_cic_ids2017(data_dir / "cic_ids2017")
+
+    datasets_ok = True
     for name, details in datasets.items():
-        status = details.get("status", "UNKNOWN")
-        print(f"  * {name.upper()}: [{status}]")
+        st = details.get("status", "UNKNOWN")
+        print(f"  * {name.upper()}: [{st}]")
         for k, v in details.items():
             if k != "status":
                 print(f"      {k}: {v}")
-        if status != "READY":
-            all_ready = False
+        if st != "READY":
+            datasets_ok = False
 
-    print("\n[3] Deployment State & Candidates:")
-    dep = check_deployment_state(project_root)
-    for k, v in dep.items():
-        print(f"  - {k:22s}: {v}")
-
-    print("\n" + "=" * 70)
-    if all_ready:
-        print("PREFLIGHT STATUS: ALL CRITICAL DATASETS AND ADAPTERS READY FOR TRAINING")
+    print("\n" + "=" * 75)
+    if env_ok and datasets_ok:
+        print(f"PREFLIGHT STATUS: READY FOR TRAINING ({args.target.upper()})")
+        print("=" * 75)
+        sys.exit(0)
     else:
-        print("PREFLIGHT STATUS: WARNING - SOME DATASETS ARE MISSING OR PARTIAL")
-    print("=" * 70)
+        print("PREFLIGHT STATUS: FAILED — BLOCKING ISSUES DETECTED")
+        if not env_ok:
+            print("  ! Environment dependencies missing.")
+        if not datasets_ok:
+            print("  ! One or more required dataset adapters failed or files are missing.")
+        print("=" * 75)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

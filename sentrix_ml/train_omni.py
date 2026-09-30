@@ -1,18 +1,17 @@
 """Multi-domain Omni Model Training Pipeline.
 
 Pipeline:
-1. Ingests samples from ToN-IoT, BoT-IoT, and CIC-IDS2017 with domain tracking
-2. Combines them into a canonical multi-domain pool (all 28 features encoded)
-3. Stratified disjoint split: 80% train+val, 20% holdout test pool
+1. Validates environment dependencies (TensorFlow required for full run)
+2. Ingests bounded samples from ToN-IoT, BoT-IoT, and CIC-IDS2017 with domain tracking
+3. Combines them into a canonical multi-domain pool (all 28 features encoded)
+4. Stratified disjoint split: 80% train+val, 20% holdout test pool
    - Within train pool: 90% training, 10% validation
-4. Fits PreprocessingPipeline strictly on training partition
-5. Trains Random Forest on training partition ONLY (no refitting on test data)
-6. Trains 1D CNN on training partition with explicit validation data
-7. Evaluates on combined holdout test pool AND per-domain holdout slices
-8. Packages artifacts and validates integrity
-
-Usage:
-    python -m sentrix_ml.train_omni --sample-per-domain 10000 --epochs 5 --run-type smoke
+5. Fits PreprocessingPipeline strictly on training partition
+6. Trains Random Forest on training partition ONLY (no refitting on test data)
+7. Trains 1D CNN on training partition with explicit validation data
+8. Evaluates RF, CNN, and Hybrid on combined holdout test pool AND per-domain holdouts
+9. Exports prediction-level evidence CSV
+10. Packages artifacts and validates integrity
 """
 
 from __future__ import annotations
@@ -34,9 +33,8 @@ from sentrix_ml.adapters.cic_ids2017 import load_cic_ids2017
 from sentrix_ml.splits import stratified_split
 from sentrix_ml.preprocessing import PreprocessingPipeline
 from sentrix_ml.training import train_rf, build_cnn_model, train_cnn
-from sentrix_ml.inference import hybrid_predict
-from sentrix_ml.evaluation import compute_metrics
-from sentrix_ml.packaging import create_package, validate_package
+from sentrix_ml.evaluation import compute_multimode_metrics, save_prediction_evidence
+from sentrix_ml.packaging import create_package, validate_package, file_sha256
 
 
 def parse_args():
@@ -64,8 +62,24 @@ def run_train_omni(args=None):
     print(f"      Run Type: {args.run_type.upper()} | Seed: {args.seed}")
     print("=" * 70)
 
+    # Step 0: Dependency check
+    try:
+        import tensorflow as tf
+        has_tf = True
+        tf.random.set_seed(args.seed)
+    except ImportError:
+        has_tf = False
+        if args.run_type == "full":
+            print("\nFATAL ERROR: TensorFlow is required for full model training.", file=sys.stderr)
+            print("Cannot substitute a mock CNN for a full Omni training run.", file=sys.stderr)
+            sys.exit(1)
+        else:
+            print("\nWARNING: TensorFlow not installed. Running in mock smoke mode.")
+
+    np.random.seed(args.seed)
+
     # 1. Ingest from 3 domains
-    print(f"\n[Step 1] Ingesting {args.sample_per_domain} rows from each domain...")
+    print(f"\n[Step 1] Ingesting bounded {args.sample_per_domain} rows from each domain...")
     project_root = Path(__file__).resolve().parent.parent
     
     # Domain 1: ToN-IoT
@@ -124,8 +138,7 @@ def run_train_omni(args=None):
 
     # 5. Train Deployment CNN
     print(f"\n[Step 5] Training Omni 1D-CNN (epochs={args.cnn_epochs})...")
-    try:
-        import tensorflow as tf
+    if has_tf:
         cnn_model, history = train_cnn(
             X_train_scaled,
             y_train,
@@ -135,69 +148,91 @@ def run_train_omni(args=None):
             batch_size=args.batch_size,
             verbose=1,
         )
-        has_tf = True
-    except ImportError:
-        print("TensorFlow not installed in current interpreter; using mock CNN for plumbing.")
+    else:
         class MockCNN:
             def predict(self, X_3d, verbose=0):
                 return np.ones((len(X_3d), 1)) * 0.5
         cnn_model = MockCNN()
-        has_tf = False
 
-    # 6. Evaluation (Combined and Per-Domain Holdout)
-    print("\n[Step 6] Evaluating on Combined Holdout Test Set...")
-    preds, probs, p_rf, p_cnn = hybrid_predict(
-        X_test_scaled, rf_model=rf_model, cnn_model=cnn_model, mode="hybrid"
-    )
-    eval_result = compute_metrics(
-        y_true=y_test.to_numpy(dtype=int),
-        y_pred=preds,
-        y_proba=probs,
-        domain="omni",
-        mode="hybrid",
-        run_type=args.run_type,
-    )
-    print(f"Combined Omni Holdout ({len(y_test)} samples): "
-          f"Accuracy={eval_result.accuracy:.4f}, Precision={eval_result.precision:.4f}, "
-          f"Recall={eval_result.recall:.4f}, F1={eval_result.f1:.4f}, ROC_AUC={eval_result.roc_auc}")
+    # 6. Evaluation across RF, CNN, and Hybrid (Combined and Per-Domain Holdout)
+    print("\n[Step 6] Evaluating RF, CNN, and Hybrid on Combined Holdout Test Set...")
+    p_rf = rf_model.predict_proba(X_test_scaled)[:, 1]
+    if has_tf:
+        X_test_3d = X_test_scaled.reshape(X_test_scaled.shape[0], NUM_FEATURES, 1)
+        p_cnn = cnn_model.predict(X_test_3d, verbose=0).reshape(-1)
+    else:
+        p_cnn = np.ones(len(X_test_scaled)) * 0.5
+    p_hybrid = (p_rf + p_cnn) / 2.0
 
-    print("\n--- Per-Domain Holdout Slices ---")
-    for dom in ["ton_iot", "bot_iot", "cic_ids2017"]:
-        mask = (test_domains == dom).to_numpy()
-        if np.any(mask):
-            dom_y_true = y_test.to_numpy(dtype=int)[mask]
-            dom_preds = preds[mask]
-            dom_probs = probs[mask]
-            dom_eval = compute_metrics(
-                y_true=dom_y_true,
-                y_pred=dom_preds,
-                y_proba=dom_probs,
-                domain=f"omni_slice_{dom}",
-                mode="hybrid",
-                run_type=args.run_type,
-            )
-            print(f"  * {dom.upper():12s} ({np.sum(mask):5d} samples): "
-                  f"Acc={dom_eval.accuracy:.4f}, F1={dom_eval.f1:.4f}, Prec={dom_eval.precision:.4f}, Rec={dom_eval.recall:.4f}")
+    y_test_arr = y_test.to_numpy(dtype=int)
 
-    # 7. Package Candidate
+    # 7. Package Candidate in Temporary Staging Area
     out_dir = Path(args.output_dir)
-    print(f"\n[Step 7] Packaging Omni candidate into: {out_dir}")
+    print(f"\n[Step 7] Assembling and hashing Omni candidate package into: {out_dir}")
     with tempfile.TemporaryDirectory() as tmpdir:
         tmp_path = Path(tmpdir)
-        rf_path = tmp_path / "rf.joblib"
-        cnn_path = tmp_path / "cnn.h5"
-        pipe_path = tmp_path / "pipe.joblib"
+        rf_path = tmp_path / "rf_model.joblib"
+        cnn_path = tmp_path / "cnn_model.h5"
+        pipe_path = tmp_path / "pipeline.joblib"
         split_path = tmp_path / "split_manifest.json"
-        eval_path = tmp_path / "eval_metrics.json"
+        evidence_path = tmp_path / "prediction_evidence.csv"
+        eval_path = tmp_path / "evaluation_metrics.json"
 
         joblib.dump(rf_model, rf_path)
         if has_tf:
             cnn_model.save(cnn_path)
         else:
             cnn_path.write_bytes(b"mock_cnn_omni_weights")
+
         pipeline.save(pipe_path)
         split_manifest.save(split_path)
+
+        rf_hash = file_sha256(rf_path)
+        cnn_hash = file_sha256(cnn_path)
+        pipe_hash = file_sha256(pipe_path)
+        split_hash = file_sha256(split_path)
+
+        # Save prediction-level evidence CSV
+        evidence_hash = save_prediction_evidence(
+            evidence_path,
+            y_true=y_test_arr,
+            p_rf=p_rf,
+            p_cnn=p_cnn,
+            p_hybrid=p_hybrid,
+            sample_ids=list(X_test.index),
+            domain_labels=list(test_domains),
+        )
+
+        # Compute multi-mode metrics including per-domain holdouts
+        eval_result = compute_multimode_metrics(
+            y_true=y_test_arr,
+            p_rf=p_rf,
+            p_cnn=p_cnn,
+            p_hybrid=p_hybrid,
+            domain="omni",
+            run_type=args.run_type,
+            dataset="omni",
+            evaluation_split="omni_combined_test_holdout",
+            rf_hash=rf_hash,
+            cnn_hash=cnn_hash,
+            preprocessor_hash=pipe_hash,
+            split_manifest_file="split_manifest.json",
+            split_manifest_hash=split_hash,
+            evidence_file="prediction_evidence.csv",
+            evidence_hash=evidence_hash,
+            domain_labels=test_domains.to_numpy(),
+        )
         eval_result.save(eval_path)
+
+        for m_name in ("rf", "cnn", "hybrid"):
+            m = eval_result.modes[m_name]
+            print(f"  * Combined [{m_name.upper():6s}]: Acc={m['accuracy']:.4f}, Prec={m['precision']:.4f}, Rec={m['recall']:.4f}, F1={m['f1']:.4f}, AUC={m['roc_auc']}")
+
+        print("\n--- Per-Domain Holdout Results (Hybrid) ---")
+        for dom, dom_res in eval_result.per_domain.items():
+            dh = dom_res["hybrid"]
+            print(f"  * {dom.upper():12s} ({dom_res['sample_count']:5d} samples): "
+                  f"Acc={dh['accuracy']:.4f}, F1={dh['f1']:.4f}, Prec={dh['precision']:.4f}, Rec={dh['recall']:.4f}")
 
         manifest = create_package(
             output_dir=out_dir,
@@ -207,13 +242,15 @@ def run_train_omni(args=None):
             pipeline_path=pipe_path,
             split_manifest_path=split_path,
             evaluation_path=eval_path,
+            evidence_path=evidence_path,
             training_config=vars(args),
             run_type=args.run_type,
+            is_mock=not has_tf,
             notes=f"Omni multi-domain candidate trained with seed {args.seed}",
         )
 
     print("\n[Step 8] Validating package integrity...")
-    validated = validate_package(out_dir)
+    validated = validate_package(out_dir, strict_deployable=(args.run_type == "full"))
     print(f"Validation SUCCESS! Package manifest verified in {out_dir}")
 
     elapsed = time.time() - start_time

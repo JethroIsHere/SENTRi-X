@@ -52,8 +52,30 @@ EXPECTED_FEATURES: list[str] = [
 
 NUM_FEATURES = len(EXPECTED_FEATURES)  # 28
 
-# Indices for convenience
-NUMERIC_FEATURE_NAMES: list[str] = EXPECTED_FEATURES[:14]
+# Core flow features that MUST be present and valid numeric (non-negative, finite)
+REQUIRED_NUMERIC_FEATURES: list[str] = [
+    "duration",
+    "src_bytes",
+    "dst_bytes",
+    "src_pkts",
+    "dst_pkts",
+]
+
+# Optional flow measurements: if missing, empty, or '-' in raw data, impute with 0.0
+OPTIONAL_NUMERIC_FEATURES: list[str] = [
+    "missed_bytes",
+    "src_ip_bytes",
+    "dst_ip_bytes",
+    "dns_qclass",
+    "dns_qtype",
+    "dns_rcode",
+    "http_request_body_len",
+    "http_response_body_len",
+    "http_status_code",
+]
+
+# Indices and groups for convenience
+NUMERIC_FEATURE_NAMES: list[str] = REQUIRED_NUMERIC_FEATURES + OPTIONAL_NUMERIC_FEATURES
 PROTO_FEATURE_NAMES: list[str] = EXPECTED_FEATURES[14:16]
 CONN_STATE_FEATURE_NAMES: list[str] = EXPECTED_FEATURES[16:]
 
@@ -67,7 +89,7 @@ CONN_STATE_VOCAB: list[str] = [
 ]
 
 # Classification semantics
-CLASS_MAPPING: dict[int, str] = {0: "Benign", 1: "Attack"}
+CLASS_MAPPING: dict[str, str] = {"0": "Benign", "1": "Attack"}
 ATTACK_CLASS_INDEX = 1
 
 # ── Field documentation ─────────────────────────────────────────────
@@ -132,9 +154,9 @@ for cs in CONN_STATE_VOCAB:
 
 # ── Semantic flags for unresolved mappings ───────────────────────────
 UNRESOLVED_MAPPINGS: list[str] = [
-    "BoT-IoT TnBPSrcIP→src_ip_bytes: per-IP aggregate vs per-flow IP bytes",
-    "BoT-IoT TnBPDstIP→dst_ip_bytes: same aggregate caveat",
+    "BoT-IoT TnBPSrcIP->src_ip_bytes: per-IP aggregate vs per-flow IP bytes",
+    "BoT-IoT TnBPDstIP->dst_ip_bytes: same aggregate caveat",
     "CIC-IDS2017 duration: microseconds in raw CSV, converted to seconds by adapter",
-    "CIC-IDS2017 proto/conn_state: injected as 'other'/'OTH' — actual protocol unavailable",
+    "CIC-IDS2017 proto/conn_state: injected as 'other'/'OTH' - actual protocol unavailable",
     "Pi sensor byte semantics: pending verification of current sentrix_sensor.py",
 ]
