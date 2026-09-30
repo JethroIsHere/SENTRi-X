@@ -37,6 +37,8 @@ from sentrix_ml.schema import EXPECTED_FEATURES, NUM_FEATURES
 from sentrix_ml.preprocessing import PreprocessingPipeline, build_feature_row
 from sentrix_ml.inference import run_single_inference
 from sentrix_ml.packaging import validate_package, ModelManifest, PackageValidationError
+from sentrix_ml.evaluation import EvaluationResult, format_metrics_for_api
+from sentrix_ml.xai import create_lime_explainer, explain_with_lime, reference_shap_explanation, XAIProvenance
 
 app = FastAPI(title="SENTRi-X Backend API", description="Hybrid & Explainable NIDS Engine")
 
@@ -217,108 +219,91 @@ def update_core_model_label():
     system_status["cnn_online"] = (engine.cnn_model is not None) and (engine.execution_mode in ["cnn", "hybrid"])
 
 
-def load_models_and_data(target="omni", dataset="omni"):
+def load_models_and_data(target="omni", dataset="omni", is_startup=False):
+    """Stage and validate candidate model package before replacing engine state atomically.
+    Never mutates engine state on failure.
+    Does NOT fall back to unvalidated legacy files.
+    """
     print(f"Loading target '{target}' models and dataset '{dataset}'...")
-    
-    # Clear previous engine state before loading
-    engine.rf_model = None
-    engine.cnn_model = None
-    engine.pipeline = None
-    engine.scaler = None
-    engine.manifest = None
-    engine.package_dir = None
-    engine.df = None
-    engine.malicious_pool = None
-
-    # 1. First check if a validated candidate package exists in models/candidates/{target}
     candidates_dir = os.path.join(os.path.dirname(__file__), "..", "models", "candidates", target)
     manifest_path = os.path.join(candidates_dir, "manifest.json")
-    if os.path.exists(manifest_path):
-        try:
-            print(f"Found candidate package for '{target}' in {candidates_dir}. Validating manifest...")
-            manifest = validate_package(candidates_dir)
-            engine.manifest = manifest
-            engine.package_dir = candidates_dir
 
-            rf_path = os.path.join(candidates_dir, manifest.rf_file)
-            engine.rf_model = joblib.load(rf_path)
-            system_status["rf_online"] = True
-
-            cnn_path = os.path.join(candidates_dir, manifest.cnn_file)
-            from tensorflow.keras.models import load_model
-            engine.cnn_model = load_model(cnn_path, compile=False)
-            system_status["cnn_online"] = True
-
-            pipe_path = os.path.join(candidates_dir, manifest.preprocessor_file)
-            engine.pipeline = PreprocessingPipeline.load(pipe_path)
-            engine.scaler = engine.pipeline.scaler
-
-            print(f"Candidate package '{target}' successfully validated and activated!")
-            engine.current_dataset = dataset
-            engine.current_model = target
-            engine.last_error = None
-            update_core_model_label()
-            return
-        except Exception as e:
-            print(f"Candidate package validation/load failed: {e}")
-            engine.last_error = f"Package validation error: {e}"
-
-    # 2. Fallback to direct model files in models/ and scaler in data/processed/
-    if target == "omni":
-        rf_name = "rf_model_omni.joblib"
-        cnn_name = "cnn_model_omni.h5"
-    elif target == "ton_iot":
-        rf_name = "rf_model_ton_iot.joblib"
-        cnn_name = "cnn_model_ton_iot.h5"
-    elif target == "bot_iot":
-        rf_name = "rf_model_bot_iot_finetuned.joblib"
-        cnn_name = "cnn_model_bot_iot_finetuned.h5"
-    elif target == "cic_ids2017":
-        rf_name = "rf_model_cic_ids2017_finetuned.joblib"
-        cnn_name = "cnn_model_cic_ids2017_finetuned.h5"
-    else:
-        rf_name = f"rf_model_{target}.joblib"
-        cnn_name = f"cnn_model_{target}.h5"
-
-    model_path = os.path.join(os.path.dirname(__file__), "..", "models", rf_name)
-    if os.path.exists(model_path):
-        try:
-            engine.rf_model = joblib.load(model_path)
-            system_status["rf_online"] = True
-            print(f"Loaded RF: {rf_name}")
-        except Exception as e:
-            print(f"Error loading RF: {e}")
+    if not os.path.exists(manifest_path):
+        msg = f"No candidate package found for '{target}' in {candidates_dir}."
+        if is_startup:
+            print(f"Startup: {msg}")
             engine.rf_model = None
-
-    scaler_path = os.path.join(os.path.dirname(__file__), "..", "data", "processed", f"{dataset}_scaler.pkl")
-    if os.path.exists(scaler_path):
-        try:
-            loaded_scaler = joblib.load(scaler_path)
-            engine.pipeline = PreprocessingPipeline(scaler=loaded_scaler, is_fitted=True)
-            engine.scaler = loaded_scaler
-            print(f"Loaded scaler: {dataset}_scaler.pkl")
-        except Exception as e:
-            print(f"Error loading scaler: {e}")
+            engine.cnn_model = None
             engine.pipeline = None
             engine.scaler = None
-    else:
-        engine.pipeline = None
-        engine.scaler = None
+            engine.manifest = None
+            engine.package_dir = None
+            engine.current_dataset = dataset
+            engine.current_model = target
+            engine.last_error = msg
+            system_status["rf_online"] = False
+            system_status["cnn_online"] = False
+            update_core_model_label()
+            return
+        raise ValueError(msg)
 
-    cnn_path = os.path.join(os.path.dirname(__file__), "..", "models", cnn_name)
-    if os.path.exists(cnn_path):
+    # Stage candidate in local variables before modifying engine
+    try:
+        print(f"Found candidate package for '{target}' in {candidates_dir}. Validating manifest...")
+        manifest = validate_package(candidates_dir, strict_deployable=False, target_domain=target)
+
+        rf_path = os.path.join(candidates_dir, manifest.rf_file)
+        staged_rf = joblib.load(rf_path)
+
+        cnn_path = os.path.join(candidates_dir, manifest.cnn_file)
+        staged_cnn = None
         try:
             from tensorflow.keras.models import load_model
-            engine.cnn_model = load_model(cnn_path, compile=False)
-            system_status["cnn_online"] = True
-            print(f"Loaded CNN: {cnn_name}")
+            staged_cnn = load_model(cnn_path, compile=False)
         except Exception as e:
-            print(f"Error loading CNN: {e}")
-            engine.cnn_model = None
+            print(f"CNN load warning in {target}: {e}")
 
-    engine.current_dataset = dataset
-    engine.current_model = target
-    update_core_model_label()
+        pipe_path = os.path.join(candidates_dir, manifest.preprocessor_file)
+        staged_pipeline = PreprocessingPipeline.load(pipe_path)
+        staged_scaler = staged_pipeline.scaler
+
+        # Validate inference execution
+        if staged_rf is not None and staged_pipeline.is_fitted:
+            dummy_test = np.zeros((1, NUM_FEATURES), dtype=float)
+            staged_scaled = staged_pipeline.transform(dummy_test)
+            run_single_inference(staged_scaled, rf_model=staged_rf, cnn_model=staged_cnn, mode="hybrid")
+
+        # Atomic commit to engine state
+        engine.manifest = manifest
+        engine.package_dir = candidates_dir
+        engine.rf_model = staged_rf
+        engine.cnn_model = staged_cnn
+        engine.pipeline = staged_pipeline
+        engine.scaler = staged_scaler
+        engine.current_dataset = dataset
+        engine.current_model = target
+        engine.last_error = None
+        system_status["rf_online"] = staged_rf is not None
+        system_status["cnn_online"] = staged_cnn is not None
+        update_core_model_label()
+        print(f"Candidate package '{target}' successfully validated and activated!")
+    except Exception as exc:
+        print(f"Failed to load candidate package for '{target}': {exc}")
+        if is_startup:
+            engine.rf_model = None
+            engine.cnn_model = None
+            engine.pipeline = None
+            engine.scaler = None
+            engine.manifest = None
+            engine.package_dir = None
+            engine.current_dataset = dataset
+            engine.current_model = target
+            engine.last_error = f"Package validation failed: {exc}"
+            system_status["rf_online"] = False
+            system_status["cnn_online"] = False
+            update_core_model_label()
+            return
+        raise
 
 
 def prepare_feature_dataframe(packet_data):
@@ -359,50 +344,28 @@ def run_inference(inference_df):
 
 def reference_explanation(inference_df):
     """Expose provenance for reference explanations with active model domain validation."""
-    meta = {'shap_method': 'unavailable', 'shap_model': 'unknown', 'shap_target_class': None}
-    
-    # Check if stored SHAP belongs to active domain.
-    # Existing stored artifacts (shap_values_attack.npy, X_sample.pkl) originate from ToN-IoT.
-    # If active model is NOT ton_iot, reject reference SHAP lookup to prevent provenance mismatch!
-    if engine.current_model != "ton_iot":
-        meta["reason"] = f"Stored SHAP artifacts are from ToN-IoT; active model is '{engine.current_model}'."
-    else:
-        try:
-            sample = explainability.get('X_sample')
-            values = explainability.get('shap_values')
-            if sample is not None and values is not None:
-                common = [c for c in sample.columns if c in inference_df.columns]
-                if common:
-                    matrix = sample[common].to_numpy(dtype=float)
-                    target = inference_df[common].to_numpy(dtype=float)[0]
-                    idx = int(np.argmin(np.sum((matrix - target) ** 2, axis=1)))
-                    arr = np.asarray(values)
-                    n, features = len(sample), len(sample.columns)
-                    vector = None
-                    if arr.ndim == 2 and arr.shape == (n, features):
-                        vector = arr[idx]
-                    elif arr.ndim == 3 and arr.shape == (2, n, features):
-                        vector = arr[1, idx]
-                    elif arr.ndim == 3 and arr.shape == (n, features, 2):
-                        vector = arr[idx, :, 1]
-                    if vector is not None and np.all(np.isfinite(vector)):
-                        top = np.argsort(np.abs(vector))[-5:][::-1]
-                        meta.update(shap_method='reference_sample_shap', reference_index=idx,
-                                    shap_target_class=1, reference_file='shap_values_attack.npy')
-                        return [{'f': str(sample.columns[i]), 'v': float(vector[i])} for i in top], meta
-        except Exception as exc:
-            print(f'Reference explanation unavailable: {exc}')
-
-    # Global RF feature importance fallback
-    if engine.rf_model is not None and hasattr(engine.rf_model, 'feature_importances_'):
-        values = np.asarray(engine.rf_model.feature_importances_)
-        names = getattr(engine.rf_model, 'feature_names_in_', EXPECTED_FEATURES)
-        if len(values) == len(names) and np.all(np.isfinite(values)):
-            top = np.argsort(values)[-5:][::-1]
-            meta.update(shap_method='global_rf_importance', shap_model='random_forest')
-            return [{'f': str(names[i]), 'v': float(values[i])} for i in top], meta
-
-    return [], meta
+    prov = XAIProvenance(
+        model_domain="ton_iot",
+        model_hash=explainability.get("shap_model_hash"),
+        representation="scaled",
+    )
+    active_hash = engine.manifest.rf_hash if engine.manifest else None
+    res = reference_shap_explanation(
+        inference_df,
+        X_sample=explainability.get("X_sample"),
+        shap_values=explainability.get("shap_values"),
+        rf_model=engine.rf_model,
+        provenance=prov,
+        active_domain=engine.current_model,
+        active_model_hash=active_hash,
+    )
+    meta = {
+        "shap_method": res.method,
+        "shap_model": res.model or "unknown",
+        "shap_target_class": res.target_class,
+        "reason": res.reason,
+    }
+    return res.features, meta
 
 
 def record_threat_alert(packet_data, inference_df, confidence, source, flow_id=None):
@@ -467,7 +430,7 @@ async def startup_event():
     init_db()
     stored = load_settings(settings)
     settings.update(SettingsRequest(**stored).model_dump())
-    load_models_and_data('omni', 'omni')
+    load_models_and_data('omni', 'omni', is_startup=True)
     directory = os.path.join(os.path.dirname(__file__), '..', 'data', 'processed', 'explainability')
     for filename, key in [('shap_values_attack.npy', 'shap_values'), ('X_sample.pkl', 'X_sample'),
                           ('ripper_rules.txt', 'ripper_rules')]:
@@ -556,53 +519,20 @@ def get_db_stats():
 
 @app.get('/api/model-metrics')
 def get_model_metrics():
-    # 1. If active engine has a validated candidate package with evaluation file:
+    """Returns validated evaluation metrics for the active engine package and mode.
+    Returns available=False if no package, smoke run, missing/tampered evidence,
+    or hash mismatch against the active manifest. Legacy unverified metrics are removed.
+    """
     if engine.manifest and engine.manifest.evaluation_file and engine.package_dir:
         eval_path = os.path.join(engine.package_dir, engine.manifest.evaluation_file)
         if os.path.exists(eval_path):
             try:
-                with open(eval_path, encoding='utf-8') as f:
-                    data = json.load(f)
-                # Verify run_type is "full"
-                if data.get("run_type") == "full":
-                    metrics = {}
-                    for key in ('accuracy', 'precision', 'recall', 'f1', 'roc_auc'):
-                        val = data.get(key)
-                        if isinstance(val, (int, float)) and not isinstance(val, bool) and np.isfinite(val) and 0 <= val <= 1:
-                            metrics[key] = val
-                    return {
-                        'available': bool(metrics),
-                        'model': engine.current_model,
-                        'mode': engine.execution_mode,
-                        'dataset': data.get('dataset', engine.current_dataset),
-                        'evaluation_split': data.get('evaluation_split', 'independent_test_holdout'),
-                        'source': f"sentrix_ml package ({engine.manifest.package_version})",
-                        'metrics': metrics,
-                    }
-                else:
-                    return {'available': False, 'reason': 'Smoke evaluation metrics not published to API'}
+                eval_res = EvaluationResult.load(eval_path)
+                return format_metrics_for_api(eval_res, mode=engine.execution_mode, active_manifest=engine.manifest)
             except Exception as e:
                 print(f"Error reading package evaluation metrics: {e}")
-
-    # 2. Fallback to optional legacy model_metrics.json (only if valid full evaluation)
-    path = os.path.join(os.path.dirname(__file__), '..', 'data', 'processed', 'model_metrics.json')
-    try:
-        with open(path, encoding='utf-8') as file:
-            entry = json.load(file).get(engine.current_model, {}).get(engine.execution_mode)
-        if not isinstance(entry, dict) or not all(entry.get(k) for k in ('dataset', 'evaluation_split', 'source')):
-            return {'available': False}
-        if entry.get("run_type") == "smoke":
-            return {'available': False, 'reason': 'Smoke run metrics not published to API'}
-        metrics = {}
-        for key in ('accuracy', 'precision', 'recall', 'f1', 'roc_auc'):
-            value = entry.get(key)
-            if isinstance(value, (int, float)) and not isinstance(value, bool) and np.isfinite(value) and 0 <= value <= 1:
-                metrics[key] = value
-        return {'available': bool(metrics), 'model': engine.current_model, 'mode': engine.execution_mode,
-                'dataset': entry['dataset'], 'evaluation_split': entry['evaluation_split'],
-                'source': entry['source'], 'metrics': metrics}
-    except (OSError, ValueError, TypeError, AttributeError):
-        return {'available': False}
+                return {'available': False, 'reason': f"Evaluation read error: {e}"}
+    return {'available': False, 'reason': 'No validated evaluation evidence for active package'}
 
 
 @app.get('/api/explainability/ripper')
@@ -662,26 +592,45 @@ def clear_dashboard_data(request: ClearRequest = ClearRequest()):
 @app.post('/api/switch')
 def switch_engine(request: SwitchRequest):
     with engine_lock:
-        previous = vars(engine).copy()
+        previous_state = {
+            'manifest': engine.manifest,
+            'package_dir': engine.package_dir,
+            'rf_model': engine.rf_model,
+            'cnn_model': engine.cnn_model,
+            'pipeline': engine.pipeline,
+            'scaler': engine.scaler,
+            'current_dataset': engine.current_dataset,
+            'current_model': engine.current_model,
+            'execution_mode': engine.execution_mode,
+            'last_error': engine.last_error,
+        }
         engine.switching = True
         try:
             dataset = request.dataset or request.model_type
             if dataset != request.model_type:
                 raise ValueError('Model and preprocessing dataset must match.')
-            engine.execution_mode = request.mode
-            if (engine.current_model != request.model_type or engine.current_dataset != dataset
-                    or (request.mode in ('rf', 'hybrid') and engine.rf_model is None)
-                    or (request.mode in ('cnn', 'hybrid') and engine.cnn_model is None)):
-                load_models_and_data(request.model_type, dataset)
+            
+            need_load = (
+                engine.current_model != request.model_type
+                or engine.current_dataset != dataset
+                or (request.mode in ('rf', 'hybrid') and engine.rf_model is None)
+                or (request.mode in ('cnn', 'hybrid') and engine.cnn_model is None)
+            )
+            if need_load:
+                load_models_and_data(request.model_type, dataset, is_startup=False)
+
             if request.mode in ('rf', 'hybrid') and engine.rf_model is None:
                 raise ValueError('Requested Random Forest weights are unavailable.')
             if request.mode in ('cnn', 'hybrid') and engine.cnn_model is None:
                 raise ValueError('Requested CNN weights are unavailable.')
+            
+            engine.execution_mode = request.mode
             initialize_lime_explainer()
             engine.last_error = None
             update_core_model_label()
         except Exception as exc:
-            vars(engine).update(previous)
+            for k, v in previous_state.items():
+                setattr(engine, k, v)
             update_core_model_label()
             raise HTTPException(409, f'Switch not applied: {exc}') from exc
         finally:
