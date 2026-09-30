@@ -84,22 +84,44 @@ def run_suite():
             "test_item1_full_training_requires_tf_and_fails_safely",
             "test_item1_mock_artifacts_cannot_pass_deployment_validation",
             "test_item2_preflight_nonzero_on_missing_tf_when_required",
+            "test_item2_adapters_reject_label_only_csv",
+            "test_item2_chunked_sampling_covers_both_classes_on_ordered_file",
+            "test_item2_preflight_fails_on_single_class_data",
+            "test_item2_bot_iot_ip_bytes_policy_exclude",
             "test_item3_package_validation_rejects_wrong_schema_and_classes",
             "test_item3_package_validation_rejects_target_slot_mismatch",
+            "test_item3_backend_loader_rejects_mock_smoke_and_target_mismatch",
+            "test_item3_backend_loader_rejects_unfitted_pipeline",
+            "test_item3_failed_switch_rollback_via_api",
             "test_item4_parse_binary_flag_string_zero_is_false",
             "test_item4_contradictory_representations_rejected",
             "test_item4_canonical_encoding_agreement_across_types",
             "test_item4_pure_one_hot_series_retains_flags",
+            "test_item4_api_model_metrics_tampering_rejected",
+            "test_item4_metrics_missing_hashes_rejected",
             "test_item5_multimode_metrics_and_prediction_evidence",
             "test_item5_api_rejects_hash_tampering",
+            "test_item5_negative_numerics_rejected_by_both_encoders",
+            "test_item5_none_proto_with_one_hot_accepted_by_both",
+            "test_item5_comprehensive_batch_vs_single_row_equivalence",
             "test_item6_ton_iot_imputes_optional_dns_http_without_dropping_rows",
             "test_item6_cic_ids2017_converts_microseconds_to_seconds",
             "test_item7_reference_shap_rejects_cross_domain",
+            "test_item7_shap_without_hash_rejected_for_hashed_active_model",
+            "test_item8_adaptation_source_provenance_enforced",
+        ]),
+        ("T13: Rewritten Notebook Executions", "tests.test_notebook_executions", [
+            "test_notebook_01_etl_ton_iot",
+            "test_notebook_03_cnn_ton_iot",
+            "test_notebook_04_hybrid_fusion_ton_iot",
+            "test_notebook_06_universal_schema_mapper",
+            "test_notebook_07_cross_validation_bot_iot",
+            "test_notebook_10_omni_training",
         ]),
     ]
 
     print("=" * 70)
-    print("       SENTRi-X ML Pipeline Corrections — Test Suite (T1-T12)")
+    print("       SENTRi-X ML Pipeline Corrections — Test Suite (T1-T13)")
     print("=" * 70)
 
     total_passed = 0

@@ -94,23 +94,24 @@ def resolve_protocol(record: dict | pd.Series) -> dict[str, float]:
     text_proto = get_fn("proto")
     if text_proto is not None and not (isinstance(text_proto, float) and np.isnan(text_proto)) and text_proto != "":
         p_text = str(text_proto).strip().lower()
-        if true_flags:
-            flag_proto = true_flags[0]
-            if flag_proto != p_text:
-                raise EncodingError(
-                    f"Contradiction in protocol: proto='{p_text}' but proto_{flag_proto}=1"
-                )
-        for p in PROTO_VOCAB:
-            raw_flag = get_fn(f"proto_{p}")
-            if raw_flag is not None and not (isinstance(raw_flag, float) and np.isnan(raw_flag)) and raw_flag != "":
-                flag_val = active_flags[p]
-                if p == p_text and not flag_val:
+        if p_text not in ("none", "nan"):
+            if true_flags:
+                flag_proto = true_flags[0]
+                if flag_proto != p_text:
                     raise EncodingError(
-                        f"Contradiction in protocol: proto='{p_text}' but proto_{p}=0"
+                        f"Contradiction in protocol: proto='{p_text}' but proto_{flag_proto}=1"
                     )
-        return {f"proto_{p}": float(p == p_text) for p in PROTO_VOCAB}
-    else:
-        return {f"proto_{p}": float(active_flags[p]) for p in PROTO_VOCAB}
+            for p in PROTO_VOCAB:
+                raw_flag = get_fn(f"proto_{p}")
+                if raw_flag is not None and not (isinstance(raw_flag, float) and np.isnan(raw_flag)) and raw_flag != "":
+                    flag_val = active_flags[p]
+                    if p == p_text and not flag_val:
+                        raise EncodingError(
+                            f"Contradiction in protocol: proto='{p_text}' but proto_{p}=0"
+                        )
+            return {f"proto_{p}": float(p == p_text) for p in PROTO_VOCAB}
+
+    return {f"proto_{p}": float(active_flags[p]) for p in PROTO_VOCAB}
 
 
 def resolve_conn_state(record: dict | pd.Series) -> dict[str, float]:
@@ -136,24 +137,24 @@ def resolve_conn_state(record: dict | pd.Series) -> dict[str, float]:
     text_cs = get_fn("conn_state")
     if text_cs is not None and not (isinstance(text_cs, float) and np.isnan(text_cs)) and text_cs != "":
         cs_text = str(text_cs).strip().upper()
-        if true_flags:
-            flag_cs = true_flags[0]
-            if flag_cs != cs_text:
-                raise EncodingError(
-                    f"Contradiction in connection state: conn_state='{cs_text}' but conn_state_{flag_cs}=1"
-                )
-        for s in CONN_STATE_VOCAB:
-
-            raw_flag = get_fn(f"conn_state_{s}")
-            if raw_flag is not None and not (isinstance(raw_flag, float) and np.isnan(raw_flag)) and raw_flag != "":
-                flag_val = active_flags[s]
-                if s == cs_text and not flag_val:
-                    raise ValueError(
-                        f"Contradictory connection state: conn_state='{cs_text}' but conn_state_{s}=0"
+        if cs_text not in ("NONE", "NAN"):
+            if true_flags:
+                flag_cs = true_flags[0]
+                if flag_cs != cs_text:
+                    raise EncodingError(
+                        f"Contradiction in connection state: conn_state='{cs_text}' but conn_state_{flag_cs}=1"
                     )
-        return {f"conn_state_{s}": float(s == cs_text) for s in CONN_STATE_VOCAB}
-    else:
-        return {f"conn_state_{s}": float(active_flags[s]) for s in CONN_STATE_VOCAB}
+            for s in CONN_STATE_VOCAB:
+                raw_flag = get_fn(f"conn_state_{s}")
+                if raw_flag is not None and not (isinstance(raw_flag, float) and np.isnan(raw_flag)) and raw_flag != "":
+                    flag_val = active_flags[s]
+                    if s == cs_text and not flag_val:
+                        raise EncodingError(
+                            f"Contradictory connection state: conn_state='{cs_text}' but conn_state_{s}=0"
+                        )
+            return {f"conn_state_{s}": float(s == cs_text) for s in CONN_STATE_VOCAB}
+
+    return {f"conn_state_{s}": float(active_flags[s]) for s in CONN_STATE_VOCAB}
 
 
 def resolve_numeric_features(record: dict | pd.Series, strict_required: bool = False) -> dict[str, float]:
@@ -171,27 +172,29 @@ def resolve_numeric_features(record: dict | pd.Series, strict_required: bool = F
             if pd.isna(coerced):
                 out[col] = 0.0
             elif not np.isfinite(coerced):
-                raise ValueError(f"Non-finite numeric value in {col}: {raw}")
+                raise EncodingError(f"Non-finite numeric value in {col}: {raw}")
+            elif coerced < 0:
+                raise EncodingError(f"Negative value not permitted in {col}: {coerced}")
             else:
-                out[col] = float(max(0.0, float(coerced)))
+                out[col] = float(coerced)
 
     # Required features
     for col in REQUIRED_NUMERIC_FEATURES:
         raw = get_fn(col)
         if raw is None or raw == "" or raw == "-":
             if strict_required:
-                raise ValueError(f"Missing required numeric feature: {col}")
+                raise EncodingError(f"Missing required numeric feature: {col}")
             out[col] = 0.0
         else:
             coerced = pd.to_numeric(raw, errors="coerce")
             if pd.isna(coerced):
                 if strict_required:
-                    raise ValueError(f"Invalid non-numeric value in required feature {col}: {raw}")
+                    raise EncodingError(f"Invalid non-numeric value in required feature {col}: {raw}")
                 out[col] = 0.0
             elif not np.isfinite(coerced):
-                raise ValueError(f"Non-finite numeric value in {col}: {raw}")
+                raise EncodingError(f"Non-finite numeric value in {col}: {raw}")
             elif coerced < 0:
-                raise ValueError(f"Negative value not permitted in {col}: {coerced}")
+                raise EncodingError(f"Negative value not permitted in {col}: {coerced}")
             else:
                 out[col] = float(coerced)
 
@@ -205,10 +208,11 @@ def build_feature_row(packet: dict | pd.Series | pd.DataFrame, strict_required: 
     - Identical canonical vector whether input is dict, Series, or one-hot flags
     - Strict binary flag validation ('0' is False, '1' is True)
     - Contradiction detection between text and one-hot flags
+    - Strict rejection of negative values
     """
     if isinstance(packet, pd.DataFrame):
         if len(packet) == 0:
-            raise ValueError("Input DataFrame is empty.")
+            raise EncodingError("Input DataFrame is empty.")
         packet = packet.iloc[0]
 
     row: dict[str, float] = {}
@@ -221,7 +225,6 @@ def build_feature_row(packet: dict | pd.Series | pd.DataFrame, strict_required: 
     return pd.DataFrame([ordered_values], columns=EXPECTED_FEATURES, dtype=float)
 
 
-
 def encode_dataframe(df: pd.DataFrame, strict_required: bool = False) -> pd.DataFrame:
     """Vectorized encoding of a DataFrame with strict consistency checking."""
     result = pd.DataFrame(0.0, index=df.index, columns=EXPECTED_FEATURES)
@@ -230,7 +233,10 @@ def encode_dataframe(df: pd.DataFrame, strict_required: bool = False) -> pd.Data
     for col in OPTIONAL_NUMERIC_FEATURES:
         if col in df.columns:
             s = pd.to_numeric(df[col].replace("-", np.nan), errors="coerce").fillna(0.0)
-            result[col] = s.clip(lower=0.0).astype(float)
+            if (s < 0).any():
+                idx = (s < 0).idxmax()
+                raise EncodingError(f"Negative value not permitted in {col}: {s.loc[idx]}")
+            result[col] = s.astype(float)
         else:
             result[col] = 0.0
 
@@ -238,104 +244,111 @@ def encode_dataframe(df: pd.DataFrame, strict_required: bool = False) -> pd.Data
         if col in df.columns:
             s = pd.to_numeric(df[col].replace("-", np.nan), errors="coerce")
             if strict_required and s.isna().any():
-                raise ValueError(f"Missing required numeric values in column: {col}")
+                raise EncodingError(f"Missing required numeric values in column: {col}")
+            if (s < 0).any():
+                idx = (s < 0).idxmax()
+                raise EncodingError(f"Negative value not permitted in {col}: {s.loc[idx]}")
             result[col] = s.fillna(0.0).astype(float)
         else:
             if strict_required:
-                raise ValueError(f"Missing required numeric column: {col}")
+                raise EncodingError(f"Missing required numeric column: {col}")
             result[col] = 0.0
 
     # 2. Protocol validation & encoding
     has_text_proto = "proto" in df.columns
-    proto_flags_present = [f"proto_{p}" for p in PROTO_VOCAB if f"proto_{p}" in df.columns]
+    flag_df = pd.DataFrame(False, index=df.index, columns=PROTO_VOCAB)
+    for p in PROTO_VOCAB:
+        col_name = f"proto_{p}"
+        if col_name in df.columns:
+            flag_df[p] = df[col_name].apply(lambda v: parse_binary_flag(v, col_name))
 
-    if has_text_proto and proto_flags_present:
-        text_proto = df["proto"].astype(str).str.strip().str.lower()
+    num_flags_set = flag_df.sum(axis=1)
+    if (num_flags_set > 1).any():
+        idx = (num_flags_set > 1).idxmax()
+        raise EncodingError(f"Multiple mutually exclusive protocol flags set at row {idx}")
+
+    if has_text_proto:
+        raw_text = df["proto"]
+        valid_text_mask = raw_text.notna() & (raw_text != "") & (~raw_text.astype(str).str.strip().str.lower().isin(["none", "nan"]))
+        text_proto = raw_text.astype(str).str.strip().str.lower()
+
+        has_flag = num_flags_set == 1
+        conflict_rows = valid_text_mask & has_flag
+        if conflict_rows.any():
+            for idx in df.index[conflict_rows]:
+                p_text = text_proto.loc[idx]
+                flag_p = flag_df.loc[idx].idxmax()
+                if flag_p != p_text:
+                    raise EncodingError(
+                        f"Contradictory protocol specification at row {idx}: proto='{p_text}' but proto_{flag_p}=1"
+                    )
+
         for p in PROTO_VOCAB:
             col_name = f"proto_{p}"
             if col_name in df.columns:
-                flag_bool = df[col_name].apply(lambda v: parse_binary_flag(v, col_name))
-                mismatch = flag_bool & (text_proto != p)
-                if mismatch.any():
-                    idx = mismatch.idxmax()
-                    raise ValueError(
-                        f"Contradictory protocol specification at row {idx}: proto='{text_proto.loc[idx]}' but {col_name}=1"
-                    )
-                neg_mismatch = (~flag_bool) & (text_proto == p)
-                if neg_mismatch.any():
-                    idx = neg_mismatch.idxmax()
-                    raise ValueError(
+                raw_col = df[col_name]
+                has_explicit_flag = raw_col.notna() & (raw_col != "")
+                neg_conflict = valid_text_mask & (text_proto == p) & has_explicit_flag & (~flag_df[p])
+                if neg_conflict.any():
+                    idx = neg_conflict.idxmax()
+                    raise EncodingError(
                         f"Contradictory protocol specification at row {idx}: proto='{text_proto.loc[idx]}' but {col_name}=0"
                     )
+
         for p in PROTO_VOCAB:
-            result[f"proto_{p}"] = (text_proto == p).astype(float)
-    elif has_text_proto:
-        text_proto = df["proto"].astype(str).str.strip().str.lower()
-        for p in PROTO_VOCAB:
-            result[f"proto_{p}"] = (text_proto == p).astype(float)
-    elif proto_flags_present:
-        flag_series_list = []
-        for p in PROTO_VOCAB:
-            col_name = f"proto_{p}"
-            if col_name in df.columns:
-                s_bool = df[col_name].apply(lambda v: parse_binary_flag(v, col_name))
-                result[col_name] = s_bool.astype(float)
-                flag_series_list.append(s_bool)
-            else:
-                result[col_name] = 0.0
-        if len(flag_series_list) > 1:
-            multi = sum(flag_series_list) > 1
-            if multi.any():
-                raise ValueError("Multiple mutually exclusive protocol flags set in DataFrame row.")
+            result.loc[valid_text_mask, f"proto_{p}"] = (text_proto.loc[valid_text_mask] == p).astype(float)
+            result.loc[~valid_text_mask, f"proto_{p}"] = flag_df.loc[~valid_text_mask, p].astype(float)
     else:
         for p in PROTO_VOCAB:
-            result[f"proto_{p}"] = 0.0
+            result[f"proto_{p}"] = flag_df[p].astype(float)
 
     # 3. Connection state validation & encoding
     has_text_cs = "conn_state" in df.columns
-    cs_flags_present = [f"conn_state_{s}" for s in CONN_STATE_VOCAB if f"conn_state_{s}" in df.columns]
+    cs_flag_df = pd.DataFrame(False, index=df.index, columns=CONN_STATE_VOCAB)
+    for s in CONN_STATE_VOCAB:
+        col_name = f"conn_state_{s}"
+        if col_name in df.columns:
+            cs_flag_df[s] = df[col_name].apply(lambda v: parse_binary_flag(v, col_name))
 
-    if has_text_cs and cs_flags_present:
-        text_cs = df["conn_state"].astype(str).str.strip().str.upper()
+    num_cs_flags = cs_flag_df.sum(axis=1)
+    if (num_cs_flags > 1).any():
+        idx = (num_cs_flags > 1).idxmax()
+        raise EncodingError(f"Multiple mutually exclusive connection state flags set at row {idx}")
+
+    if has_text_cs:
+        raw_cs = df["conn_state"]
+        valid_cs_mask = raw_cs.notna() & (raw_cs != "") & (~raw_cs.astype(str).str.strip().str.upper().isin(["NONE", "NAN"]))
+        text_cs = raw_cs.astype(str).str.strip().str.upper()
+
+        has_cs_flag = num_cs_flags == 1
+        conflict_cs = valid_cs_mask & has_cs_flag
+        if conflict_cs.any():
+            for idx in df.index[conflict_cs]:
+                cs_text_val = text_cs.loc[idx]
+                flag_s = cs_flag_df.loc[idx].idxmax()
+                if flag_s != cs_text_val:
+                    raise EncodingError(
+                        f"Contradictory connection state at row {idx}: conn_state='{cs_text_val}' but conn_state_{flag_s}=1"
+                    )
+
         for s in CONN_STATE_VOCAB:
             col_name = f"conn_state_{s}"
             if col_name in df.columns:
-                flag_bool = df[col_name].apply(lambda v: parse_binary_flag(v, col_name))
-                mismatch = flag_bool & (text_cs != s)
-                if mismatch.any():
-                    idx = mismatch.idxmax()
-                    raise ValueError(
-                        f"Contradictory connection state at row {idx}: conn_state='{text_cs.loc[idx]}' but {col_name}=1"
-                    )
-                neg_mismatch = (~flag_bool) & (text_cs == s)
-                if neg_mismatch.any():
-                    idx = neg_mismatch.idxmax()
-                    raise ValueError(
+                raw_col = df[col_name]
+                has_explicit_flag = raw_col.notna() & (raw_col != "")
+                neg_cs_conflict = valid_cs_mask & (text_cs == s) & has_explicit_flag & (~cs_flag_df[s])
+                if neg_cs_conflict.any():
+                    idx = neg_cs_conflict.idxmax()
+                    raise EncodingError(
                         f"Contradictory connection state at row {idx}: conn_state='{text_cs.loc[idx]}' but {col_name}=0"
                     )
+
         for s in CONN_STATE_VOCAB:
-            result[f"conn_state_{s}"] = (text_cs == s).astype(float)
-    elif has_text_cs:
-        text_cs = df["conn_state"].astype(str).str.strip().str.upper()
-        for s in CONN_STATE_VOCAB:
-            result[f"conn_state_{s}"] = (text_cs == s).astype(float)
-    elif cs_flags_present:
-        flag_series_list = []
-        for s in CONN_STATE_VOCAB:
-            col_name = f"conn_state_{s}"
-            if col_name in df.columns:
-                s_bool = df[col_name].apply(lambda v: parse_binary_flag(v, col_name))
-                result[col_name] = s_bool.astype(float)
-                flag_series_list.append(s_bool)
-            else:
-                result[col_name] = 0.0
-        if len(flag_series_list) > 1:
-            multi = sum(flag_series_list) > 1
-            if multi.any():
-                raise ValueError("Multiple mutually exclusive connection state flags set in DataFrame row.")
+            result.loc[valid_cs_mask, f"conn_state_{s}"] = (text_cs.loc[valid_cs_mask] == s).astype(float)
+            result.loc[~valid_cs_mask, f"conn_state_{s}"] = cs_flag_df.loc[~valid_cs_mask, s].astype(float)
     else:
         for s in CONN_STATE_VOCAB:
-            result[f"conn_state_{s}"] = 0.0
+            result[f"conn_state_{s}"] = cs_flag_df[s].astype(float)
 
     return result
 

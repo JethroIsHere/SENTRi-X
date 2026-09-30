@@ -31,14 +31,20 @@ class XAIProvenance:
 
     def matches(self, *, model_hash: str | None, preprocessor_hash: str | None,
                 model_domain: str) -> bool:
-        """Check if this provenance matches the active model."""
-        if self.model_domain and self.model_domain != model_domain:
+        """Check if this provenance matches the active model.
+
+        Enforces strict provenance:
+        * Domain must be non-empty and strictly match active domain.
+        * Model hash must be non-empty on both sides and match strictly.
+        * Preprocessor hash must match strictly if present on either side.
+        """
+        if not self.model_domain or not model_domain or self.model_domain != model_domain:
             return False
-        if self.model_hash and model_hash and self.model_hash != model_hash:
+        if not self.model_hash or not model_hash or self.model_hash != model_hash:
             return False
-        if (self.preprocessor_hash and preprocessor_hash
-                and self.preprocessor_hash != preprocessor_hash):
-            return False
+        if self.preprocessor_hash or preprocessor_hash:
+            if not self.preprocessor_hash or not preprocessor_hash or self.preprocessor_hash != preprocessor_hash:
+                return False
         return True
 
 
@@ -154,14 +160,17 @@ def reference_shap_explanation(
     """
     meta_reason = ""
 
-    # Provenance check
-    if provenance and not provenance.matches(
+    # Provenance check: provenance is strictly required
+    if not provenance:
+        meta_reason = "No XAI provenance provided for reference SHAP artifacts. Explanation unavailable."
+    elif not provenance.matches(
         model_hash=active_model_hash, preprocessor_hash=None,
         model_domain=active_domain,
     ):
         meta_reason = (
-            f"Stored SHAP artifacts are from domain '{provenance.model_domain}', "
-            f"but active model is '{active_domain}'. Explanation unavailable."
+            f"Stored SHAP artifacts failed provenance check (domain='{provenance.model_domain}', "
+            f"hash='{provenance.model_hash}' vs active domain='{active_domain}', "
+            f"hash='{active_model_hash}'). Explanation unavailable."
         )
         # Fall through to RF importance as fallback
 

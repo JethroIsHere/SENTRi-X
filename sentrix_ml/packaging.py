@@ -220,6 +220,36 @@ def validate_package(
                 f"Domain mismatch: candidate domain '{manifest.domain}' does not match target slot '{target_domain}'."
             )
 
+        # Enforce complete evaluation provenance for deployable candidate
+        if not manifest.evaluation_file or not manifest.evaluation_hash:
+            raise PackageValidationError("Strict deployment requires a non-null evaluation_file and evaluation_hash.")
+        if not manifest.split_manifest_file or not manifest.split_manifest_hash:
+            raise PackageValidationError("Strict deployment requires a non-null split_manifest_file and split_manifest_hash.")
+        if not manifest.evidence_file or not manifest.evidence_hash:
+            raise PackageValidationError("Strict deployment requires a non-null evidence_file and evidence_hash.")
+
+        # Deep inspect evaluation metrics linkage
+        eval_path = pkg / manifest.evaluation_file
+        try:
+            from sentrix_ml.evaluation import EvaluationResult
+            eval_res = EvaluationResult.load(eval_path)
+            if eval_res.rf_hash != manifest.rf_hash:
+                raise PackageValidationError(f"Evaluation RF hash {eval_res.rf_hash} does not match manifest RF hash {manifest.rf_hash}")
+            if eval_res.cnn_hash != manifest.cnn_hash:
+                raise PackageValidationError(f"Evaluation CNN hash {eval_res.cnn_hash} does not match manifest CNN hash {manifest.cnn_hash}")
+            if eval_res.preprocessor_hash != manifest.preprocessor_hash:
+                raise PackageValidationError(f"Evaluation preprocessor hash {eval_res.preprocessor_hash} does not match manifest preprocessor hash {manifest.preprocessor_hash}")
+            if eval_res.model_domain != manifest.domain:
+                raise PackageValidationError(f"Evaluation domain {eval_res.model_domain} does not match manifest domain {manifest.domain}")
+            if eval_res.split_manifest_hash != manifest.split_manifest_hash:
+                raise PackageValidationError(f"Evaluation split manifest hash {eval_res.split_manifest_hash} does not match manifest {manifest.split_manifest_hash}")
+            if eval_res.evidence_hash != manifest.evidence_hash:
+                raise PackageValidationError(f"Evaluation evidence hash {eval_res.evidence_hash} does not match manifest {manifest.evidence_hash}")
+        except PackageValidationError:
+            raise
+        except Exception as e:
+            raise PackageValidationError(f"Evaluation file deep inspection failed: {e}") from e
+
         # Deep inspect preprocessor
         import joblib
         pipe_path = pkg / manifest.preprocessor_file

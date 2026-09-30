@@ -47,10 +47,11 @@ def test_t10_mismatched_domain_rejected():
 
 
 def test_t10_matching_domain_accepted():
-    """Verify matching domain provenance allows reference lookup."""
+    """Verify matching domain and model hash provenance allows reference lookup."""
     provenance = XAIProvenance(
         model_domain="omni",
         representation="scaled",
+        model_hash="sha256:matching_rf_hash_1234",
     )
 
     inference_row = np.zeros(NUM_FEATURES)
@@ -63,6 +64,7 @@ def test_t10_matching_domain_accepted():
         shap_values=dummy_shap,
         provenance=provenance,
         active_domain="omni",
+        active_model_hash="sha256:matching_rf_hash_1234",
     )
 
     assert result.method == "reference_sample_shap"

@@ -36,7 +36,7 @@ from sentrix_ml.evaluation import compute_multimode_metrics, save_prediction_evi
 from sentrix_ml.packaging import create_package, validate_package, file_sha256, ModelManifest
 
 
-def parse_args():
+def parse_args(args_list: list[str] | None = None):
     parser = argparse.ArgumentParser(description="Target Domain Adaptation for SENTRi-X")
     parser.add_argument("--domain", choices=["bot_iot", "cic_ids2017"], required=True, help="Target domain")
     parser.add_argument("--data-dir", type=str, default=None, help="Path to target data directory")
@@ -52,12 +52,12 @@ def parse_args():
     parser.add_argument("--output-dir", type=str, default=None, help="Output candidate directory")
     parser.add_argument("--run-type", choices=["full", "smoke"], default="full", help="Evaluation run type")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
-    return parser.parse_args()
+    return parser.parse_args(args_list)
 
 
 def run_train_adaptation(args=None):
-    if args is None:
-        args = parse_args()
+    if args is None or isinstance(args, list):
+        args = parse_args(args)
 
     start_time = time.time()
     domain = args.domain
@@ -92,11 +92,25 @@ def run_train_adaptation(args=None):
         sys.exit(1)
 
     source_cnn_weights_path = None
+    source_manifest_hash = None
     if args.source_candidate:
         print(f"\n[Step 0b] Validating source package: {args.source_candidate}...")
-        source_manifest = validate_package(args.source_candidate, strict_deployable=False)
+        strict_source = (args.run_type == "full")
+        source_manifest = validate_package(
+            args.source_candidate,
+            strict_deployable=strict_source,
+            target_domain="ton_iot",
+        )
+        if source_manifest.domain != "ton_iot":
+            raise ValueError(f"Source candidate domain must be 'ton_iot', got '{source_manifest.domain}'")
+        if args.run_type == "full":
+            if source_manifest.is_mock or source_manifest.evaluation_run_type == "smoke":
+                raise ValueError("Target adaptation for full run requires a full non-mock ToN-IoT source candidate.")
+
+        source_manifest_file = Path(args.source_candidate) / "manifest.json"
+        source_manifest_hash = file_sha256(source_manifest_file)
         source_cnn_weights_path = Path(args.source_candidate) / source_manifest.cnn_file
-        print(f"Source manifest verified. Source CNN: {source_cnn_weights_path}")
+        print(f"Source manifest verified (domain={source_manifest.domain}, hash={source_manifest_hash}). Source CNN: {source_cnn_weights_path}")
 
     # 1. Ingestion
     print(f"\n[Step 1] Ingesting {domain} from {data_dir} (sample_n={args.sample_n})...")

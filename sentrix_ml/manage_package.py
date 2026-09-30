@@ -76,20 +76,37 @@ def cmd_activate(candidate_dir: str, target: str):
             if item.is_file():
                 shutil.copy2(item, backup_dir / item.name)
 
-    # 3. Copy candidate files to active slot
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    for item in candidate_path.iterdir():
-        if item.is_file():
-            shutil.copy2(item, dest_dir / item.name)
+    # 3. Transactional copy and validation with automatic rollback
+    try:
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        for item in candidate_path.iterdir():
+            if item.is_file():
+                shutil.copy2(item, dest_dir / item.name)
 
-    # 4. Verify activated candidate
-    validate_package(dest_dir)
-    print("=" * 60)
-    print(f"SUCCESS: Candidate activated in {dest_dir}")
-    print(f"Backend can now load this model via target='{target}'")
-    print(f"Backup preserved at: {backup_dir}")
-    print("=" * 60)
-    return True
+        # 4. Verify activated candidate with strict deployable validation
+        validate_package(dest_dir, strict_deployable=True, target_domain=target)
+        print("=" * 60)
+        print(f"SUCCESS: Candidate activated in {dest_dir}")
+        print(f"Backend can now load this model via target='{target}'")
+        if backup_dir.exists():
+            print(f"Backup preserved at: {backup_dir}")
+        print("=" * 60)
+        return True
+    except Exception as e:
+        print(f"ACTIVATION FAILED: {e}. Executing automatic rollback to previous state...")
+        if backup_dir.exists():
+            for item in dest_dir.iterdir():
+                if item.is_file():
+                    item.unlink()
+            for item in backup_dir.iterdir():
+                if item.is_file():
+                    shutil.copy2(item, dest_dir / item.name)
+            validate_package(dest_dir, strict_deployable=False)
+            print(f"Automatic rollback SUCCESS: Restored previous '{target}' from {backup_dir}")
+        else:
+            shutil.rmtree(dest_dir, ignore_errors=True)
+        print("=" * 60)
+        return False
 
 
 def cmd_rollback(target: str, backup_dir: str | None = None):

@@ -37,14 +37,14 @@ STATE_TRANSLATOR = {
     "URP": "OTH",
 }
 
-SCHEMA_MAPPING = {
+MANDATORY_RAW_COLUMNS = ["dur", "spkts", "dpkts", "sbytes", "dbytes"]
+
+SCHEMA_MAPPING_BASE = {
     "sbytes": "src_bytes",
     "dbytes": "dst_bytes",
     "spkts": "src_pkts",
     "dpkts": "dst_pkts",
     "dur": "duration",
-    "TnBPSrcIP": "src_ip_bytes",
-    "TnBPDstIP": "dst_ip_bytes",
     "state": "conn_state",
     "proto": "proto",
     "attack": "label",
@@ -60,6 +60,7 @@ def load_bot_iot(
     nrows_per_file: int | None = None,
     sample_n: int | None = None,
     seed: int = 42,
+    ip_bytes_policy: str = "exclude",
 ) -> tuple[pd.DataFrame, pd.Series, dict]:
     """Load and clean BoT-IoT dataset.
 
@@ -71,15 +72,27 @@ def load_bot_iot(
         nrows_per_file: Read at most this many rows per file
         sample_n: Subsample to this many rows (bounds ingestion memory)
         seed: Random seed for sampling
+        ip_bytes_policy: 'exclude' (default, excludes per-IP aggregate TnBPSrcIP/TnBPDstIP to prevent cross-flow corruption)
+                         or 'aggregate_proxy' (maps TnBPSrcIP/TnBPDstIP as proxy flow bytes)
 
     Returns:
         (X_encoded, y_binary, info)
     """
     data_dir = Path(data_dir)
+    mapping = dict(SCHEMA_MAPPING_BASE)
+    if ip_bytes_policy == "aggregate_proxy":
+        mapping["TnBPSrcIP"] = "src_ip_bytes"
+        mapping["TnBPDstIP"] = "dst_ip_bytes"
+
+    unresolved = [m for m in UNRESOLVED_MAPPINGS if "BoT-IoT" in m]
+    if ip_bytes_policy == "exclude":
+        unresolved = [m for m in unresolved if "TnBPSrcIP" not in m and "TnBPDstIP" not in m]
+
     info = {
         "domain": "bot_iot",
         "exclusion_reasons": {},
-        "unresolved_mappings": [m for m in UNRESOLVED_MAPPINGS if "BoT-IoT" in m],
+        "ip_bytes_policy": ip_bytes_policy,
+        "unresolved_mappings": unresolved,
     }
 
     if use_mapped:
@@ -97,31 +110,117 @@ def load_bot_iot(
         info["files_loaded"] = [str(mapped_path)]
         info["source_type"] = "legacy_mapped_csv"
     else:
-        all_files = sorted(glob.glob(str(data_dir / "UNSW_2018_IoT_Botnet_Full5pc_*.csv")))
+        if data_dir.is_file():
+            all_files = [str(data_dir)]
+        else:
+            all_files = sorted(glob.glob(str(data_dir / "UNSW_2018_IoT_Botnet_Full5pc_*.csv")))
+            if not all_files:
+                all_files = sorted(glob.glob(str(data_dir / "*.csv")))
         if not all_files:
             raise FileNotFoundError(f"No BoT-IoT raw CSV files found in {data_dir}")
 
         if max_files:
             all_files = all_files[:max_files]
 
-        effective_nrows = nrows_per_file
-        if effective_nrows is None and sample_n is not None:
-            effective_nrows = int(np.ceil((sample_n * 1.5) / len(all_files))) + 100
-
-        chunks = []
-        for f in all_files:
-            chunk = pd.read_csv(f, low_memory=False, nrows=effective_nrows)
-            chunks.append(chunk)
-        df = pd.concat(chunks, ignore_index=True)
         info["files_loaded"] = all_files
         info["source_type"] = "raw_csvs"
+
+        if sample_n is not None and nrows_per_file is None:
+            chunksize = max(500, min(5000, sample_n * 2))
+            target_0 = sample_n // 2
+            target_1 = sample_n - target_0
+            pool_0 = []
+            pool_1 = []
+
+            # In the BoT-IoT dataset, all normal flows are in file 4 around line 576,884
+            f4_candidates = [f for f in all_files if "Full5pc_4.csv" in f or f.endswith("_4.csv")]
+            if f4_candidates:
+                f4 = f4_candidates[0]
+                try:
+                    benign_slice = pd.read_csv(f4, skiprows=range(1, 576884), nrows=min(1000, max(50, target_0 * 2)), low_memory=False)
+                    label_key = "label" if "label" in benign_slice.columns else ("attack" if "attack" in benign_slice.columns else None)
+                    if label_key is not None:
+                        y_b, _ = clean_labels(benign_slice[label_key], domain="bot_iot")
+                        m0 = (y_b == 0)
+                        if m0.any():
+                            pool_0.append(benign_slice.loc[m0])
+                except Exception:
+                    pass
+
+            count_0 = sum(len(p) for p in pool_0)
+            count_1 = 0
+
+            for f in all_files:
+                for chunk_idx, chunk in enumerate(pd.read_csv(f, chunksize=chunksize, low_memory=False)):
+                    # Validate raw columns
+                    missing = [c for c in MANDATORY_RAW_COLUMNS if c not in chunk.columns]
+                    if missing:
+                        raise ValueError(
+                            f"BoT-IoT raw dataset is missing mandatory traffic columns: {missing}. "
+                            "A dataset with only labels is invalid."
+                        )
+                    label_key = "label" if "label" in chunk.columns else ("attack" if "attack" in chunk.columns else None)
+                    if label_key is None:
+                        raise ValueError("BoT-IoT dataset missing label/attack column")
+
+                    y_bin, _ = clean_labels(chunk[label_key], domain="bot_iot")
+                    m0 = (y_bin == 0)
+                    m1 = (y_bin == 1)
+
+                    if m0.any() and count_0 < target_0 * 3:
+                        pool_0.append(chunk.loc[m0])
+                        count_0 += int(m0.sum())
+                    if m1.any() and count_1 < target_1 * 3:
+                        pool_1.append(chunk.loc[m1])
+                        count_1 += int(m1.sum())
+
+                    if count_1 >= target_1 and (count_0 >= target_0 or not f4_candidates or len(all_files) == 1):
+                        break
+                    if len(all_files) > 1 and chunk_idx >= 4:
+                        break
+                if count_1 >= target_1 and (count_0 >= target_0 or not f4_candidates or len(all_files) == 1):
+                    break
+
+            if pool_0 and pool_1:
+                df0 = pd.concat(pool_0, ignore_index=True)
+                df1 = pd.concat(pool_1, ignore_index=True)
+                n0 = min(target_0, len(df0))
+                n1 = min(target_1, len(df1))
+                if n0 + n1 < sample_n:
+                    if len(df0) > n0:
+                        n0 = min(sample_n - n1, len(df0))
+                    elif len(df1) > n1:
+                        n1 = min(sample_n - n0, len(df1))
+                s0 = df0.sample(n=n0, random_state=seed) if len(df0) > n0 else df0
+                s1 = df1.sample(n=n1, random_state=seed) if len(df1) > n1 else df1
+                df = pd.concat([s0, s1], ignore_index=True).sample(frac=1.0, random_state=seed).reset_index(drop=True)
+            elif pool_0:
+                df0 = pd.concat(pool_0, ignore_index=True)
+                df = df0.sample(n=min(sample_n, len(df0)), random_state=seed).reset_index(drop=True)
+            elif pool_1:
+                df1 = pd.concat(pool_1, ignore_index=True)
+                df = df1.sample(n=min(sample_n, len(df1)), random_state=seed).reset_index(drop=True)
+            else:
+                df = pd.DataFrame()
+        else:
+            chunks = []
+            for f in all_files:
+                chunk = pd.read_csv(f, low_memory=False, nrows=nrows_per_file)
+                chunks.append(chunk)
+            df = pd.concat(chunks, ignore_index=True)
+            missing = [c for c in MANDATORY_RAW_COLUMNS if c not in df.columns]
+            if missing:
+                raise ValueError(
+                    f"BoT-IoT raw dataset is missing mandatory traffic columns: {missing}. "
+                    "A dataset with only labels is invalid."
+                )
 
         # State translation
         if "state" in df.columns:
             df["state"] = df["state"].astype(str).str.strip().replace(STATE_TRANSLATOR)
 
         # Rename columns to standard schema
-        df.rename(columns=SCHEMA_MAPPING, inplace=True)
+        df.rename(columns=mapping, inplace=True)
 
     info["raw_rows"] = len(df)
 

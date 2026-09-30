@@ -5,7 +5,7 @@ import os
 import sqlite3
 from datetime import datetime, timezone
 
-DB_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'sentrix.db')
+DB_PATH = os.environ.get("SENTRIX_DB_PATH", os.path.join(os.path.dirname(__file__), '..', 'data', 'sentrix.db'))
 
 
 def utc_now():
@@ -13,8 +13,9 @@ def utc_now():
 
 
 def get_db_connection():
-    os.makedirs(os.path.dirname(os.path.abspath(DB_PATH)), exist_ok=True)
-    conn = sqlite3.connect(DB_PATH, timeout=15, check_same_thread=False)
+    target_path = os.environ.get("SENTRIX_DB_PATH", DB_PATH)
+    os.makedirs(os.path.dirname(os.path.abspath(target_path)), exist_ok=True)
+    conn = sqlite3.connect(target_path, timeout=15, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute('PRAGMA busy_timeout=15000')
     return conn

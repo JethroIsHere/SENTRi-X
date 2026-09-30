@@ -101,7 +101,7 @@ def check_ton_iot(data_dir: Path) -> dict:
 
     try:
         from sentrix_ml.adapters.ton_iot import load_ton_iot
-        X, y, info = load_ton_iot(data_dir, max_files=1, sample_n=50)
+        X, y, info = load_ton_iot(data_dir, sample_n=50)
         if len(X) == 0 or len(y) == 0:
             res["status"] = "FAILED"
             res["error"] = "Adapter returned 0 rows."
@@ -110,8 +110,17 @@ def check_ton_iot(data_dir: Path) -> dict:
             res["status"] = "FAILED"
             res["error"] = f"Schema mismatch: got {X.shape[1]} features, expected {NUM_FEATURES}."
             return res
+        class_counts = dict(y.value_counts())
+        if len(class_counts) < 2 or any(c < 2 for c in class_counts.values()):
+            res["status"] = "FAILED"
+            res["error"] = (
+                f"Adapter returned single-class or underpopulated sample: {class_counts}. "
+                "Both benign (0) and attack (1) classes are required to construct valid "
+                "training, validation, and test partitions."
+            )
+            return res
         res["status"] = "READY"
-        res["adapter_test"] = f"PASS (shape={X.shape}, labels={dict(y.value_counts())})"
+        res["adapter_test"] = f"PASS (shape={X.shape}, labels={class_counts})"
         res["exclusions"] = info.get("exclusion_reasons", {})
     except Exception as e:
         res["status"] = "FAILED"
@@ -135,7 +144,7 @@ def check_bot_iot(data_dir: Path) -> dict:
 
     try:
         from sentrix_ml.adapters.bot_iot import load_bot_iot
-        X, y, info = load_bot_iot(data_dir, max_files=1, sample_n=50)
+        X, y, info = load_bot_iot(data_dir, sample_n=50, ip_bytes_policy="exclude")
         if len(X) == 0 or len(y) == 0:
             res["status"] = "FAILED"
             res["error"] = "Adapter returned 0 rows."
@@ -144,8 +153,18 @@ def check_bot_iot(data_dir: Path) -> dict:
             res["status"] = "FAILED"
             res["error"] = f"Schema mismatch: got {X.shape[1]} features, expected {NUM_FEATURES}."
             return res
+        class_counts = dict(y.value_counts())
+        if len(class_counts) < 2 or any(c < 2 for c in class_counts.values()):
+            res["status"] = "FAILED"
+            res["error"] = (
+                f"Adapter returned single-class or underpopulated sample: {class_counts}. "
+                "Both benign (0) and attack (1) classes are required to construct valid "
+                "training, validation, and test partitions."
+            )
+            return res
         res["status"] = "READY"
-        res["adapter_test"] = f"PASS (shape={X.shape}, labels={dict(y.value_counts())})"
+        res["adapter_test"] = f"PASS (shape={X.shape}, labels={class_counts})"
+        res["ip_bytes_policy"] = info.get("ip_bytes_policy", "exclude")
         res["exclusions"] = info.get("exclusion_reasons", {})
         res["unresolved_mappings"] = info.get("unresolved_mappings", [])
     except Exception as e:
@@ -170,7 +189,7 @@ def check_cic_ids2017(data_dir: Path) -> dict:
 
     try:
         from sentrix_ml.adapters.cic_ids2017 import load_cic_ids2017
-        X, y, info = load_cic_ids2017(data_dir, max_files=1, sample_n=50)
+        X, y, info = load_cic_ids2017(data_dir, sample_n=50)
         if len(X) == 0 or len(y) == 0:
             res["status"] = "FAILED"
             res["error"] = "Adapter returned 0 rows."
@@ -179,8 +198,17 @@ def check_cic_ids2017(data_dir: Path) -> dict:
             res["status"] = "FAILED"
             res["error"] = f"Schema mismatch: got {X.shape[1]} features, expected {NUM_FEATURES}."
             return res
+        class_counts = dict(y.value_counts())
+        if len(class_counts) < 2 or any(c < 2 for c in class_counts.values()):
+            res["status"] = "FAILED"
+            res["error"] = (
+                f"Adapter returned single-class or underpopulated sample: {class_counts}. "
+                "Both benign (0) and attack (1) classes are required to construct valid "
+                "training, validation, and test partitions."
+            )
+            return res
         res["status"] = "READY"
-        res["adapter_test"] = f"PASS (shape={X.shape}, labels={dict(y.value_counts())})"
+        res["adapter_test"] = f"PASS (shape={X.shape}, labels={class_counts})"
         res["duration_unit"] = info.get("duration_unit", "seconds")
         res["exclusions"] = info.get("exclusion_reasons", {})
     except Exception as e:

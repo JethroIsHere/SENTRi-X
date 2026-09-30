@@ -36,6 +36,15 @@ SCHEMA_MAPPING = {
 }
 
 
+MANDATORY_RAW_COLUMNS = [
+    "flow duration",
+    "total fwd packets",
+    "total backward packets",
+    "total length of fwd packets",
+    "total length of bwd packets",
+]
+
+
 def load_cic_ids2017(
     data_dir: str | Path,
     *,
@@ -108,23 +117,88 @@ def load_cic_ids2017(
         if max_files:
             all_files = all_files[:max_files]
 
-        effective_nrows = nrows_per_file
-        if effective_nrows is None and sample_n is not None:
-            effective_nrows = int(np.ceil((sample_n * 1.5) / len(all_files))) + 100
-
-        chunks = []
-        for f in all_files:
-            try:
-                chunk = pd.read_csv(f, encoding="cp1252", low_memory=False, nrows=effective_nrows)
-            except UnicodeDecodeError:
-                chunk = pd.read_csv(f, encoding="utf-8", errors="replace", low_memory=False, nrows=effective_nrows)
-            chunks.append(chunk)
-        df = pd.concat(chunks, ignore_index=True)
         info["files_loaded"] = all_files
         info["source_type"] = "raw_csvs"
 
-        # Strip whitespace and lowercase column names
-        df.columns = df.columns.str.strip().str.lower()
+        if sample_n is not None and nrows_per_file is None:
+            chunksize = max(1000, min(10000, sample_n * 2))
+            target_0 = sample_n // 2
+            target_1 = sample_n - target_0
+            pool_0 = []
+            pool_1 = []
+            count_0 = 0
+            count_1 = 0
+
+            for f in all_files:
+                try:
+                    reader = pd.read_csv(f, encoding="cp1252", chunksize=chunksize, low_memory=False)
+                except UnicodeDecodeError:
+                    reader = pd.read_csv(f, encoding="utf-8", errors="replace", chunksize=chunksize, low_memory=False)
+
+                for chunk in reader:
+                    chunk.columns = chunk.columns.str.strip().str.lower()
+                    missing = [c for c in MANDATORY_RAW_COLUMNS if c not in chunk.columns]
+                    if missing:
+                        raise ValueError(
+                            f"CIC-IDS2017 raw dataset is missing mandatory traffic columns: {missing}. "
+                            "A dataset with only labels is invalid."
+                        )
+                    if "label" not in chunk.columns:
+                        raise ValueError("CIC-IDS2017 dataset missing label column")
+
+                    y_bin, _ = clean_labels(chunk["label"], domain="cic_ids2017")
+                    m0 = (y_bin == 0)
+                    m1 = (y_bin == 1)
+
+                    if m0.any() and count_0 < target_0 * 3:
+                        pool_0.append(chunk.loc[m0])
+                        count_0 += int(m0.sum())
+                    if m1.any() and count_1 < target_1 * 3:
+                        pool_1.append(chunk.loc[m1])
+                        count_1 += int(m1.sum())
+
+                    if count_0 >= target_0 and count_1 >= target_1:
+                        break
+                if count_0 >= target_0 and count_1 >= target_1:
+                    break
+
+            if pool_0 and pool_1:
+                df0 = pd.concat(pool_0, ignore_index=True)
+                df1 = pd.concat(pool_1, ignore_index=True)
+                n0 = min(target_0, len(df0))
+                n1 = min(target_1, len(df1))
+                if n0 + n1 < sample_n:
+                    if len(df0) > n0:
+                        n0 = min(sample_n - n1, len(df0))
+                    elif len(df1) > n1:
+                        n1 = min(sample_n - n0, len(df1))
+                s0 = df0.sample(n=n0, random_state=seed) if len(df0) > n0 else df0
+                s1 = df1.sample(n=n1, random_state=seed) if len(df1) > n1 else df1
+                df = pd.concat([s0, s1], ignore_index=True).sample(frac=1.0, random_state=seed).reset_index(drop=True)
+            elif pool_0:
+                df0 = pd.concat(pool_0, ignore_index=True)
+                df = df0.sample(n=min(sample_n, len(df0)), random_state=seed).reset_index(drop=True)
+            elif pool_1:
+                df1 = pd.concat(pool_1, ignore_index=True)
+                df = df1.sample(n=min(sample_n, len(df1)), random_state=seed).reset_index(drop=True)
+            else:
+                df = pd.DataFrame()
+        else:
+            chunks = []
+            for f in all_files:
+                try:
+                    chunk = pd.read_csv(f, encoding="cp1252", low_memory=False, nrows=nrows_per_file)
+                except UnicodeDecodeError:
+                    chunk = pd.read_csv(f, encoding="utf-8", errors="replace", low_memory=False, nrows=nrows_per_file)
+                chunks.append(chunk)
+            df = pd.concat(chunks, ignore_index=True)
+            df.columns = df.columns.str.strip().str.lower()
+            missing = [c for c in MANDATORY_RAW_COLUMNS if c not in df.columns]
+            if missing:
+                raise ValueError(
+                    f"CIC-IDS2017 raw dataset is missing mandatory traffic columns: {missing}. "
+                    "A dataset with only labels is invalid."
+                )
 
         # Rename to canonical schema
         df.rename(columns=SCHEMA_MAPPING, inplace=True)

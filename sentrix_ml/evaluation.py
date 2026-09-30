@@ -320,14 +320,20 @@ def format_metrics_for_api(
             "run_type": result.run_type,
         }
 
-    # Verify hashes against active manifest if provided
+    # Strict provenance verification against active manifest if provided
     if active_manifest is not None:
-        if result.rf_hash and active_manifest.rf_hash and result.rf_hash != active_manifest.rf_hash:
-            return {"available": False, "reason": "RF hash mismatch between model manifest and evaluation evidence."}
-        if result.cnn_hash and active_manifest.cnn_hash and result.cnn_hash != active_manifest.cnn_hash:
-            return {"available": False, "reason": "CNN hash mismatch between model manifest and evaluation evidence."}
-        if result.preprocessor_hash and active_manifest.preprocessor_hash and result.preprocessor_hash != active_manifest.preprocessor_hash:
-            return {"available": False, "reason": "Preprocessor hash mismatch between model manifest and evaluation evidence."}
+        if not result.rf_hash or not active_manifest.rf_hash or result.rf_hash != active_manifest.rf_hash:
+            return {"available": False, "reason": "RF hash mismatch or missing between model manifest and evaluation evidence."}
+        if not result.cnn_hash or not active_manifest.cnn_hash or result.cnn_hash != active_manifest.cnn_hash:
+            return {"available": False, "reason": "CNN hash mismatch or missing between model manifest and evaluation evidence."}
+        if not result.preprocessor_hash or not active_manifest.preprocessor_hash or result.preprocessor_hash != active_manifest.preprocessor_hash:
+            return {"available": False, "reason": "Preprocessor hash mismatch or missing between model manifest and evaluation evidence."}
+        if result.model_domain and active_manifest.domain and result.model_domain != active_manifest.domain:
+            return {"available": False, "reason": "Domain mismatch between model manifest and evaluation evidence."}
+        if active_manifest.split_manifest_hash and result.split_manifest_hash != active_manifest.split_manifest_hash:
+            return {"available": False, "reason": "Split manifest hash mismatch between model manifest and evaluation evidence."}
+        if active_manifest.evidence_hash and result.evidence_hash != active_manifest.evidence_hash:
+            return {"available": False, "reason": "Prediction evidence hash mismatch between model manifest and evaluation evidence."}
 
     # Select mode-specific metrics
     mode_metrics = result.modes.get(mode)

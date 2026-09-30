@@ -29,6 +29,8 @@ class SplitManifest:
     total_rows: int = 0
     excluded_rows: int = 0
     exclusion_reasons: dict = field(default_factory=dict)
+    source_file_hashes: dict[str, str] = field(default_factory=dict)
+    duplicate_group_policy: str = "keep_first_disjoint"
 
     train_count: int = 0
     val_count: int = 0
@@ -105,6 +107,8 @@ def stratified_split(
     val_fraction: float = 0.10,
     seed: int = 42,
     domain: str = "",
+    source_file_hashes: dict[str, str] | None = None,
+    exclusion_reasons: dict | None = None,
 ) -> tuple[
     pd.DataFrame, pd.DataFrame, pd.DataFrame,
     pd.Series, pd.Series, pd.Series,
@@ -139,13 +143,18 @@ def stratified_split(
         stratify=y_pool,
     )
 
+    merged_exclusions = dict(exclusion_reasons or {})
+    if excluded:
+        merged_exclusions["nan_labels"] = excluded
+
     manifest = SplitManifest(
         seed=seed,
         test_fraction=test_fraction,
         val_fraction=val_fraction,
         total_rows=len(X) + excluded,
         excluded_rows=excluded,
-        exclusion_reasons={"nan_labels": excluded} if excluded else {},
+        exclusion_reasons=merged_exclusions,
+        source_file_hashes=dict(source_file_hashes or {}),
         train_count=len(X_train),
         val_count=len(X_val),
         test_count=len(X_test),

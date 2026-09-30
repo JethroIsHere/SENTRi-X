@@ -36,7 +36,7 @@ from database import (
 from sentrix_ml.schema import EXPECTED_FEATURES, NUM_FEATURES
 from sentrix_ml.preprocessing import PreprocessingPipeline, build_feature_row
 from sentrix_ml.inference import run_single_inference
-from sentrix_ml.packaging import validate_package, ModelManifest, PackageValidationError
+from sentrix_ml.packaging import validate_package, ModelManifest, PackageValidationError, file_sha256
 from sentrix_ml.evaluation import EvaluationResult, format_metrics_for_api
 from sentrix_ml.xai import create_lime_explainer, explain_with_lime, reference_shap_explanation, XAIProvenance
 
@@ -106,15 +106,7 @@ def classify_threat_level(confidence: float) -> str:
 
 
 def initialize_lime_explainer():
-    """Initialize a reusable LIME explainer from preloaded explainability samples."""
-    try:
-        lime_tabular = importlib.import_module("lime.lime_tabular")
-    except Exception as e:
-        print(f"LIME import unavailable: {e}")
-        explainability["lime_explainer"] = None
-        explainability["lime_feature_names"] = None
-        return
-
+    """Initialize a reusable LIME explainer from package background data using sentrix_ml.xai."""
     X_sample_df = explainability.get("X_sample")
     if X_sample_df is None or len(X_sample_df) == 0:
         explainability["lime_explainer"] = None
@@ -126,14 +118,12 @@ def initialize_lime_explainer():
         X_numeric = X_numeric.reindex(columns=EXPECTED_FEATURES, fill_value=0.0)
         feature_names = list(X_numeric.columns)
         explainability["lime_feature_names"] = feature_names
-        explainability["lime_explainer"] = lime_tabular.LimeTabularExplainer(
-            training_data=X_numeric.to_numpy(dtype=float),
+        explainability["lime_explainer"] = create_lime_explainer(
+            background_data=X_numeric,
             feature_names=feature_names,
-            class_names=["Benign", "Attack"],
-            mode="classification",
-            discretize_continuous=True,
         )
-        print(f"LIME explainer initialized with {len(feature_names)} features")
+        if explainability["lime_explainer"] is not None:
+            print(f"LIME explainer initialized with {len(feature_names)} features")
     except Exception as e:
         explainability["lime_explainer"] = None
         explainability["lime_feature_names"] = None
@@ -141,12 +131,12 @@ def initialize_lime_explainer():
 
 
 def compute_lime_explanation_for_packet(inference_df: pd.DataFrame):
-    """Compute top LIME contributors for one inference packet."""
+    """Compute top LIME contributors for one inference packet using sentrix_ml.xai."""
     explainer = explainability.get("lime_explainer")
     feature_names = explainability.get("lime_feature_names")
 
     if explainer is None or not feature_names or engine.rf_model is None:
-        return {"values": [], "target_class": None}
+        return {"values": [], "target_class": None, "method": "unavailable"}
 
     try:
         row_df = inference_df.reindex(columns=feature_names, fill_value=0.0)
@@ -155,9 +145,13 @@ def compute_lime_explanation_for_packet(inference_df: pd.DataFrame):
 
         def predict_fn(samples_np):
             samples_df = pd.DataFrame(samples_np, columns=feature_names).fillna(0.0)
-            model_input = samples_df
-            if hasattr(engine, "scaler") and engine.scaler is not None:
+            if engine.pipeline is not None:
+                model_input = engine.pipeline.transform(samples_df)
+            elif engine.scaler is not None:
                 model_input = engine.scaler.transform(samples_df)
+            else:
+                model_input = samples_df.to_numpy(dtype=float)
+
             if hasattr(engine.rf_model, "predict_proba"):
                 probabilities = engine.rf_model.predict_proba(model_input)
                 classes = list(getattr(engine.rf_model, 'classes_', [0, 1]))
@@ -169,27 +163,11 @@ def compute_lime_explanation_for_packet(inference_df: pd.DataFrame):
             preds = np.array(preds, dtype=float).reshape(-1, 1)
             return np.hstack([1 - preds, preds])
 
-        explanation = explainer.explain_instance(
-            data_row=row_arr,
-            predict_fn=predict_fn,
-            num_features=3,
-            top_labels=1,
-        )
-
-        labels = explanation.available_labels()
-        target_label = 1 if 1 in labels else labels[0]
-        lime_pairs = explanation.as_list(label=target_label)
-        values = [
-            {
-                "f": str(feature_expr),
-                "v": round(float(weight), 4),
-            }
-            for feature_expr, weight in lime_pairs
-        ]
-        return {"values": values, "target_class": int(target_label)}
+        res = explain_with_lime(explainer, row_arr, predict_fn, num_features=3)
+        return {"values": res.features, "target_class": res.target_class, "method": res.method}
     except Exception as e:
         print(f"Failed to compute LIME explanation: {e}")
-        return {"values": [], "target_class": None}
+        return {"values": [], "target_class": None, "method": "unavailable"}
 
 
 def update_core_model_label():
@@ -219,13 +197,14 @@ def update_core_model_label():
     system_status["cnn_online"] = (engine.cnn_model is not None) and (engine.execution_mode in ["cnn", "hybrid"])
 
 
-def load_models_and_data(target="omni", dataset="omni", is_startup=False):
+def load_models_and_data(target="omni", dataset="omni", is_startup=False, candidates_dir=None):
     """Stage and validate candidate model package before replacing engine state atomically.
     Never mutates engine state on failure.
     Does NOT fall back to unvalidated legacy files.
     """
     print(f"Loading target '{target}' models and dataset '{dataset}'...")
-    candidates_dir = os.path.join(os.path.dirname(__file__), "..", "models", "candidates", target)
+    if candidates_dir is None:
+        candidates_dir = os.path.join(os.path.dirname(__file__), "..", "models", "candidates", target)
     manifest_path = os.path.join(candidates_dir, "manifest.json")
 
     if not os.path.exists(manifest_path):
@@ -250,7 +229,7 @@ def load_models_and_data(target="omni", dataset="omni", is_startup=False):
     # Stage candidate in local variables before modifying engine
     try:
         print(f"Found candidate package for '{target}' in {candidates_dir}. Validating manifest...")
-        manifest = validate_package(candidates_dir, strict_deployable=False, target_domain=target)
+        manifest = validate_package(candidates_dir, strict_deployable=True, target_domain=target)
 
         rf_path = os.path.join(candidates_dir, manifest.rf_file)
         staged_rf = joblib.load(rf_path)
@@ -267,11 +246,16 @@ def load_models_and_data(target="omni", dataset="omni", is_startup=False):
         staged_pipeline = PreprocessingPipeline.load(pipe_path)
         staged_scaler = staged_pipeline.scaler
 
+        # Validate preprocessing pipeline is fitted unconditionally
+        if not staged_pipeline.is_fitted:
+            raise PackageValidationError("Preprocessing pipeline is not fitted.")
+        if staged_rf is None:
+            raise PackageValidationError("Random Forest model is missing from candidate package.")
+
         # Validate inference execution
-        if staged_rf is not None and staged_pipeline.is_fitted:
-            dummy_test = np.zeros((1, NUM_FEATURES), dtype=float)
-            staged_scaled = staged_pipeline.transform(dummy_test)
-            run_single_inference(staged_scaled, rf_model=staged_rf, cnn_model=staged_cnn, mode="hybrid")
+        dummy_test = np.zeros((1, NUM_FEATURES), dtype=float)
+        staged_scaled = staged_pipeline.transform(dummy_test)
+        run_single_inference(staged_scaled, rf_model=staged_rf, cnn_model=staged_cnn, mode="hybrid")
 
         # Atomic commit to engine state
         engine.manifest = manifest
@@ -344,19 +328,16 @@ def run_inference(inference_df):
 
 def reference_explanation(inference_df):
     """Expose provenance for reference explanations with active model domain validation."""
-    prov = XAIProvenance(
-        model_domain="ton_iot",
-        model_hash=explainability.get("shap_model_hash"),
-        representation="scaled",
-    )
     active_hash = engine.manifest.rf_hash if engine.manifest else None
+    active_domain = engine.current_model
+    prov = explainability.get("shap_provenance")
     res = reference_shap_explanation(
         inference_df,
         X_sample=explainability.get("X_sample"),
         shap_values=explainability.get("shap_values"),
         rf_model=engine.rf_model,
         provenance=prov,
-        active_domain=engine.current_model,
+        active_domain=active_domain,
         active_model_hash=active_hash,
     )
     meta = {
@@ -431,22 +412,6 @@ async def startup_event():
     stored = load_settings(settings)
     settings.update(SettingsRequest(**stored).model_dump())
     load_models_and_data('omni', 'omni', is_startup=True)
-    directory = os.path.join(os.path.dirname(__file__), '..', 'data', 'processed', 'explainability')
-    for filename, key in [('shap_values_attack.npy', 'shap_values'), ('X_sample.pkl', 'X_sample'),
-                          ('ripper_rules.txt', 'ripper_rules')]:
-        path = os.path.join(directory, filename)
-        if not os.path.exists(path):
-            continue
-        try:
-            if filename.endswith('.npy'):
-                explainability[key] = np.load(path, allow_pickle=True)
-            elif filename.endswith('.pkl'):
-                explainability[key] = pd.read_pickle(path)
-            else:
-                with open(path, encoding='utf-8') as file:
-                    explainability[key] = file.read()
-        except Exception as exc:
-            print(f'Explanation artifact unavailable ({filename}): {exc}')
     initialize_lime_explainer()
 
 
@@ -525,13 +490,17 @@ def get_model_metrics():
     """
     if engine.manifest and engine.manifest.evaluation_file and engine.package_dir:
         eval_path = os.path.join(engine.package_dir, engine.manifest.evaluation_file)
-        if os.path.exists(eval_path):
-            try:
-                eval_res = EvaluationResult.load(eval_path)
-                return format_metrics_for_api(eval_res, mode=engine.execution_mode, active_manifest=engine.manifest)
-            except Exception as e:
-                print(f"Error reading package evaluation metrics: {e}")
-                return {'available': False, 'reason': f"Evaluation read error: {e}"}
+        if not os.path.exists(eval_path):
+            return {'available': False, 'reason': 'Evaluation metrics file missing on disk.'}
+        try:
+            disk_hash = file_sha256(eval_path)
+            if not engine.manifest.evaluation_hash or disk_hash != engine.manifest.evaluation_hash:
+                return {'available': False, 'reason': 'Evaluation file integrity check failed (tampered file or SHA256 mismatch).'}
+            eval_res = EvaluationResult.load(eval_path)
+            return format_metrics_for_api(eval_res, mode=engine.execution_mode, active_manifest=engine.manifest)
+        except Exception as e:
+            print(f"Error reading package evaluation metrics: {e}")
+            return {'available': False, 'reason': f"Evaluation read error: {e}"}
     return {'available': False, 'reason': 'No validated evaluation evidence for active package'}
 
 
@@ -604,6 +573,8 @@ def switch_engine(request: SwitchRequest):
             'execution_mode': engine.execution_mode,
             'last_error': engine.last_error,
         }
+        previous_rf_online = system_status.get('rf_online', False)
+        previous_cnn_online = system_status.get('cnn_online', False)
         engine.switching = True
         try:
             dataset = request.dataset or request.model_type
@@ -631,6 +602,8 @@ def switch_engine(request: SwitchRequest):
         except Exception as exc:
             for k, v in previous_state.items():
                 setattr(engine, k, v)
+            system_status['rf_online'] = previous_rf_online
+            system_status['cnn_online'] = previous_cnn_online
             update_core_model_label()
             raise HTTPException(409, f'Switch not applied: {exc}') from exc
         finally:

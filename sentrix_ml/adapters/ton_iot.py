@@ -34,6 +34,9 @@ from sentrix_ml.splits import clean_labels
 # Columns that are identifiers/timestamps — must not become predictors
 _DROP_COLUMNS = ["ts", "src_ip", "src_port", "dst_ip", "dst_port"]
 
+# Mandatory raw traffic measurement columns: input cannot be merely a label column
+MANDATORY_RAW_COLUMNS = ["duration", "src_bytes", "dst_bytes", "src_pkts", "dst_pkts"]
+
 # The 'type' column is a multi-class label — preserved as metadata, not a predictor
 _LABEL_COL = "label"
 _TYPE_COL = "type"
@@ -73,23 +76,94 @@ def load_ton_iot(
     if max_files:
         all_files = all_files[:max_files]
 
-    # Memory-bounded ingestion: if sample_n is specified and nrows_per_file is not,
-    # calculate a safe per-file limit so we don't load 3.3GB into RAM.
-    effective_nrows = nrows_per_file
-    if effective_nrows is None and sample_n is not None:
-        effective_nrows = int(np.ceil((sample_n * 1.5) / len(all_files))) + 100
-
-    chunks = []
-    for f in all_files:
-        chunk = pd.read_csv(f, low_memory=False, nrows=effective_nrows)
-        chunks.append(chunk)
-    df = pd.concat(chunks, ignore_index=True)
-
     info = {
-        "raw_rows": len(df),
+        "domain": "ton_iot",
         "files_loaded": len(all_files),
         "exclusion_reasons": {},
     }
+
+    if sample_n is not None and nrows_per_file is None:
+        # Bounded multi-class chunked sampling across files
+        chunksize = max(500, min(5000, sample_n * 2))
+        target_0 = sample_n // 2
+        target_1 = sample_n - target_0
+        pool_0 = []
+        pool_1 = []
+        count_0 = 0
+        count_1 = 0
+
+        for f in all_files:
+            try:
+                reader = pd.read_csv(f, chunksize=chunksize, low_memory=False)
+            except Exception as e:
+                reader = pd.read_csv(f, chunksize=chunksize, low_memory=False, encoding="latin1")
+
+            for chunk_idx, chunk in enumerate(reader):
+                # Check mandatory columns on first chunk encountered
+                missing = [c for c in MANDATORY_RAW_COLUMNS if c not in chunk.columns]
+                if missing:
+                    raise ValueError(
+                        f"ToN-IoT raw dataset is missing mandatory traffic columns: {missing}. "
+                        "A dataset with only labels is invalid."
+                    )
+                if _LABEL_COL not in chunk.columns:
+                    raise ValueError("ToN-IoT dataset missing 'label' column")
+
+                y_bin, _ = clean_labels(chunk[_LABEL_COL], domain="ton_iot")
+                m0 = (y_bin == 0)
+                m1 = (y_bin == 1)
+
+                if m0.any() and count_0 < target_0 * 3:
+                    pool_0.append(chunk.loc[m0])
+                    count_0 += int(m0.sum())
+                if m1.any() and count_1 < target_1 * 3:
+                    pool_1.append(chunk.loc[m1])
+                    count_1 += int(m1.sum())
+
+                if count_0 >= target_0 and count_1 >= target_1:
+                    break
+                if len(all_files) > 1 and chunk_idx >= 4:
+                    # Move to next file to sample across dataset population
+                    break
+            if count_0 >= target_0 and count_1 >= target_1:
+                break
+
+        if pool_0 and pool_1:
+            df0 = pd.concat(pool_0, ignore_index=True)
+            df1 = pd.concat(pool_1, ignore_index=True)
+            n0 = min(target_0, len(df0))
+            n1 = min(target_1, len(df1))
+            if n0 + n1 < sample_n:
+                if len(df0) > n0:
+                    n0 = min(sample_n - n1, len(df0))
+                elif len(df1) > n1:
+                    n1 = min(sample_n - n0, len(df1))
+            s0 = df0.sample(n=n0, random_state=seed) if len(df0) > n0 else df0
+            s1 = df1.sample(n=n1, random_state=seed) if len(df1) > n1 else df1
+            df = pd.concat([s0, s1], ignore_index=True).sample(frac=1.0, random_state=seed).reset_index(drop=True)
+        elif pool_0:
+            df0 = pd.concat(pool_0, ignore_index=True)
+            df = df0.sample(n=min(sample_n, len(df0)), random_state=seed).reset_index(drop=True)
+        elif pool_1:
+            df1 = pd.concat(pool_1, ignore_index=True)
+            df = df1.sample(n=min(sample_n, len(df1)), random_state=seed).reset_index(drop=True)
+        else:
+            df = pd.DataFrame()
+    else:
+        chunks = []
+        for f in all_files:
+            chunk = pd.read_csv(f, low_memory=False, nrows=nrows_per_file)
+            chunks.append(chunk)
+        df = pd.concat(chunks, ignore_index=True)
+        # Check mandatory columns
+        missing = [c for c in MANDATORY_RAW_COLUMNS if c not in df.columns]
+        if missing:
+            raise ValueError(
+                f"ToN-IoT raw dataset is missing mandatory traffic columns: {missing}. "
+                "A dataset with only labels is invalid."
+            )
+
+    info["raw_rows"] = len(df)
 
     # Drop identifier columns
     df.drop(
