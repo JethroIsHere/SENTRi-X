@@ -3,11 +3,14 @@
 Reads raw CIC-IDS2017 CSV files (or pre-mapped CSV), performs schema mapping,
 cleans labels, and produces a canonical DataFrame with the SENTRi-X schema.
 
-Key corrections vs original notebook:
+Key corrections vs original:
+* Full source population traversal across all files without early termination.
+* Deterministic bounded reservoir sampling (Algorithm R) bounds RAM to O(K).
+* Preserves true population class prevalence for evaluation holdouts.
+* Retains raw source metadata (file, row, flow ID, 5-tuple group ID) outside predictors.
 * Duration converted from microseconds to seconds.
 * Explicit handling of missing proto and conn_state (neutral injection).
-* No full-dataset scaling during ingestion.
-* Labels cleaned with clean_labels.
+* SHA-256 file hashing and complete provenance tracking.
 """
 
 from __future__ import annotations
@@ -25,6 +28,7 @@ from sentrix_ml.schema import (
 )
 from sentrix_ml.preprocessing import encode_dataframe
 from sentrix_ml.splits import clean_labels
+from sentrix_ml.sampler import stream_dataset_files, file_sha256
 
 
 SCHEMA_MAPPING = {
@@ -35,13 +39,17 @@ SCHEMA_MAPPING = {
     "flow duration": "duration",
 }
 
-
 MANDATORY_RAW_COLUMNS = [
     "flow duration",
     "total fwd packets",
     "total backward packets",
     "total length of fwd packets",
     "total length of bwd packets",
+]
+
+_DROP_METADATA_COLUMNS = [
+    "flow id", "source ip", "source port", "destination ip", "destination port",
+    "timestamp", "external ip",
 ]
 
 
@@ -55,16 +63,17 @@ def load_cic_ids2017(
     sample_n: int | None = None,
     seed: int = 42,
     convert_duration_us: bool = True,
+    chunksize: int = 50_000,
 ) -> tuple[pd.DataFrame, pd.Series, dict]:
     """Load and clean CIC-IDS2017 dataset.
 
     Args:
-        data_dir: Path to data/raw/cic_ids2017/
+        data_dir: Path to data/raw/cic_ids2017/ or single CSV file
         use_mapped: If True, load cic_ids2017_mapped.csv (requires allow_legacy_mapped=True)
         allow_legacy_mapped: Explicit acknowledgement that legacy mapped file is used
         max_files: Load at most this many raw files
         nrows_per_file: Read at most this many rows per file
-        sample_n: Subsample to this many rows (bounds ingestion memory)
+        sample_n: Subsample to this many rows using reservoir sampling
         seed: Random seed for sampling
         convert_duration_us: Convert duration from microseconds to seconds (divide by 1e6)
 
@@ -72,7 +81,7 @@ def load_cic_ids2017(
         (X_encoded, y_binary, info)
     """
     data_dir = Path(data_dir)
-    info = {
+    info: dict = {
         "domain": "cic_ids2017",
         "duration_unit": "seconds",
         "exclusion_reasons": {},
@@ -89,186 +98,175 @@ def load_cic_ids2017(
             mapped_path = data_dir.parent.parent / "cic_ids2017_mapped.csv"
         if not mapped_path.exists():
             raise FileNotFoundError(f"Missing mapped file: {mapped_path}")
-        df = pd.read_csv(mapped_path, low_memory=False, nrows=nrows_per_file or sample_n)
-        info["files_loaded"] = [str(mapped_path)]
+
+        info["files_considered"] = [mapped_path.name]
+        info["files_loaded"] = 1
+        info["source_file_hashes"] = {mapped_path.name: file_sha256(mapped_path)}
         info["source_type"] = "legacy_mapped_csv"
-        # Check if duration is in microseconds
+        info["selection_policy"] = "head_read"
+
+        df = pd.read_csv(mapped_path, low_memory=False, nrows=nrows_per_file or sample_n)
         if "duration" in df.columns:
             dur_series = pd.to_numeric(df["duration"], errors="coerce")
             if dur_series.median() > 1000.0 and convert_duration_us:
                 df["duration"] = dur_series / 1e6
                 info["duration_converted_from_us"] = True
+
+        label_col = "label" if "label" in df.columns else None
+        if label_col is None:
+            raise ValueError("CIC-IDS2017 missing label column")
+
+        y_binary, exclusions = clean_labels(df[label_col], domain="cic_ids2017")
+        info["exclusion_reasons"].update(exclusions)
+        valid_mask = y_binary.notna()
+        df = df.loc[valid_mask].reset_index(drop=True)
+        y_binary = y_binary.loc[valid_mask].astype(int).reset_index(drop=True)
+
+        meta_df = pd.DataFrame({
+            "source_file": [mapped_path.name] * len(df),
+            "source_row_index": list(range(len(df))),
+            "source_flow_id": [f"{mapped_path.name}:{i}" for i in range(len(df))],
+            "group_id": [f"mapped_flow:{i}" for i in range(len(df))],
+        })
+        info["metadata"] = meta_df
+        X_encoded = encode_dataframe(df)
+        info["final_shape"] = X_encoded.shape
+        info["class_counts"] = {str(k): int(v) for k, v in y_binary.value_counts().items()}
+        return X_encoded, y_binary, info
+
+    if data_dir.is_file():
+        all_files = [str(data_dir)]
     else:
-        if data_dir.is_file():
-            all_files = [str(data_dir)]
-        else:
-            all_files = sorted(
-                [
-                    f for f in glob.glob(str(data_dir / "*.csv"))
-                    if not f.endswith("mapped.csv") and not f.endswith("cic_ids2017_mapped.csv")
-                ]
+        all_files = sorted(
+            [
+                f for f in glob.glob(str(data_dir / "*.csv"))
+                if not f.endswith("mapped.csv") and not f.endswith("cic_ids2017_mapped.csv")
+            ]
+        )
+    if not all_files:
+        raise FileNotFoundError(
+            f"No CIC-IDS2017 raw CSV files found in {data_dir}. "
+            "Raw CSV files are required for uncompromised provenance."
+        )
+
+    if max_files:
+        all_files = all_files[:max_files]
+
+    def _clean_and_extract_cic_chunk(
+        chunk: pd.DataFrame,
+        fname: str,
+        row_offset: int,
+    ) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series, dict[str, int]]:
+        chunk_len = len(chunk)
+        # Normalize column names
+        chunk.columns = chunk.columns.str.strip().str.lower()
+
+        missing = [c for c in MANDATORY_RAW_COLUMNS if c not in chunk.columns and SCHEMA_MAPPING.get(c) not in chunk.columns]
+        if missing:
+            raise ValueError(
+                f"CIC-IDS2017 raw dataset is missing mandatory traffic columns: {missing}. "
+                "A dataset with only labels is invalid."
             )
-        if not all_files:
-            raise FileNotFoundError(
-                f"No CIC-IDS2017 raw CSV files found in {data_dir}. "
-                "Raw CSV files are required for uncompromised provenance."
-            )
+        if "label" not in chunk.columns:
+            raise ValueError("CIC-IDS2017 dataset missing label column")
 
-        if max_files:
-            all_files = all_files[:max_files]
-
-        info["files_loaded"] = all_files
-        info["source_type"] = "raw_csvs"
-
-        if sample_n is not None and nrows_per_file is None:
-            chunksize = max(1000, min(10000, sample_n * 2))
-            target_0 = sample_n // 2
-            target_1 = sample_n - target_0
-            pool_0 = []
-            pool_1 = []
-            count_0 = 0
-            count_1 = 0
-
-            for f in all_files:
-                try:
-                    reader = pd.read_csv(f, encoding="cp1252", chunksize=chunksize, low_memory=False)
-                except UnicodeDecodeError:
-                    reader = pd.read_csv(f, encoding="utf-8", errors="replace", chunksize=chunksize, low_memory=False)
-
-                for chunk in reader:
-                    chunk.columns = chunk.columns.str.strip().str.lower()
-                    missing = [c for c in MANDATORY_RAW_COLUMNS if c not in chunk.columns]
-                    if missing:
-                        raise ValueError(
-                            f"CIC-IDS2017 raw dataset is missing mandatory traffic columns: {missing}. "
-                            "A dataset with only labels is invalid."
-                        )
-                    if "label" not in chunk.columns:
-                        raise ValueError("CIC-IDS2017 dataset missing label column")
-
-                    y_bin, _ = clean_labels(chunk["label"], domain="cic_ids2017")
-                    m0 = (y_bin == 0)
-                    m1 = (y_bin == 1)
-
-                    if m0.any() and count_0 < target_0 * 3:
-                        pool_0.append(chunk.loc[m0])
-                        count_0 += int(m0.sum())
-                    if m1.any() and count_1 < target_1 * 3:
-                        pool_1.append(chunk.loc[m1])
-                        count_1 += int(m1.sum())
-
-                    if count_0 >= target_0 and count_1 >= target_1:
-                        break
-                if count_0 >= target_0 and count_1 >= target_1:
-                    break
-
-            if pool_0 and pool_1:
-                df0 = pd.concat(pool_0, ignore_index=True)
-                df1 = pd.concat(pool_1, ignore_index=True)
-                n0 = min(target_0, len(df0))
-                n1 = min(target_1, len(df1))
-                if n0 + n1 < sample_n:
-                    if len(df0) > n0:
-                        n0 = min(sample_n - n1, len(df0))
-                    elif len(df1) > n1:
-                        n1 = min(sample_n - n0, len(df1))
-                s0 = df0.sample(n=n0, random_state=seed) if len(df0) > n0 else df0
-                s1 = df1.sample(n=n1, random_state=seed) if len(df1) > n1 else df1
-                df = pd.concat([s0, s1], ignore_index=True).sample(frac=1.0, random_state=seed).reset_index(drop=True)
-            elif pool_0:
-                df0 = pd.concat(pool_0, ignore_index=True)
-                df = df0.sample(n=min(sample_n, len(df0)), random_state=seed).reset_index(drop=True)
-            elif pool_1:
-                df1 = pd.concat(pool_1, ignore_index=True)
-                df = df1.sample(n=min(sample_n, len(df1)), random_state=seed).reset_index(drop=True)
-            else:
-                df = pd.DataFrame()
-        else:
-            chunks = []
-            for f in all_files:
-                try:
-                    chunk = pd.read_csv(f, encoding="cp1252", low_memory=False, nrows=nrows_per_file)
-                except UnicodeDecodeError:
-                    chunk = pd.read_csv(f, encoding="utf-8", errors="replace", low_memory=False, nrows=nrows_per_file)
-                chunks.append(chunk)
-            df = pd.concat(chunks, ignore_index=True)
-            df.columns = df.columns.str.strip().str.lower()
-            missing = [c for c in MANDATORY_RAW_COLUMNS if c not in df.columns]
-            if missing:
-                raise ValueError(
-                    f"CIC-IDS2017 raw dataset is missing mandatory traffic columns: {missing}. "
-                    "A dataset with only labels is invalid."
-                )
+        has_5tuple = all(c in chunk.columns for c in ["source ip", "source port", "destination ip", "destination port", "protocol"])
+        has_flowid = "flow id" in chunk.columns
+        has_ts = "timestamp" in chunk.columns
 
         # Rename to canonical schema
-        df.rename(columns=SCHEMA_MAPPING, inplace=True)
+        chunk.rename(columns=SCHEMA_MAPPING, inplace=True)
 
         # Convert duration from microseconds to seconds
-        if convert_duration_us and "duration" in df.columns:
-            df["duration"] = pd.to_numeric(df["duration"], errors="coerce") / 1e6
-            info["duration_converted_from_us"] = True
+        if convert_duration_us and "duration" in chunk.columns:
+            chunk["duration"] = pd.to_numeric(chunk["duration"], errors="coerce") / 1e6
 
         # Injected columns for missing network fields
-        if "proto" not in df.columns:
-            df["proto"] = "other"
-        if "conn_state" not in df.columns:
-            df["conn_state"] = "OTH"
+        if "proto" not in chunk.columns:
+            chunk["proto"] = "other"
+        if "conn_state" not in chunk.columns:
+            chunk["conn_state"] = "OTH"
 
-    info["raw_rows"] = len(df)
+        # Clean labels
+        y_bin, exclusions = clean_labels(chunk["label"], domain="cic_ids2017")
 
-    # Standardize label column
-    label_col = "label"
-    if "label" not in df.columns and "label" in [c.lower() for c in df.columns]:
-        for c in df.columns:
-            if c.lower() == "label":
-                df.rename(columns={c: "label"}, inplace=True)
-                break
+        # Coerce optional numerics
+        for col in OPTIONAL_NUMERIC_FEATURES:
+            if col in chunk.columns:
+                if not pd.api.types.is_numeric_dtype(chunk[col]):
+                    chunk[col] = pd.to_numeric(chunk[col].replace("-", np.nan), errors="coerce").fillna(0.0)
+                else:
+                    chunk[col] = chunk[col].fillna(0.0)
 
-    if "label" not in df.columns:
-        raise ValueError("CIC-IDS2017 missing label column")
+        # Coerce required numerics
+        for col in REQUIRED_NUMERIC_FEATURES:
+            if col in chunk.columns and not pd.api.types.is_numeric_dtype(chunk[col]):
+                chunk[col] = pd.to_numeric(chunk[col].replace("-", np.nan), errors="coerce")
 
-    # Optional numeric features: impute absent with 0.0
-    for col in OPTIONAL_NUMERIC_FEATURES:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col].replace("-", np.nan), errors="coerce").fillna(0.0)
+        chunk.replace([np.inf, -np.inf], np.nan, inplace=True)
 
-    # Required numeric features: coerce to float
-    for col in REQUIRED_NUMERIC_FEATURES:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col].replace("-", np.nan), errors="coerce")
+        req_cols = [c for c in REQUIRED_NUMERIC_FEATURES if c in chunk.columns]
+        nan_mask = chunk[req_cols].isna().any(axis=1) if req_cols else pd.Series(False, index=chunk.index)
+        neg_mask = (chunk[req_cols] < 0).any(axis=1) if req_cols else pd.Series(False, index=chunk.index)
+        drop_mask = nan_mask | neg_mask
+        dropped_count = int(drop_mask.sum())
+        if dropped_count > 0:
+            exclusions["invalid_or_missing_required_numerics"] = (
+                exclusions.get("invalid_or_missing_required_numerics", 0) + dropped_count
+            )
 
-    # Replace infinities
-    df.replace([np.inf, -np.inf], np.nan, inplace=True)
+        valid_mask = y_bin.notna() & (~drop_mask)
 
-    # Drop rows ONLY when required numeric features are missing or negative
-    req_cols = [c for c in REQUIRED_NUMERIC_FEATURES if c in df.columns]
-    nan_mask = df[req_cols].isna().any(axis=1)
-    neg_mask = (df[req_cols] < 0).any(axis=1)
-    drop_mask = nan_mask | neg_mask
-    dropped_count = int(drop_mask.sum())
-    if dropped_count > 0:
-        info["exclusion_reasons"]["invalid_or_missing_required_numerics"] = dropped_count
-        df = df.loc[~drop_mask].reset_index(drop=True)
+        clean_chunk = chunk.loc[valid_mask].copy()
+        clean_y = y_bin.loc[valid_mask].astype(int)
+        raw_valid = chunk.loc[valid_mask]
 
-    info["dropped_required_nan_rows"] = dropped_count
+        def meta_fn(idx: int) -> dict:
+            orig_row = row_offset + int(raw_valid.index[idx])
+            if has_5tuple:
+                r = raw_valid.iloc[idx]
+                group_id = f"{r['source ip']}:{r['source port']}->{r['destination ip']}:{r['destination port']}/{r['protocol']}"
+            else:
+                group_id = f"{fname}:{orig_row}"
+            source_flow_id = str(raw_valid["flow id"].iloc[idx]) if has_flowid else f"{fname}:{orig_row}"
+            rec = {
+                "__meta_source_file__": fname,
+                "__meta_source_row_index__": orig_row,
+                "__meta_source_flow_id__": source_flow_id,
+                "__meta_group_id__": group_id,
+            }
+            if has_ts:
+                rec["__meta_timestamp__"] = raw_valid["timestamp"].iloc[idx]
+            return rec
 
-    # Clean labels
-    y_binary, exclusions = clean_labels(df["label"], domain="cic_ids2017")
-    info["exclusion_reasons"].update(exclusions)
+        drop_now = [c for c in _DROP_METADATA_COLUMNS + ["label"] if c in clean_chunk.columns]
+        clean_chunk.drop(columns=drop_now, inplace=True)
 
-    valid_mask = y_binary.notna()
-    df = df.loc[valid_mask].reset_index(drop=True)
-    y_binary = y_binary.loc[valid_mask].astype(int).reset_index(drop=True)
-    info["valid_label_rows"] = len(df)
+        return clean_chunk, meta_fn, clean_y, exclusions
 
-    # Subsample to exact requested size
-    if sample_n and len(df) > sample_n:
-        idx = df.sample(n=sample_n, random_state=seed).index
-        df = df.loc[idx].reset_index(drop=True)
-        y_binary = y_binary.loc[idx].reset_index(drop=True)
-        info["sampled_to"] = sample_n
+    features_df, y_binary, metadata_df, stream_info = stream_dataset_files(
+        all_files,
+        clean_and_extract_fn=_clean_and_extract_cic_chunk,
+        sample_n=sample_n,
+        seed=seed,
+        chunksize=chunksize,
+        nrows_per_file=nrows_per_file,
+    )
 
-    X_encoded = encode_dataframe(df)
+    info.update(stream_info)
+    info["source_type"] = "raw_csvs"
+    info["duration_converted_from_us"] = convert_duration_us
+    info["raw_rows"] = info["total_rows_considered"]
+    info["cleaned_rows"] = info["total_valid_rows"]
+    info["valid_label_rows"] = info["total_valid_rows"]
+    if sample_n:
+        info["sampled_to"] = len(y_binary)
+
+    if len(features_df) > 0:
+        X_encoded = encode_dataframe(features_df)
+    else:
+        X_encoded = pd.DataFrame(columns=EXPECTED_FEATURES)
+
     info["final_shape"] = X_encoded.shape
     info["class_counts"] = {str(k): int(v) for k, v in y_binary.value_counts().items()}
 

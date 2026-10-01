@@ -109,6 +109,9 @@ def run_suite():
             "test_item7_reference_shap_rejects_cross_domain",
             "test_item7_shap_without_hash_rejected_for_hashed_active_model",
             "test_item8_adaptation_source_provenance_enforced",
+            "test_item9_reservoir_sampling_across_complete_multi_file_population",
+            "test_item10_duplicate_group_policy_keep_first_disjoint",
+            "test_item10_end_to_end_training_persists_lineage_and_adaptation_source_hash",
         ]),
         ("T13: Rewritten Notebook Executions", "tests.test_notebook_executions", [
             "test_notebook_01_etl_ton_iot",

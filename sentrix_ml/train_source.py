@@ -33,7 +33,7 @@ from sentrix_ml.evaluation import compute_multimode_metrics, save_prediction_evi
 from sentrix_ml.packaging import create_package, validate_package, file_sha256
 
 
-def parse_args():
+def parse_args(args=None):
     parser = argparse.ArgumentParser(description="Train SENTRi-X Source Model on ToN-IoT")
     parser.add_argument("--data-dir", type=str, default="data/raw/ton_iot", help="Path to raw ToN-IoT CSV directory")
     parser.add_argument("--max-files", type=int, default=None, help="Maximum number of CSV files to read")
@@ -47,12 +47,12 @@ def parse_args():
     parser.add_argument("--output-dir", type=str, default="models/candidates/ton_iot_v2", help="Candidate output directory")
     parser.add_argument("--run-type", choices=["full", "smoke"], default="full", help="Evaluation run type")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
-    return parser.parse_args()
+    return parser.parse_args(args)
 
 
 def run_train_source(args=None):
-    if args is None:
-        args = parse_args()
+    if args is None or isinstance(args, list):
+        args = parse_args(args)
 
     start_time = time.time()
     print("=" * 70)
@@ -89,14 +89,16 @@ def run_train_source(args=None):
     print(f"Data ingested: {len(X_encoded)} rows, class counts: {info.get('class_counts')}")
 
     # 2. Split
-    print(f"\n[Step 2] Splitting into disjoint partitions (Test={args.test_fraction*100:.0f}%, Val={args.val_fraction*100:.0f}% of train)...")
     X_train, X_val, X_test, y_train, y_val, y_test, split_manifest = stratified_split(
         X_encoded,
         y_binary,
+        metadata=info.get("metadata"),
         test_fraction=args.test_fraction,
         val_fraction=args.val_fraction,
         seed=args.seed,
         domain="ton_iot",
+        source_file_hashes=info.get("source_file_hashes"),
+        exclusion_reasons=info.get("exclusion_reasons"),
     )
     print(f"Partitions: Train={len(X_train)}, Val={len(X_val)}, Test={len(X_test)}")
 

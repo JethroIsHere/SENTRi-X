@@ -87,6 +87,7 @@ class ModelManifest:
     # Metadata
     created_at: str = ""
     source_revision: str = ""
+    source_candidate_manifest_hash: Optional[str] = None
     notes: str = ""
 
     def __post_init__(self):
@@ -103,7 +104,25 @@ class ModelManifest:
     def load(path: str | Path) -> "ModelManifest":
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
-        return ModelManifest(**data)
+        valid_keys = set(ModelManifest.__dataclass_fields__.keys())
+        filtered_data = {k: v for k, v in data.items() if k in valid_keys}
+        return ModelManifest(**filtered_data)
+
+
+def get_git_revision() -> str:
+    """Retrieve current repository git commit SHA."""
+    try:
+        import subprocess
+        repo_dir = Path(__file__).resolve().parent.parent
+        rev = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+            cwd=repo_dir,
+        ).strip()
+        return rev
+    except Exception:
+        return ""
 
 
 class PackageValidationError(Exception):
@@ -250,6 +269,31 @@ def validate_package(
         except Exception as e:
             raise PackageValidationError(f"Evaluation file deep inspection failed: {e}") from e
 
+        # Deep inspect split manifest linkage & lineage
+        split_path = pkg / manifest.split_manifest_file
+        try:
+            from sentrix_ml.splits import SplitManifest
+            sm = SplitManifest.load(split_path)
+            if not sm.source_file_hashes:
+                raise PackageValidationError("Strict deployment requires non-empty source_file_hashes in split manifest.")
+            if not sm.train_flow_ids or not sm.test_flow_ids:
+                raise PackageValidationError("Strict deployment requires non-empty flow IDs in split manifest partitions.")
+            if sm.duplicate_group_policy != "keep_first_disjoint":
+                raise PackageValidationError(f"Invalid duplicate_group_policy in split manifest: '{sm.duplicate_group_policy}'")
+        except PackageValidationError:
+            raise
+        except Exception as e:
+            raise PackageValidationError(f"Split manifest deep inspection failed: {e}") from e
+
+        # Lineage check: source_revision
+        if not manifest.source_revision or manifest.source_revision.strip() == "":
+            raise PackageValidationError("Strict deployment requires a non-empty source_revision (git commit SHA).")
+
+        # Adaptation candidate provenance check
+        if manifest.training_config.get("source_candidate") or manifest.source_candidate_manifest_hash:
+            if not manifest.source_candidate_manifest_hash or not manifest.source_candidate_manifest_hash.startswith("sha256:"):
+                raise PackageValidationError("Adapted package requires a valid non-empty source_candidate_manifest_hash.")
+
         # Deep inspect preprocessor
         import joblib
         pipe_path = pkg / manifest.preprocessor_file
@@ -322,6 +366,7 @@ def create_package(
     evidence_path: str | Path | None = None,
     xai_background_path: str | Path | None = None,
     source_revision: str = "",
+    source_candidate_manifest_hash: Optional[str] = None,
     run_type: str = "smoke",
     is_mock: bool = False,
     notes: str = "",
@@ -341,6 +386,8 @@ def create_package(
     shutil.copy2(cnn_path, cnn_dest)
     shutil.copy2(pipeline_path, pipe_dest)
 
+    effective_revision = source_revision or get_git_revision()
+
     manifest = ModelManifest(
         domain=domain,
         rf_hash=file_sha256(rf_dest),
@@ -348,7 +395,8 @@ def create_package(
         preprocessor_hash=file_sha256(pipe_dest),
         is_mock=is_mock,
         training_config=training_config or {},
-        source_revision=source_revision,
+        source_revision=effective_revision,
+        source_candidate_manifest_hash=source_candidate_manifest_hash,
         evaluation_run_type=run_type,
         notes=notes,
     )

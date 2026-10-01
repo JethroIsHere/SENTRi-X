@@ -27,6 +27,27 @@ def _execute_notebook(nb_filename: str):
     if str(ROOT_DIR) not in sys.path:
         sys.path.insert(0, str(ROOT_DIR))
 
+    from unittest.mock import patch
+    import sentrix_ml.adapters.ton_iot
+    import sentrix_ml.adapters.bot_iot
+    import sentrix_ml.adapters.cic_ids2017
+
+    orig_load_ton = sentrix_ml.adapters.ton_iot.load_ton_iot
+    orig_load_bot = sentrix_ml.adapters.bot_iot.load_bot_iot
+    orig_load_cic = sentrix_ml.adapters.cic_ids2017.load_cic_ids2017
+
+    def _bounded_load_ton(*args, **kwargs):
+        kwargs.setdefault("nrows_per_file", 200)
+        return orig_load_ton(*args, **kwargs)
+
+    def _bounded_load_bot(*args, **kwargs):
+        kwargs.setdefault("nrows_per_file", 200)
+        return orig_load_bot(*args, **kwargs)
+
+    def _bounded_load_cic(*args, **kwargs):
+        kwargs.setdefault("nrows_per_file", 200)
+        return orig_load_cic(*args, **kwargs)
+
     try:
         # Fresh isolated namespace for the notebook execution
         ns = {
@@ -34,17 +55,20 @@ def _execute_notebook(nb_filename: str):
             "__name__": "__main__",
         }
 
-        # Execute cells in sequence
-        for i, cell in enumerate(nb_data.get("cells", [])):
-            if cell.get("cell_type") == "code":
-                source_lines = cell.get("source", [])
-                code = "".join(source_lines)
-                if not code.strip():
-                    continue
-                try:
-                    exec(compile(code, f"{nb_filename}_cell_{i}", "exec"), ns)
-                except Exception as e:
-                    raise RuntimeError(f"Error in {nb_filename} cell {i}:\n{code}\n--> Error: {e}") from e
+        with patch("sentrix_ml.adapters.ton_iot.load_ton_iot", side_effect=_bounded_load_ton), \
+             patch("sentrix_ml.adapters.bot_iot.load_bot_iot", side_effect=_bounded_load_bot), \
+             patch("sentrix_ml.adapters.cic_ids2017.load_cic_ids2017", side_effect=_bounded_load_cic):
+            # Execute cells in sequence
+            for i, cell in enumerate(nb_data.get("cells", [])):
+                if cell.get("cell_type") == "code":
+                    source_lines = cell.get("source", [])
+                    code = "".join(source_lines)
+                    if not code.strip():
+                        continue
+                    try:
+                        exec(compile(code, f"{nb_filename}_cell_{i}", "exec"), ns)
+                    except Exception as e:
+                        raise RuntimeError(f"Error in {nb_filename} cell {i}:\n{code}\n--> Error: {e}") from e
     finally:
         os.chdir(old_cwd)
 

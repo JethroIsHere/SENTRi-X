@@ -575,6 +575,8 @@ def test_item3_backend_loader_rejects_unfitted_pipeline():
 
         split_m = SplitManifest(
             seed=42, train_indices=[0], val_indices=[1], test_indices=[2],
+            source_file_hashes={"dummy.csv": "sha256:1234"},
+            train_flow_ids=["f0"], val_flow_ids=["f1"], test_flow_ids=["f2"],
         )
         split_path = src_dir / "split_manifest.json"
         split_m.save(split_path)
@@ -832,6 +834,159 @@ def test_item8_adaptation_source_provenance_enforced():
                 "--output-dir", str(Path(tmpdir) / "adapt_out"),
                 "--run-type", "smoke",
             ])
+
+
+# =====================================================================
+# Follow-up Review Item 9: Reservoir Sampling Across Complete Population
+# =====================================================================
+
+def test_item9_reservoir_sampling_across_complete_multi_file_population():
+    """Verify reservoir sampling traverses all files, samples late rows, captures late attack types, and preserves true prevalence."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp = Path(tmpdir)
+        f1 = tmp / "Network_dataset_1.csv"
+        f2 = tmp / "Network_dataset_2.csv"
+        header = "ts,src_ip,src_port,dst_ip,dst_port,proto,conn_state,duration,src_bytes,dst_bytes,missed_bytes,src_pkts,src_ip_bytes,dst_pkts,dst_ip_bytes,dns_query,dns_qclass,dns_qtype,dns_rcode,http_trans_depth,http_method,http_uri,http_version,http_request_body_len,http_response_body_len,http_status_code,type,label\n"
+
+        # File 1: 900 benign, 100 attack ('scan')
+        rows1 = [f"{i},192.168.1.{i%200},1000+{i},10.0.0.1,80,tcp,SF,{i},500,1000,0,5,500,5,1000,-,-,-,-,-,-,-,-,-,-,-,normal,0\n" for i in range(900)]
+        rows1 += [f"{i},192.168.1.{i%200},2000+{i},10.0.0.1,80,tcp,SF,{i},500,1000,0,5,500,5,1000,-,-,-,-,-,-,-,-,-,-,-,scan,1\n" for i in range(900, 1000)]
+        f1.write_text(header + "".join(rows1))
+
+        # File 2: 900 benign, 100 attack ('backdoor')
+        rows2 = [f"{i},192.168.2.{i%200},3000+{i},10.0.0.1,80,tcp,SF,{i},500,1000,0,5,500,5,1000,-,-,-,-,-,-,-,-,-,-,-,normal,0\n" for i in range(1000, 1900)]
+        rows2 += [f"{i},192.168.2.{i%200},4000+{i},10.0.0.1,80,tcp,SF,{i},500,1000,0,5,500,5,1000,-,-,-,-,-,-,-,-,-,-,-,backdoor,1\n" for i in range(1900, 2000)]
+        f2.write_text(header + "".join(rows2))
+
+        X, y, info = load_ton_iot(tmp, sample_n=50, seed=42)
+
+        # 1. Total population considered must be 2000 across 2 files
+        assert info["files_loaded"] == 2
+        assert info["total_rows_considered"] == 2000
+        assert info["source_class_counts"] == {"0": 1800, "1": 200}
+        assert set(info["source_file_hashes"].keys()) == {"Network_dataset_1.csv", "Network_dataset_2.csv"}
+        assert info["selection_policy"] == "reservoir_sampling"
+
+        # 2. Both files must be sampled
+        meta = info["metadata"]
+        file_counts = dict(meta["source_file"].value_counts())
+        assert "Network_dataset_1.csv" in file_counts and file_counts["Network_dataset_1.csv"] > 0
+        assert "Network_dataset_2.csv" in file_counts and file_counts["Network_dataset_2.csv"] > 0
+
+        # 3. Late duration markers and late attack type from File 2 must be sampled
+        assert X["duration"].max() >= 1000.0, "Late file rows were not sampled!"
+        assert "backdoor" in set(meta["attack_type"]), "Late-file attack type 'backdoor' was excluded!"
+
+        # 4. Natural class prevalence preserved (~10% attack, NOT artificially forced 50/50)
+        attack_count = int((y == 1).sum())
+        assert 1 <= attack_count <= 15, f"Expected natural ~10% prevalence in 50 rows, got {attack_count}"
+
+
+# =====================================================================
+# Follow-up Review Item 10: Duplicate Group Policy & Lineage Preservation
+# =====================================================================
+
+def test_item10_duplicate_group_policy_keep_first_disjoint():
+    """Verify 100 rows from 10 duplicate groups drops 90 rows and zero groups cross partitions."""
+    from sentrix_ml.splits import stratified_split
+    base_df = pd.DataFrame(np.random.RandomState(42).randn(10, NUM_FEATURES), columns=EXPECTED_FEATURES)
+    base_y = pd.Series([0, 1] * 5)
+    base_meta = pd.DataFrame({
+        "group_id": [f"group_{i}" for i in range(10)],
+        "source_flow_id": [f"flow_{i}" for i in range(10)],
+    })
+
+    X = pd.concat([base_df] * 10, ignore_index=True)
+    y = pd.concat([base_y] * 10, ignore_index=True)
+    meta = pd.concat([base_meta] * 10, ignore_index=True)
+
+    X_train, X_val, X_test, y_train, y_val, y_test, manifest = stratified_split(
+        X, y, metadata=meta, duplicate_group_policy="keep_first_disjoint", seed=42
+    )
+
+    assert len(X) == 100
+    assert manifest.duplicate_rows_excluded == 90
+    assert manifest.excluded_rows == 90
+    assert len(X_train) + len(X_val) + len(X_test) == 10
+
+    # Verify zero duplicate groups cross partitions
+    train_groups = set(meta.loc[X_train.index, "group_id"])
+    val_groups = set(meta.loc[X_val.index, "group_id"])
+    test_groups = set(meta.loc[X_test.index, "group_id"])
+    assert train_groups.isdisjoint(test_groups), "Duplicate group crossed train and test partitions!"
+    assert train_groups.isdisjoint(val_groups), "Duplicate group crossed train and val partitions!"
+    assert val_groups.isdisjoint(test_groups), "Duplicate group crossed val and test partitions!"
+
+    # Verify flow IDs in manifest
+    assert len(manifest.train_flow_ids) == len(X_train)
+    assert len(manifest.test_flow_ids) == len(X_test)
+    assert manifest.duplicate_group_policy == "keep_first_disjoint"
+
+
+def test_item10_end_to_end_training_persists_lineage_and_adaptation_source_hash():
+    """Verify source and adaptation candidate manifests persist git revision, source file hashes, and parent manifest hash."""
+    from sentrix_ml.train_source import run_train_source
+    from sentrix_ml.train_adaptation import run_train_adaptation
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp = Path(tmpdir)
+
+        # 1. Source ToN data
+        ton_dir = tmp / "ton_raw"
+        ton_dir.mkdir()
+        ton_file = ton_dir / "Network_dataset_1.csv"
+        header = "ts,src_ip,src_port,dst_ip,dst_port,proto,conn_state,duration,src_bytes,dst_bytes,missed_bytes,src_pkts,src_ip_bytes,dst_pkts,dst_ip_bytes,dns_query,dns_qclass,dns_qtype,dns_rcode,http_trans_depth,http_method,http_uri,http_version,http_request_body_len,http_response_body_len,http_status_code,type,label\n"
+        ton_rows = [f"{i},192.168.1.{i},1000+{i},10.0.0.1,80,tcp,SF,1.0,500,1000,0,5,500,5,1000,-,-,-,-,-,-,-,-,-,-,-,normal,0\n" for i in range(30)]
+        ton_rows += [f"{i},192.168.2.{i},2000+{i},10.0.0.1,80,tcp,SF,1.0,500,1000,0,5,500,5,1000,-,-,-,-,-,-,-,-,-,-,-,attack,1\n" for i in range(30, 60)]
+        ton_file.write_text(header + "".join(ton_rows))
+
+        src_out = tmp / "cand_src"
+        src_manifest = run_train_source([
+            "--data-dir", str(ton_dir),
+            "--output-dir", str(src_out),
+            "--run-type", "smoke",
+            "--sample-n", "30",
+            "--rf-estimators", "5",
+            "--cnn-epochs", "1",
+        ])
+
+        # Verify source package lineage
+        assert src_manifest.source_revision != "", "source_revision must not be empty!"
+        src_sm = SplitManifest.load(src_out / "split_manifest.json")
+        assert len(src_sm.source_file_hashes) == 1
+        assert "Network_dataset_1.csv" in src_sm.source_file_hashes
+        assert len(src_sm.train_flow_ids) > 0
+        assert len(src_sm.test_flow_ids) > 0
+
+        # 2. Adaptation BoT data
+        bot_dir = tmp / "bot_raw"
+        bot_dir.mkdir()
+        bot_file = bot_dir / "UNSW_2018_IoT_Botnet_Full5pc_1.csv"
+        bot_header = "pkSeqID,proto,saddr,sport,daddr,dport,dur,spkts,dpkts,sbytes,dbytes,TnBPSrcIP,TnBPDstIP,state,attack,category,subcategory\n"
+        bot_rows = [f"{i},tcp,192.168.1.{i},1000+{i},10.0.0.1,80,1.0,5,5,500,1000,0,0,CON,0,Normal,Normal\n" for i in range(30)]
+        bot_rows += [f"{i},tcp,192.168.2.{i},2000+{i},10.0.0.1,80,1.0,5,5,500,1000,0,0,CON,1,DDoS,TCP\n" for i in range(30, 60)]
+        bot_file.write_text(bot_header + "".join(bot_rows))
+
+        adapt_out = tmp / "cand_adapt"
+        adapt_manifest = run_train_adaptation([
+            "--domain", "bot_iot",
+            "--source-candidate", str(src_out),
+            "--data-dir", str(bot_dir),
+            "--output-dir", str(adapt_out),
+            "--run-type", "smoke",
+            "--sample-n", "30",
+            "--rf-estimators", "5",
+            "--cnn-epochs", "1",
+        ])
+
+        # Verify adaptation package persists source candidate hash
+        src_manifest_hash = file_sha256(src_out / "manifest.json")
+        assert adapt_manifest.source_candidate_manifest_hash == src_manifest_hash
+        assert adapt_manifest.training_config["source_candidate_manifest_hash"] == src_manifest_hash
+        adapt_sm = SplitManifest.load(adapt_out / "split_manifest.json")
+        assert len(adapt_sm.source_file_hashes) == 1
+        assert "UNSW_2018_IoT_Botnet_Full5pc_1.csv" in adapt_sm.source_file_hashes
+        assert len(adapt_sm.train_flow_ids) > 0
+        assert len(adapt_sm.test_flow_ids) > 0
 
 
 if __name__ == "__main__":

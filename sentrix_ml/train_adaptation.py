@@ -121,14 +121,16 @@ def run_train_adaptation(args=None):
     print(f"Ingested {len(X_encoded)} rows, classes: {info.get('class_counts')}")
 
     # 2. Split (20% study / 80% exam)
-    print(f"\n[Step 2] Executing adaptation split: {args.study_fraction*100:.0f}% Study, {(1-args.study_fraction)*100:.0f}% Exam Holdout...")
     X_s_train, X_s_val, X_exam, y_s_train, y_s_val, y_exam, split_manifest = adaptation_split(
         X_encoded,
         y_binary,
+        metadata=info.get("metadata"),
         study_fraction=args.study_fraction,
         val_fraction_of_study=args.val_fraction,
         seed=args.seed,
         domain=domain,
+        source_file_hashes=info.get("source_file_hashes"),
+        exclusion_reasons=info.get("exclusion_reasons"),
     )
     print(f"Partitions: Study Train={len(X_s_train)}, Study Val={len(X_s_val)}, Exam Holdout={len(X_exam)}")
 
@@ -250,6 +252,10 @@ def run_train_adaptation(args=None):
             m = eval_result.modes[m_name]
             print(f"  * Mode [{m_name.upper():6s}]: Acc={m['accuracy']:.4f}, Prec={m['precision']:.4f}, Rec={m['recall']:.4f}, F1={m['f1']:.4f}, AUC={m['roc_auc']}")
 
+        training_cfg = vars(args).copy()
+        if source_manifest_hash:
+            training_cfg["source_candidate_manifest_hash"] = source_manifest_hash
+
         manifest = create_package(
             output_dir=out_dir,
             domain=domain,
@@ -259,7 +265,8 @@ def run_train_adaptation(args=None):
             split_manifest_path=split_path,
             evaluation_path=eval_path,
             evidence_path=evidence_path,
-            training_config=vars(args),
+            training_config=training_cfg,
+            source_candidate_manifest_hash=source_manifest_hash,
             run_type=args.run_type,
             is_mock=not has_tf,
             notes=f"Adapted {domain} candidate trained with seed {args.seed}",

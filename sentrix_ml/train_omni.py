@@ -37,7 +37,7 @@ from sentrix_ml.evaluation import compute_multimode_metrics, save_prediction_evi
 from sentrix_ml.packaging import create_package, validate_package, file_sha256
 
 
-def parse_args():
+def parse_args(args=None):
     parser = argparse.ArgumentParser(description="Multi-Domain Omni Model Training for SENTRi-X")
     parser.add_argument("--sample-per-domain", type=int, default=30000, help="Bounded rows per domain for 16GB RAM limit")
     parser.add_argument("--test-fraction", type=float, default=0.20, help="Holdout test fraction")
@@ -49,12 +49,12 @@ def parse_args():
     parser.add_argument("--output-dir", type=str, default="models/candidates/omni_v2", help="Candidate output directory")
     parser.add_argument("--run-type", choices=["full", "smoke"], default="full", help="Evaluation run type")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
-    return parser.parse_args()
+    return parser.parse_args(args)
 
 
 def run_train_omni(args=None):
-    if args is None:
-        args = parse_args()
+    if args is None or isinstance(args, list):
+        args = parse_args(args)
 
     start_time = time.time()
     print("=" * 70)
@@ -84,23 +84,38 @@ def run_train_omni(args=None):
     
     # Domain 1: ToN-IoT
     print("  * Ingesting ToN-IoT...")
-    X_ton, y_ton, _ = load_ton_iot(project_root / "data" / "raw" / "ton_iot", sample_n=args.sample_per_domain, seed=args.seed)
+    X_ton, y_ton, info_ton = load_ton_iot(project_root / "data" / "raw" / "ton_iot", sample_n=args.sample_per_domain, seed=args.seed)
     domain_ton = pd.Series(["ton_iot"] * len(X_ton), index=X_ton.index)
 
     # Domain 2: BoT-IoT
     print("  * Ingesting BoT-IoT...")
-    X_bot, y_bot, _ = load_bot_iot(project_root / "data" / "raw" / "bot_iot", sample_n=args.sample_per_domain, seed=args.seed)
+    X_bot, y_bot, info_bot = load_bot_iot(project_root / "data" / "raw" / "bot_iot", sample_n=args.sample_per_domain, seed=args.seed)
     domain_bot = pd.Series(["bot_iot"] * len(X_bot), index=X_bot.index)
 
     # Domain 3: CIC-IDS2017
     print("  * Ingesting CIC-IDS2017...")
-    X_cic, y_cic, _ = load_cic_ids2017(project_root / "data" / "raw" / "cic_ids2017", sample_n=args.sample_per_domain, seed=args.seed)
+    X_cic, y_cic, info_cic = load_cic_ids2017(project_root / "data" / "raw" / "cic_ids2017", sample_n=args.sample_per_domain, seed=args.seed)
     domain_cic = pd.Series(["cic_ids2017"] * len(X_cic), index=X_cic.index)
 
     # Combine
     X_omni = pd.concat([X_ton, X_bot, X_cic], ignore_index=True)
     y_omni = pd.concat([y_ton, y_bot, y_cic], ignore_index=True)
     domains = pd.concat([domain_ton, domain_bot, domain_cic], ignore_index=True)
+
+    omni_file_hashes = {}
+    omni_file_hashes.update(info_ton.get("source_file_hashes", {}))
+    omni_file_hashes.update(info_bot.get("source_file_hashes", {}))
+    omni_file_hashes.update(info_cic.get("source_file_hashes", {}))
+
+    meta_ton = info_ton.get("metadata", pd.DataFrame())
+    meta_bot = info_bot.get("metadata", pd.DataFrame())
+    meta_cic = info_cic.get("metadata", pd.DataFrame())
+    metadata_omni = pd.concat([meta_ton, meta_bot, meta_cic], ignore_index=True)
+
+    omni_exclusions = {}
+    for d_info in (info_ton, info_bot, info_cic):
+        for k, v in d_info.get("exclusion_reasons", {}).items():
+            omni_exclusions[k] = omni_exclusions.get(k, 0) + v
 
     print(f"Total Combined Omni Dataset: {len(X_omni)} rows, Class Counts: {dict(y_omni.value_counts())}")
 
@@ -109,10 +124,13 @@ def run_train_omni(args=None):
     X_train, X_val, X_test, y_train, y_val, y_test, split_manifest = stratified_split(
         X_omni,
         y_omni,
+        metadata=metadata_omni,
         test_fraction=args.test_fraction,
         val_fraction=args.val_fraction,
         seed=args.seed,
         domain="omni",
+        source_file_hashes=omni_file_hashes,
+        exclusion_reasons=omni_exclusions,
     )
     test_domains = domains.loc[X_test.index]
     print(f"Partitions: Train={len(X_train)}, Val={len(X_val)}, Test Holdout={len(X_test)}")

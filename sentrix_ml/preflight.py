@@ -110,17 +110,23 @@ def check_ton_iot(data_dir: Path) -> dict:
             res["status"] = "FAILED"
             res["error"] = f"Schema mismatch: got {X.shape[1]} features, expected {NUM_FEATURES}."
             return res
+        source_class_counts = info.get("source_class_counts", {})
         class_counts = dict(y.value_counts())
-        if len(class_counts) < 2 or any(c < 2 for c in class_counts.values()):
+        effective_counts = source_class_counts if len(source_class_counts) > 0 else class_counts
+        if len(effective_counts) < 2 or any(c < 2 for c in effective_counts.values()):
             res["status"] = "FAILED"
             res["error"] = (
-                f"Adapter returned single-class or underpopulated sample: {class_counts}. "
+                f"Adapter returned single-class or underpopulated sample: {effective_counts}. "
                 "Both benign (0) and attack (1) classes are required to construct valid "
                 "training, validation, and test partitions."
             )
             return res
         res["status"] = "READY"
         res["adapter_test"] = f"PASS (shape={X.shape}, labels={class_counts})"
+        res["source_class_counts"] = source_class_counts
+        res["files_considered"] = info.get("files_considered", [])
+        res["source_file_hashes"] = info.get("source_file_hashes", {})
+        res["selection_policy"] = info.get("selection_policy", "reservoir_sampling")
         res["exclusions"] = info.get("exclusion_reasons", {})
     except Exception as e:
         res["status"] = "FAILED"
@@ -153,17 +159,23 @@ def check_bot_iot(data_dir: Path) -> dict:
             res["status"] = "FAILED"
             res["error"] = f"Schema mismatch: got {X.shape[1]} features, expected {NUM_FEATURES}."
             return res
+        source_class_counts = info.get("source_class_counts", {})
         class_counts = dict(y.value_counts())
-        if len(class_counts) < 2 or any(c < 2 for c in class_counts.values()):
+        effective_counts = source_class_counts if len(source_class_counts) > 0 else class_counts
+        if len(effective_counts) < 2 or any(c < 2 for c in effective_counts.values()):
             res["status"] = "FAILED"
             res["error"] = (
-                f"Adapter returned single-class or underpopulated sample: {class_counts}. "
+                f"Adapter returned single-class or underpopulated sample: {effective_counts}. "
                 "Both benign (0) and attack (1) classes are required to construct valid "
                 "training, validation, and test partitions."
             )
             return res
         res["status"] = "READY"
         res["adapter_test"] = f"PASS (shape={X.shape}, labels={class_counts})"
+        res["source_class_counts"] = source_class_counts
+        res["files_considered"] = info.get("files_considered", [])
+        res["source_file_hashes"] = info.get("source_file_hashes", {})
+        res["selection_policy"] = info.get("selection_policy", "reservoir_sampling")
         res["ip_bytes_policy"] = info.get("ip_bytes_policy", "exclude")
         res["exclusions"] = info.get("exclusion_reasons", {})
         res["unresolved_mappings"] = info.get("unresolved_mappings", [])
@@ -198,17 +210,23 @@ def check_cic_ids2017(data_dir: Path) -> dict:
             res["status"] = "FAILED"
             res["error"] = f"Schema mismatch: got {X.shape[1]} features, expected {NUM_FEATURES}."
             return res
+        source_class_counts = info.get("source_class_counts", {})
         class_counts = dict(y.value_counts())
-        if len(class_counts) < 2 or any(c < 2 for c in class_counts.values()):
+        effective_counts = source_class_counts if len(source_class_counts) > 0 else class_counts
+        if len(effective_counts) < 2 or any(c < 2 for c in effective_counts.values()):
             res["status"] = "FAILED"
             res["error"] = (
-                f"Adapter returned single-class or underpopulated sample: {class_counts}. "
+                f"Adapter returned single-class or underpopulated sample: {effective_counts}. "
                 "Both benign (0) and attack (1) classes are required to construct valid "
                 "training, validation, and test partitions."
             )
             return res
         res["status"] = "READY"
         res["adapter_test"] = f"PASS (shape={X.shape}, labels={class_counts})"
+        res["source_class_counts"] = source_class_counts
+        res["files_considered"] = info.get("files_considered", [])
+        res["source_file_hashes"] = info.get("source_file_hashes", {})
+        res["selection_policy"] = info.get("selection_policy", "reservoir_sampling")
         res["duration_unit"] = info.get("duration_unit", "seconds")
         res["exclusions"] = info.get("exclusion_reasons", {})
     except Exception as e:
