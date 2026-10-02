@@ -1,5 +1,7 @@
 # SENTRi-X: Cross-Domain Hybrid Intrusion Detection System
 
+> Current pipeline status: see [PROMPT_1_VERIFICATION_REPORT.md](PROMPT_1_VERIFICATION_REPORT.md) for the corrected training protocol, tests, and local preflight command. The historical accuracy figures below have not been re-established with this pipeline. The current backend uses live hardware ingestion; the old simulation instructions below do not apply.
+
 SENTRi-X is an adaptive, Explainable AI (XAI)-powered Intrusion Detection System. It leverages a Hybrid Ensemble Engine—fusing the high-speed tabular precision of Random Forests with the spatial feature extraction of Convolutional Neural Networks (CNNs). 
 
 Designed to protect heterogeneous network architectures, SENTRi-X natively defends modern IoT environments and utilizes Transfer Learning to adapt its defense mechanisms to legacy botnets and large-scale Enterprise IT networks.

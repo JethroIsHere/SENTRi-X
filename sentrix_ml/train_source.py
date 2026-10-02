@@ -25,6 +25,8 @@ import numpy as np
 import pandas as pd
 
 from sentrix_ml.schema import NUM_FEATURES, EXPECTED_FEATURES
+from sentrix_ml.provenance import sampling_audit
+from sentrix_ml.balancing import balance_training_rows
 from sentrix_ml.adapters.ton_iot import load_ton_iot
 from sentrix_ml.splits import stratified_split
 from sentrix_ml.preprocessing import PreprocessingPipeline
@@ -99,6 +101,8 @@ def run_train_source(args=None):
         domain="ton_iot",
         source_file_hashes=info.get("source_file_hashes"),
         exclusion_reasons=info.get("exclusion_reasons"),
+        sampling_metadata=sampling_audit(info),
+        require_class_support=True,
     )
     print(f"Partitions: Train={len(X_train)}, Val={len(X_val)}, Test={len(X_test)}")
 
@@ -110,11 +114,13 @@ def run_train_source(args=None):
     X_test_scaled = pipeline.transform(X_test)
     print("Transform complete: Train/Val/Test scaled without target leakage.")
 
+    X_fit, y_fit, balancing_audit = balance_training_rows(X_train_scaled, y_train, seed=args.seed)
+
     # 4. Train RF
     print(f"\n[Step 4] Training Random Forest (n_estimators={args.rf_estimators})...")
     rf_model = train_rf(
-        X_train_scaled,
-        y_train,
+        X_fit,
+        y_fit,
         n_estimators=args.rf_estimators,
         max_depth=args.rf_depth,
         random_state=args.seed,
@@ -125,8 +131,8 @@ def run_train_source(args=None):
     print(f"\n[Step 5] Training 1D-CNN (epochs={args.cnn_epochs}, batch_size={args.batch_size})...")
     if has_tf:
         cnn_model, history = train_cnn(
-            X_train_scaled,
-            y_train,
+            X_fit,
+            y_fit,
             X_val_scaled,
             y_val,
             epochs=args.cnn_epochs,
@@ -220,7 +226,7 @@ def run_train_source(args=None):
             split_manifest_path=split_path,
             evaluation_path=eval_path,
             evidence_path=evidence_path,
-            training_config=vars(args),
+            training_config=dict(vars(args), balancing=balancing_audit),
             run_type=args.run_type,
             is_mock=not has_tf,
             notes=f"Source ToN-IoT candidate trained with seed {args.seed}",

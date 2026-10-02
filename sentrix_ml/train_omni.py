@@ -27,9 +27,8 @@ import numpy as np
 import pandas as pd
 
 from sentrix_ml.schema import NUM_FEATURES, EXPECTED_FEATURES
-from sentrix_ml.adapters.ton_iot import load_ton_iot
-from sentrix_ml.adapters.bot_iot import load_bot_iot
-from sentrix_ml.adapters.cic_ids2017 import load_cic_ids2017
+from sentrix_ml.balancing import balance_training_rows
+from sentrix_ml.datasets import load_omni
 from sentrix_ml.splits import stratified_split
 from sentrix_ml.preprocessing import PreprocessingPipeline
 from sentrix_ml.training import train_rf, build_cnn_model, train_cnn
@@ -39,6 +38,7 @@ from sentrix_ml.packaging import create_package, validate_package, file_sha256
 
 def parse_args(args=None):
     parser = argparse.ArgumentParser(description="Multi-Domain Omni Model Training for SENTRi-X")
+    parser.add_argument("--data-root", type=str, default=str(Path(__file__).resolve().parent.parent / "data/raw"))
     parser.add_argument("--sample-per-domain", type=int, default=30000, help="Bounded rows per domain for 16GB RAM limit")
     parser.add_argument("--test-fraction", type=float, default=0.20, help="Holdout test fraction")
     parser.add_argument("--val-fraction", type=float, default=0.10, help="Validation fraction of train pool")
@@ -82,55 +82,26 @@ def run_train_omni(args=None):
     print(f"\n[Step 1] Ingesting bounded {args.sample_per_domain} rows from each domain...")
     project_root = Path(__file__).resolve().parent.parent
     
-    # Domain 1: ToN-IoT
-    print("  * Ingesting ToN-IoT...")
-    X_ton, y_ton, info_ton = load_ton_iot(project_root / "data" / "raw" / "ton_iot", sample_n=args.sample_per_domain, seed=args.seed)
-    domain_ton = pd.Series(["ton_iot"] * len(X_ton), index=X_ton.index)
-
-    # Domain 2: BoT-IoT
-    print("  * Ingesting BoT-IoT...")
-    X_bot, y_bot, info_bot = load_bot_iot(project_root / "data" / "raw" / "bot_iot", sample_n=args.sample_per_domain, seed=args.seed)
-    domain_bot = pd.Series(["bot_iot"] * len(X_bot), index=X_bot.index)
-
-    # Domain 3: CIC-IDS2017
-    print("  * Ingesting CIC-IDS2017...")
-    X_cic, y_cic, info_cic = load_cic_ids2017(project_root / "data" / "raw" / "cic_ids2017", sample_n=args.sample_per_domain, seed=args.seed)
-    domain_cic = pd.Series(["cic_ids2017"] * len(X_cic), index=X_cic.index)
-
-    # Combine
-    X_omni = pd.concat([X_ton, X_bot, X_cic], ignore_index=True)
-    y_omni = pd.concat([y_ton, y_bot, y_cic], ignore_index=True)
-    domains = pd.concat([domain_ton, domain_bot, domain_cic], ignore_index=True)
-
-    omni_file_hashes = {}
-    omni_file_hashes.update(info_ton.get("source_file_hashes", {}))
-    omni_file_hashes.update(info_bot.get("source_file_hashes", {}))
-    omni_file_hashes.update(info_cic.get("source_file_hashes", {}))
-
-    meta_ton = info_ton.get("metadata", pd.DataFrame())
-    meta_bot = info_bot.get("metadata", pd.DataFrame())
-    meta_cic = info_cic.get("metadata", pd.DataFrame())
-    metadata_omni = pd.concat([meta_ton, meta_bot, meta_cic], ignore_index=True)
-
-    omni_exclusions = {}
-    for d_info in (info_ton, info_bot, info_cic):
-        for k, v in d_info.get("exclusion_reasons", {}).items():
-            omni_exclusions[k] = omni_exclusions.get(k, 0) + v
-
-    print(f"Total Combined Omni Dataset: {len(X_omni)} rows, Class Counts: {dict(y_omni.value_counts())}")
+    X_omni, y_omni, info = load_omni(
+        getattr(args, "data_root", project_root / "data/raw"),
+        sample_per_domain=args.sample_per_domain, seed=args.seed,
+    )
+    domains = info["metadata"]["domain"]
 
     # 2. Split
     print(f"\n[Step 2] Executing stratified split: {args.test_fraction*100:.0f}% Test Holdout, {args.val_fraction*100:.0f}% Val...")
     X_train, X_val, X_test, y_train, y_val, y_test, split_manifest = stratified_split(
         X_omni,
         y_omni,
-        metadata=metadata_omni,
+        metadata=info["metadata"],
         test_fraction=args.test_fraction,
         val_fraction=args.val_fraction,
         seed=args.seed,
         domain="omni",
-        source_file_hashes=omni_file_hashes,
-        exclusion_reasons=omni_exclusions,
+        source_file_hashes=info["source_file_hashes"],
+        exclusion_reasons=info["exclusion_reasons"],
+        sampling_metadata=info["sampling_metadata"],
+        require_class_support=True,
     )
     test_domains = domains.loc[X_test.index]
     print(f"Partitions: Train={len(X_train)}, Val={len(X_val)}, Test Holdout={len(X_test)}")
@@ -143,11 +114,13 @@ def run_train_omni(args=None):
     X_test_scaled = pipeline.transform(X_test)
     print("Scaling complete: Disjoint train/val/test transformed without test leakage.")
 
+    X_fit, y_fit, balancing_audit = balance_training_rows(X_train_scaled, y_train, seed=args.seed)
+
     # 4. Train Deployment RF (on Train ONLY)
     print(f"\n[Step 4] Training Omni Deployment Random Forest (n_estimators={args.rf_estimators})...")
     rf_model = train_rf(
-        X_train_scaled,
-        y_train,
+        X_fit,
+        y_fit,
         n_estimators=args.rf_estimators,
         max_depth=args.rf_depth,
         random_state=args.seed,
@@ -158,8 +131,8 @@ def run_train_omni(args=None):
     print(f"\n[Step 5] Training Omni 1D-CNN (epochs={args.cnn_epochs})...")
     if has_tf:
         cnn_model, history = train_cnn(
-            X_train_scaled,
-            y_train,
+            X_fit,
+            y_fit,
             X_val_scaled,
             y_val,
             epochs=args.cnn_epochs,
@@ -261,7 +234,7 @@ def run_train_omni(args=None):
             split_manifest_path=split_path,
             evaluation_path=eval_path,
             evidence_path=evidence_path,
-            training_config=vars(args),
+            training_config=dict(vars(args), balancing=balancing_audit),
             run_type=args.run_type,
             is_mock=not has_tf,
             notes=f"Omni multi-domain candidate trained with seed {args.seed}",

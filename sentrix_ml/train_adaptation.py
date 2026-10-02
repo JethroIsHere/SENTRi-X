@@ -27,6 +27,8 @@ import numpy as np
 import pandas as pd
 
 from sentrix_ml.schema import NUM_FEATURES, EXPECTED_FEATURES
+from sentrix_ml.provenance import sampling_audit
+from sentrix_ml.balancing import balance_training_rows
 from sentrix_ml.adapters.bot_iot import load_bot_iot
 from sentrix_ml.adapters.cic_ids2017 import load_cic_ids2017
 from sentrix_ml.splits import adaptation_split
@@ -131,6 +133,8 @@ def run_train_adaptation(args=None):
         domain=domain,
         source_file_hashes=info.get("source_file_hashes"),
         exclusion_reasons=info.get("exclusion_reasons"),
+        sampling_metadata=sampling_audit(info),
+        require_class_support=True,
     )
     print(f"Partitions: Study Train={len(X_s_train)}, Study Val={len(X_s_val)}, Exam Holdout={len(X_exam)}")
 
@@ -142,11 +146,13 @@ def run_train_adaptation(args=None):
     X_exam_scaled = pipeline.transform(X_exam)
     print("Scaling complete: Target study train fitted, exam holdout transformed.")
 
+    X_fit, y_fit, balancing_audit = balance_training_rows(X_train_scaled, y_s_train, seed=args.seed)
+
     # 4. Train Target RF
     print(f"\n[Step 4] Retraining Target Random Forest (n_estimators={args.rf_estimators})...")
     rf_model = train_rf(
-        X_train_scaled,
-        y_s_train,
+        X_fit,
+        y_fit,
         n_estimators=args.rf_estimators,
         max_depth=args.rf_depth,
         random_state=args.seed,
@@ -164,11 +170,11 @@ def run_train_adaptation(args=None):
             print("Building fresh CNN architecture (from-scratch baseline)...")
             cnn_model = build_cnn_model(input_shape=(NUM_FEATURES, 1))
 
-        X_train_3d = X_train_scaled.reshape(X_train_scaled.shape[0], NUM_FEATURES, 1)
+        X_train_3d = X_fit.reshape(X_fit.shape[0], NUM_FEATURES, 1)
         X_val_3d = X_val_scaled.reshape(X_val_scaled.shape[0], NUM_FEATURES, 1)
         cnn_model.fit(
             X_train_3d,
-            y_s_train.to_numpy(dtype=int),
+            y_fit,
             validation_data=(X_val_3d, y_s_val.to_numpy(dtype=int)),
             epochs=args.cnn_epochs,
             batch_size=args.batch_size,
@@ -252,7 +258,7 @@ def run_train_adaptation(args=None):
             m = eval_result.modes[m_name]
             print(f"  * Mode [{m_name.upper():6s}]: Acc={m['accuracy']:.4f}, Prec={m['precision']:.4f}, Rec={m['recall']:.4f}, F1={m['f1']:.4f}, AUC={m['roc_auc']}")
 
-        training_cfg = vars(args).copy()
+        training_cfg = dict(vars(args), balancing=balancing_audit)
         if source_manifest_hash:
             training_cfg["source_candidate_manifest_hash"] = source_manifest_hash
 

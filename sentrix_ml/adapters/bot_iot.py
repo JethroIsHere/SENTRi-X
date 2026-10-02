@@ -30,6 +30,7 @@ from sentrix_ml.schema import (
 from sentrix_ml.preprocessing import encode_dataframe
 from sentrix_ml.splits import clean_labels
 from sentrix_ml.sampler import stream_dataset_files, file_sha256
+from sentrix_ml.provenance import raw_metadata_factory
 
 
 STATE_TRANSLATOR = {
@@ -176,7 +177,11 @@ def load_bot_iot(
         if label_raw is None:
             raise ValueError("BoT-IoT dataset missing label/attack column")
 
-        has_5tuple = all(c in chunk.columns for c in ["saddr", "sport", "daddr", "dport", "proto"])
+        chunk = chunk.reset_index(drop=True)
+        metadata_for_row = raw_metadata_factory(
+            chunk, domain="bot_iot", filename=fname, row_offset=row_offset,
+            tuple_columns=["saddr", "sport", "daddr", "dport", "proto"], time_column="stime",
+        )
         has_pkseq = "pkSeqID" in chunk.columns
         has_cat = "category" in chunk.columns
         has_subcat = "subcategory" in chunk.columns
@@ -228,24 +233,7 @@ def load_bot_iot(
         raw_valid = chunk.loc[valid_mask]
 
         def meta_fn(idx: int) -> dict:
-            orig_row = row_offset + int(raw_valid.index[idx])
-            if has_5tuple:
-                r = raw_valid.iloc[idx]
-                group_id = f"{r['saddr']}:{r['sport']}->{r['daddr']}:{r['dport']}/{r['proto']}"
-            else:
-                group_id = f"{fname}:{orig_row}"
-            source_flow_id = str(raw_valid["pkSeqID"].iloc[idx]) if has_pkseq else f"{fname}:{orig_row}"
-            rec = {
-                "__meta_source_file__": fname,
-                "__meta_source_row_index__": orig_row,
-                "__meta_source_flow_id__": source_flow_id,
-                "__meta_group_id__": group_id,
-            }
-            if has_cat:
-                rec["__meta_attack_category__"] = raw_valid["category"].iloc[idx]
-            if has_subcat:
-                rec["__meta_attack_subcategory__"] = raw_valid["subcategory"].iloc[idx]
-            return rec
+            return metadata_for_row(raw_valid.index[idx])
 
         drop_now = [c for c in _DROP_METADATA_COLUMNS + ["label"] if c in clean_chunk.columns]
         clean_chunk.drop(columns=drop_now, inplace=True)
@@ -259,6 +247,7 @@ def load_bot_iot(
         seed=seed,
         chunksize=chunksize,
         nrows_per_file=nrows_per_file,
+        read_csv_kwargs={"dtype": str},
     )
 
     info.update(stream_info)
@@ -274,6 +263,7 @@ def load_bot_iot(
     else:
         X_encoded = pd.DataFrame(columns=EXPECTED_FEATURES)
 
+    info.update(max_files=max_files, chunksize=chunksize)
     info["final_shape"] = X_encoded.shape
     info["class_counts"] = {str(k): int(v) for k, v in y_binary.value_counts().items()}
 

@@ -150,16 +150,14 @@ def test_item1_mock_artifacts_cannot_pass_deployment_validation():
 # =====================================================================
 
 def test_item2_preflight_nonzero_on_missing_tf_when_required():
-    """Verify preflight exits with non-zero when --require-tf is passed but TF is absent."""
-    import subprocess
-    cmd = [sys.executable, "-m", "sentrix_ml.preflight", "--require-tf"]
-    res = subprocess.run(cmd, capture_output=True, text=True, cwd=str(Path(__file__).resolve().parent.parent))
-    try:
-        import tensorflow
-        assert res.returncode == 0
-    except ImportError:
-        assert res.returncode != 0
-        assert "PREFLIGHT STATUS: FAILED" in res.stdout or "tensorflow" in res.stdout.lower()
+    """Even a valid configured dataset cannot pass when required TensorFlow is missing."""
+    from unittest.mock import patch
+    from sentrix_ml.preflight import run_preflight
+    from tests.synthetic_data import write_datasets
+    with tempfile.TemporaryDirectory() as td:
+        write_datasets(td, n=200)
+        with patch.dict(sys.modules, {"tensorflow": None}):
+            assert run_preflight(["--require-tf", "--target", "ton_iot", "--data-root", td, "--sample-n", "200"]) == 1
 
 
 # =====================================================================
@@ -573,11 +571,14 @@ def test_item3_backend_loader_rejects_unfitted_pipeline():
         cnn_path = src_dir / "cnn.h5"
         cnn_path.write_bytes(b"dummy")
 
-        split_m = SplitManifest(
-            seed=42, train_indices=[0], val_indices=[1], test_indices=[2],
-            source_file_hashes={"dummy.csv": "sha256:1234"},
-            train_flow_ids=["f0"], val_flow_ids=["f1"], test_flow_ids=["f2"],
-        )
+        from tests.synthetic_data import write_datasets
+        from sentrix_ml.splits import stratified_split
+        from sentrix_ml.provenance import sampling_audit
+        raw = write_datasets(src_dir / "raw", n=200)
+        X, y, info = load_ton_iot(raw / "ton_iot")
+        split_m = stratified_split(X, y, metadata=info["metadata"], domain="ton_iot",
+            source_file_hashes=info["source_file_hashes"], sampling_metadata=sampling_audit(info),
+            require_class_support=True)[-1]
         split_path = src_dir / "split_manifest.json"
         split_m.save(split_path)
 
@@ -816,8 +817,9 @@ def test_item8_adaptation_source_provenance_enforced():
         pipe_path = src_dir / "pipe.joblib"; pipe.save(pipe_path)
         cnn_path = src_dir / "cnn.h5"; cnn_path.write_bytes(b"dummy")
 
+        candidate_dir = Path(tmpdir) / "candidate"
         create_package(
-            output_dir=src_dir,
+            output_dir=candidate_dir,
             domain="cic_ids2017",
             run_type="smoke",
             is_mock=True,
@@ -829,7 +831,7 @@ def test_item8_adaptation_source_provenance_enforced():
         with pytest.raises(ValueError, match="Source candidate domain must be 'ton_iot'"):
             run_train_adaptation([
                 "--domain", "bot_iot",
-                "--source-candidate", str(src_dir),
+                "--source-candidate", str(candidate_dir),
                 "--data-dir", str(tmpdir),
                 "--output-dir", str(Path(tmpdir) / "adapt_out"),
                 "--run-type", "smoke",
@@ -887,27 +889,27 @@ def test_item9_reservoir_sampling_across_complete_multi_file_population():
 # =====================================================================
 
 def test_item10_duplicate_group_policy_keep_first_disjoint():
-    """Verify 100 rows from 10 duplicate groups drops 90 rows and zero groups cross partitions."""
+    """Verify 100 rows from 20 duplicate records drops 80 rows and zero groups cross partitions."""
     from sentrix_ml.splits import stratified_split
-    base_df = pd.DataFrame(np.random.RandomState(42).randn(10, NUM_FEATURES), columns=EXPECTED_FEATURES)
-    base_y = pd.Series([0, 1] * 5)
+    base_df = pd.DataFrame(np.random.RandomState(42).randn(20, NUM_FEATURES), columns=EXPECTED_FEATURES)
+    base_y = pd.Series([0, 1] * 10)
     base_meta = pd.DataFrame({
-        "group_id": [f"group_{i}" for i in range(10)],
-        "source_flow_id": [f"flow_{i}" for i in range(10)],
+        "group_id": [f"group_{i}" for i in range(20)],
+        "source_flow_id": [f"flow_{i}" for i in range(20)],
     })
 
-    X = pd.concat([base_df] * 10, ignore_index=True)
-    y = pd.concat([base_y] * 10, ignore_index=True)
-    meta = pd.concat([base_meta] * 10, ignore_index=True)
+    X = pd.concat([base_df] * 5, ignore_index=True)
+    y = pd.concat([base_y] * 5, ignore_index=True)
+    meta = pd.concat([base_meta] * 5, ignore_index=True)
 
     X_train, X_val, X_test, y_train, y_val, y_test, manifest = stratified_split(
         X, y, metadata=meta, duplicate_group_policy="keep_first_disjoint", seed=42
     )
 
     assert len(X) == 100
-    assert manifest.duplicate_rows_excluded == 90
-    assert manifest.excluded_rows == 90
-    assert len(X_train) + len(X_val) + len(X_test) == 10
+    assert manifest.duplicate_rows_excluded == 80
+    assert manifest.excluded_rows == 80
+    assert len(X_train) + len(X_val) + len(X_test) == 20
 
     # Verify zero duplicate groups cross partitions
     train_groups = set(meta.loc[X_train.index, "group_id"])
@@ -935,8 +937,8 @@ def test_item10_end_to_end_training_persists_lineage_and_adaptation_source_hash(
         ton_dir.mkdir()
         ton_file = ton_dir / "Network_dataset_1.csv"
         header = "ts,src_ip,src_port,dst_ip,dst_port,proto,conn_state,duration,src_bytes,dst_bytes,missed_bytes,src_pkts,src_ip_bytes,dst_pkts,dst_ip_bytes,dns_query,dns_qclass,dns_qtype,dns_rcode,http_trans_depth,http_method,http_uri,http_version,http_request_body_len,http_response_body_len,http_status_code,type,label\n"
-        ton_rows = [f"{i},192.168.1.{i},1000+{i},10.0.0.1,80,tcp,SF,1.0,500,1000,0,5,500,5,1000,-,-,-,-,-,-,-,-,-,-,-,normal,0\n" for i in range(30)]
-        ton_rows += [f"{i},192.168.2.{i},2000+{i},10.0.0.1,80,tcp,SF,1.0,500,1000,0,5,500,5,1000,-,-,-,-,-,-,-,-,-,-,-,attack,1\n" for i in range(30, 60)]
+        ton_rows = [f"{i},192.168.1.{i},1000+{i},10.0.0.1,80,tcp,SF,1.0,500,1000,0,5,500,5,1000,-,-,-,-,-,-,-,-,-,-,-,normal,0\n" for i in range(100)]
+        ton_rows += [f"{i},192.168.2.{i},2000+{i},10.0.0.1,80,tcp,SF,1.0,500,1000,0,5,500,5,1000,-,-,-,-,-,-,-,-,-,-,-,attack,1\n" for i in range(100, 200)]
         ton_file.write_text(header + "".join(ton_rows))
 
         src_out = tmp / "cand_src"
@@ -944,7 +946,7 @@ def test_item10_end_to_end_training_persists_lineage_and_adaptation_source_hash(
             "--data-dir", str(ton_dir),
             "--output-dir", str(src_out),
             "--run-type", "smoke",
-            "--sample-n", "30",
+            "--sample-n", "200",
             "--rf-estimators", "5",
             "--cnn-epochs", "1",
         ])
@@ -962,8 +964,8 @@ def test_item10_end_to_end_training_persists_lineage_and_adaptation_source_hash(
         bot_dir.mkdir()
         bot_file = bot_dir / "UNSW_2018_IoT_Botnet_Full5pc_1.csv"
         bot_header = "pkSeqID,proto,saddr,sport,daddr,dport,dur,spkts,dpkts,sbytes,dbytes,TnBPSrcIP,TnBPDstIP,state,attack,category,subcategory\n"
-        bot_rows = [f"{i},tcp,192.168.1.{i},1000+{i},10.0.0.1,80,1.0,5,5,500,1000,0,0,CON,0,Normal,Normal\n" for i in range(30)]
-        bot_rows += [f"{i},tcp,192.168.2.{i},2000+{i},10.0.0.1,80,1.0,5,5,500,1000,0,0,CON,1,DDoS,TCP\n" for i in range(30, 60)]
+        bot_rows = [f"{i},tcp,192.168.1.{i},1000+{i},10.0.0.1,80,1.0,5,5,500,1000,0,0,CON,0,Normal,Normal\n" for i in range(100)]
+        bot_rows += [f"{i},tcp,192.168.2.{i},2000+{i},10.0.0.1,80,1.0,5,5,500,1000,0,0,CON,1,DDoS,TCP\n" for i in range(100, 200)]
         bot_file.write_text(bot_header + "".join(bot_rows))
 
         adapt_out = tmp / "cand_adapt"
@@ -973,7 +975,7 @@ def test_item10_end_to_end_training_persists_lineage_and_adaptation_source_hash(
             "--data-dir", str(bot_dir),
             "--output-dir", str(adapt_out),
             "--run-type", "smoke",
-            "--sample-n", "30",
+            "--sample-n", "200",
             "--rf-estimators", "5",
             "--cnn-epochs", "1",
         ])

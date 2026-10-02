@@ -2,7 +2,7 @@
 
 All splits:
 * Are performed BEFORE any preprocessing (scaling, SMOTE).
-* Enforce duplicate group policy ('keep_first_disjoint') prior to splitting.
+* Keep first exact raw duplicate and preserve distinct observations in a session group.
 * Guarantee zero duplicate group leakage across train, val, and test partitions.
 * Preserve sample identifiers and raw source flow IDs for end-to-end traceability.
 * Record seed, counts, class prevalence, file hashes, and exclusion reasons.
@@ -52,6 +52,17 @@ class SplitManifest:
     val_flow_ids: list[str] = field(default_factory=list)
     test_flow_ids: list[str] = field(default_factory=list)
 
+    train_group_ids: list[str] = field(default_factory=list)
+    val_group_ids: list[str] = field(default_factory=list)
+    test_group_ids: list[str] = field(default_factory=list)
+    train_records: list[dict] = field(default_factory=list)
+    val_records: list[dict] = field(default_factory=list)
+    test_records: list[dict] = field(default_factory=list)
+    sampling_metadata: dict = field(default_factory=dict)
+    partition_support: dict = field(default_factory=dict)
+    identity_policy: str = ""
+    grouping_policy: str = ""
+
     dataset_domain: str = ""
     split_type: str = "stratified_random"
     notes: str = ""
@@ -63,7 +74,7 @@ class SplitManifest:
         # Convert numpy types for JSON serialization
         for key in ("train_indices", "val_indices", "test_indices"):
             if data[key] is not None:
-                data[key] = [int(x) for x in data[key]]
+                data[key] = [x.item() if isinstance(x, np.generic) else x for x in data[key]]
         for key in ("train_flow_ids", "val_flow_ids", "test_flow_ids"):
             if data[key] is not None:
                 data[key] = [str(x) for x in data[key]]
@@ -113,283 +124,162 @@ def clean_labels(
     return binary, exclusions
 
 
-def stratified_split(
-    X: pd.DataFrame,
-    y: pd.Series,
-    *,
-    metadata: pd.DataFrame | None = None,
-    test_fraction: float = 0.20,
-    val_fraction: float = 0.10,
-    seed: int = 42,
-    domain: str = "",
-    source_file_hashes: dict[str, str] | None = None,
-    duplicate_group_policy: str = "keep_first_disjoint",
-    exclusion_reasons: dict | None = None,
-) -> tuple[
-    pd.DataFrame, pd.DataFrame, pd.DataFrame,
-    pd.Series, pd.Series, pd.Series,
-    SplitManifest,
-]:
-    """Perform a stratified train/val/test split with duplicate group isolation.
-
-    Enforces duplicate_group_policy='keep_first_disjoint' prior to splitting.
-    Subsequent duplicate group occurrences are dropped and recorded in exclusion_reasons.
-    Guarantees zero duplicate group leakage between train, val, and test partitions.
-
-    Returns:
-        (X_train, X_val, X_test, y_train, y_val, y_test, manifest)
-    """
-    valid_mask = y.notna()
-    X_valid = X.loc[valid_mask].copy()
-    y_valid = y.loc[valid_mask].astype(int)
-    meta_valid = metadata.loc[valid_mask].copy() if metadata is not None else None
-    nan_excluded = int((~valid_mask).sum())
-
-    # Identify duplicate group IDs
-    if meta_valid is not None and "group_id" in meta_valid.columns:
-        group_series = meta_valid["group_id"].astype(str)
-    else:
-        group_series = pd.util.hash_pandas_object(X_valid, index=False).astype(str)
-
-    unique_groups = int(group_series.nunique())
-
-    if duplicate_group_policy == "keep_first_disjoint":
-        is_dup = group_series.duplicated(keep="first")
-        dup_count = int(is_dup.sum())
-        if dup_count > 0:
-            X_dedup = X_valid.loc[~is_dup]
-            y_dedup = y_valid.loc[~is_dup]
-            meta_dedup = meta_valid.loc[~is_dup] if meta_valid is not None else None
-            groups_dedup = group_series.loc[~is_dup]
-        else:
-            X_dedup = X_valid
-            y_dedup = y_valid
-            meta_dedup = meta_valid
-            groups_dedup = group_series
-        dup_excluded = dup_count
-    else:
-        raise ValueError(f"Unsupported duplicate_group_policy: '{duplicate_group_policy}'")
-
-    class_min = y_dedup.value_counts().min() if len(y_dedup) > 0 else 0
-    test_expected = int(np.round(len(X_dedup) * test_fraction))
-    pool_expected = len(X_dedup) - test_expected
-    stratify_pool = y_dedup if (class_min >= 2 and test_expected >= 2 and pool_expected >= 2) else None
-
-    # First split: train_pool / test
-    X_pool, X_test, y_pool, y_test = train_test_split(
-        X_dedup, y_dedup,
-        test_size=test_fraction,
-        random_state=seed,
-        stratify=stratify_pool,
-    )
-
-    # Second split: train / val (from pool)
-    if len(X_pool) <= 1:
-        X_train, X_val, y_train, y_val = X_pool, X_pool.iloc[:0], y_pool, y_pool.iloc[:0]
-    elif len(X_pool) == 2:
-        X_train, X_val, y_train, y_val = X_pool.iloc[:1], X_pool.iloc[1:], y_pool.iloc[:1], y_pool.iloc[1:]
-    else:
-        class_min_pool = y_pool.value_counts().min() if len(y_pool) > 0 else 0
-        val_expected = int(np.round(len(X_pool) * val_fraction))
-        train_expected = len(X_pool) - val_expected
-        stratify_val = y_pool if (class_min_pool >= 2 and val_expected >= 2 and train_expected >= 2) else None
-        X_train, X_val, y_train, y_val = train_test_split(
-            X_pool, y_pool,
-            test_size=val_fraction,
-            random_state=seed,
-            stratify=stratify_val,
-        )
-
-    # Invariant assertion: duplicate groups cannot cross partitions
-    train_grps = set(groups_dedup.loc[X_train.index])
-    val_grps = set(groups_dedup.loc[X_val.index])
-    test_grps = set(groups_dedup.loc[X_test.index])
-    assert train_grps.isdisjoint(test_grps), "Duplicate group leaked between train and test partitions!"
-    assert train_grps.isdisjoint(val_grps), "Duplicate group leaked between train and val partitions!"
-    assert val_grps.isdisjoint(test_grps), "Duplicate group leaked between val and test partitions!"
-
-    # Extract source flow IDs
-    if meta_dedup is not None and "source_flow_id" in meta_dedup.columns:
-        train_flow_ids = [str(x) for x in meta_dedup.loc[X_train.index, "source_flow_id"]]
-        val_flow_ids = [str(x) for x in meta_dedup.loc[X_val.index, "source_flow_id"]]
-        test_flow_ids = [str(x) for x in meta_dedup.loc[X_test.index, "source_flow_id"]]
-    else:
-        train_flow_ids = [f"{domain or 'flow'}:{idx}" for idx in X_train.index]
-        val_flow_ids = [f"{domain or 'flow'}:{idx}" for idx in X_val.index]
-        test_flow_ids = [f"{domain or 'flow'}:{idx}" for idx in X_test.index]
-
-    merged_exclusions = dict(exclusion_reasons or {})
-    if nan_excluded:
-        merged_exclusions["nan_labels"] = nan_excluded
-    if dup_excluded:
-        merged_exclusions["duplicate_rows_excluded"] = dup_excluded
-
-    manifest = SplitManifest(
-        seed=seed,
-        test_fraction=test_fraction,
-        val_fraction=val_fraction,
-        total_rows=len(X),
-        excluded_rows=nan_excluded + dup_excluded,
-        exclusion_reasons=merged_exclusions,
-        source_file_hashes=dict(source_file_hashes or {}),
-        duplicate_group_policy=duplicate_group_policy,
-        duplicate_rows_excluded=dup_excluded,
-        unique_groups_count=unique_groups,
-        train_count=len(X_train),
-        val_count=len(X_val),
-        test_count=len(X_test),
-        train_class_counts=dict(y_train.value_counts()),
-        val_class_counts=dict(y_val.value_counts()),
-        test_class_counts=dict(y_test.value_counts()),
-        train_indices=list(X_train.index),
-        val_indices=list(X_val.index),
-        test_indices=list(X_test.index),
-        train_flow_ids=train_flow_ids,
-        val_flow_ids=val_flow_ids,
-        test_flow_ids=test_flow_ids,
-        dataset_domain=domain,
-        split_type="stratified_random",
-    )
-
-    return X_train, X_val, X_test, y_train, y_val, y_test, manifest
+class PartitionSupportError(ValueError):
+    """The frozen sample/groups cannot support the configured experiment."""
 
 
-def adaptation_split(
-    X: pd.DataFrame | np.ndarray,
-    y: pd.Series | np.ndarray,
-    *,
-    metadata: pd.DataFrame | None = None,
-    study_fraction: float = 0.20,
-    val_fraction_of_study: float = 0.10,
-    seed: int = 42,
-    domain: str = "",
-    source_file_hashes: dict[str, str] | None = None,
-    duplicate_group_policy: str = "keep_first_disjoint",
-    exclusion_reasons: dict | None = None,
-) -> tuple:
-    """Split for target-domain adaptation: 20% study / 80% exam with duplicate isolation.
+def validate_partition_support(y_train, y_val, y_test, *, domains=None, indices=None):
+    """Check original partitions, before balancing; never redraw a failed split."""
+    result = {}
+    for name, labels, minimum in (("train", y_train, 2), ("validation", y_val, 1), ("test", y_test, 1)):
+        counts = {str(k): int(v) for k, v in pd.Series(labels).value_counts().items()}
+        result[name] = counts
+        if set(counts) != {"0", "1"} or min(counts.values()) < minimum:
+            raise PartitionSupportError(
+                f"{name} partition lacks class support: {counts}; requires benign=0 and attack=1 "
+                f"with at least {minimum} original rows each. Increase the declared source sample "
+                "or revise the grouping protocol before freezing a new experiment. No automatic redraw."
+            )
+    if domains is not None:
+        for domain in sorted(set(domains)):
+            for name, labels, idx in zip(("train", "validation", "test"),
+                                         (y_train, y_val, y_test), indices):
+                selected = labels.loc[domains.loc[idx] == domain]
+                counts = {str(k): int(v) for k, v in selected.value_counts().items()}
+                if set(counts) != {"0", "1"}:
+                    raise PartitionSupportError(f"{domain} {name} partition lacks both classes: {counts}. "
+                                                "Increase the predeclared domain sample; no automatic redraw.")
+                result[f"{domain}/{name}"] = counts
+    return result
 
-    Enforces duplicate_group_policy='keep_first_disjoint' prior to splitting.
-    Guarantees zero duplicate group leakage between study train, study val, and exam holdout.
 
-    Returns:
-        (X_study_train, X_study_val, X_exam,
-         y_study_train, y_study_val, y_exam,
-         manifest)
-    """
+def _prepare(X, y, metadata, domain):
     if isinstance(X, np.ndarray):
         X = pd.DataFrame(X)
     if isinstance(y, np.ndarray):
-        y = pd.Series(y)
+        y = pd.Series(y, index=X.index)
+    if not X.index.is_unique or not X.index.equals(y.index):
+        raise ValueError("Feature/label indices must be unique and exactly aligned")
+    if metadata is not None and not metadata.index.equals(X.index):
+        raise ValueError("Raw metadata indices must exactly match feature indices")
+    valid = y.notna()
+    Xv, yv = X.loc[valid].copy(), y.loc[valid].astype(int)
+    if not set(yv.unique()) <= {0, 1}:
+        raise ValueError("Expected binary labels 0 and 1")
+    meta = metadata.loc[valid].copy() if metadata is not None else pd.DataFrame(index=Xv.index)
+    if "source_flow_id" not in meta:
+        meta["source_flow_id"] = [f"{domain or 'unverified'}:row:{i}" for i in Xv.index]
+    if "duplicate_id" not in meta:
+        # Explicit source identity is usable; equal model features are NOT proof of a duplicate.
+        meta["duplicate_id"] = meta["source_flow_id"]
+    if "group_id" not in meta:
+        meta["group_id"] = meta["duplicate_id"]
+    for col in ("source_flow_id", "duplicate_id", "group_id"):
+        if meta[col].isna().any() or (meta[col].astype(str).str.len() == 0).any():
+            raise ValueError(f"Missing {col} in raw metadata")
+        meta[col] = meta[col].astype(str)
+    conflict = yv.groupby(meta.duplicate_id).nunique()
+    if (conflict > 1).any():
+        raise ValueError("Identical raw records have conflicting labels; resolve source annotations before training")
+    if (meta.groupby("duplicate_id").group_id.nunique() > 1).any():
+        raise ValueError("One raw duplicate identity maps to different split groups")
+    duplicates = meta.duplicate_id.duplicated(keep="first")
+    return (Xv.loc[~duplicates], yv.loc[~duplicates], meta.loc[~duplicates],
+            int((~valid).sum()), int(duplicates.sum()))
 
-    valid_mask = y.notna()
-    X_valid = X.loc[valid_mask].copy()
-    y_valid = y.loc[valid_mask].astype(int)
-    meta_valid = metadata.loc[valid_mask].copy() if metadata is not None else None
-    nan_excluded = int((~valid_mask).sum())
 
-    if meta_valid is not None and "group_id" in meta_valid.columns:
-        group_series = meta_valid["group_id"].astype(str)
-    else:
-        group_series = pd.util.hash_pandas_object(X_valid, index=False).astype(str)
+def _partition(index, y, groups, fraction, seed, domains=None):
+    """Single seeded draw. Whole groups are stratified by their label/domain profile.
 
-    unique_groups = int(group_series.nunique())
-
-    if duplicate_group_policy == "keep_first_disjoint":
-        is_dup = group_series.duplicated(keep="first")
-        dup_count = int(is_dup.sum())
-        if dup_count > 0:
-            X_dedup = X_valid.loc[~is_dup]
-            y_dedup = y_valid.loc[~is_dup]
-            meta_dedup = meta_valid.loc[~is_dup] if meta_valid is not None else None
-            groups_dedup = group_series.loc[~is_dup]
-        else:
-            X_dedup = X_valid
-            y_dedup = y_valid
-            meta_dedup = meta_valid
-            groups_dedup = group_series
-        dup_excluded = dup_count
-    else:
-        raise ValueError(f"Unsupported duplicate_group_policy: '{duplicate_group_policy}'")
-
-    class_min = y_dedup.value_counts().min() if len(y_dedup) > 0 else 0
-    exam_expected = int(np.round(len(X_dedup) * (1.0 - study_fraction)))
-    study_expected = len(X_dedup) - exam_expected
-    stratify_study = y_dedup if (class_min >= 2 and exam_expected >= 2 and study_expected >= 2) else None
-
-    X_study, X_exam, y_study, y_exam = train_test_split(
-        X_dedup, y_dedup,
-        test_size=1.0 - study_fraction,
-        random_state=seed,
-        stratify=stratify_study,
-    )
-
-    if len(X_study) <= 1:
-        X_study_train, X_study_val, y_study_train, y_study_val = X_study, X_study.iloc[:0], y_study, y_study.iloc[:0]
-    elif len(X_study) == 2:
-        X_study_train, X_study_val, y_study_train, y_study_val = X_study.iloc[:1], X_study.iloc[1:], y_study.iloc[:1], y_study.iloc[1:]
-    else:
-        class_min_study = y_study.value_counts().min() if len(y_study) > 0 else 0
-        val_expected = int(np.round(len(X_study) * val_fraction_of_study))
-        study_train_expected = len(X_study) - val_expected
-        stratify_val = y_study if (class_min_study >= 2 and val_expected >= 2 and study_train_expected >= 2) else None
-        X_study_train, X_study_val, y_study_train, y_study_val = train_test_split(
-            X_study, y_study,
-            test_size=val_fraction_of_study,
-            random_state=seed,
-            stratify=stratify_val,
+    For singleton groups this is ordinary row-stratified splitting. With repeated
+    groups the requested fraction applies to group counts; actual row fractions
+    are saved because group sizes may differ. No scoring or retry selects a split.
+    """
+    if not 0 < fraction < 1:
+        raise ValueError("Partition fractions must lie strictly between 0 and 1")
+    strata = y.loc[index].astype(str)
+    if domains is not None:
+        strata = domains.loc[index].astype(str) + ":" + strata
+    frame = pd.DataFrame({"group": groups.loc[index], "stratum": strata}, index=index)
+    profiles = frame.groupby("group", sort=False).stratum.agg(lambda x: "|".join(sorted(set(x))))
+    counts = profiles.value_counts()
+    n_test = int(np.ceil(len(profiles) * fraction))
+    n_train = len(profiles) - n_test
+    if len(profiles) < 2:
+        raise PartitionSupportError("Only one independent session/group remains; cannot create disjoint partitions")
+    if counts.min() < 2 or min(n_test, n_train) < len(counts):
+        raise PartitionSupportError(
+            f"Insufficient independent groups for a stratified {fraction:.0%} partition: "
+            f"{counts.to_dict()}. Increase the declared sample or revise the grouping protocol."
         )
+    train_groups, test_groups = train_test_split(profiles.index.to_numpy(), test_size=fraction,
+                                               random_state=seed, stratify=profiles.to_numpy())
+    return index[groups.loc[index].isin(train_groups)], index[groups.loc[index].isin(test_groups)]
 
-    # Invariant assertion: duplicate groups cannot cross partitions
-    s_train_grps = set(groups_dedup.loc[X_study_train.index])
-    s_val_grps = set(groups_dedup.loc[X_study_val.index])
-    exam_grps = set(groups_dedup.loc[X_exam.index])
-    assert s_train_grps.isdisjoint(exam_grps), "Study train and exam holdout share duplicate groups!"
-    assert s_val_grps.isdisjoint(exam_grps), "Study val and exam holdout share duplicate groups!"
-    assert s_train_grps.isdisjoint(s_val_grps), "Study train and study val share duplicate groups!"
 
-    if meta_dedup is not None and "source_flow_id" in meta_dedup.columns:
-        train_flow_ids = [str(x) for x in meta_dedup.loc[X_study_train.index, "source_flow_id"]]
-        val_flow_ids = [str(x) for x in meta_dedup.loc[X_study_val.index, "source_flow_id"]]
-        test_flow_ids = [str(x) for x in meta_dedup.loc[X_exam.index, "source_flow_id"]]
-    else:
-        train_flow_ids = [f"{domain or 'study_train'}:{idx}" for idx in X_study_train.index]
-        val_flow_ids = [f"{domain or 'study_val'}:{idx}" for idx in X_study_val.index]
-        test_flow_ids = [f"{domain or 'exam'}:{idx}" for idx in X_exam.index]
-
-    merged_exclusions = dict(exclusion_reasons or {})
-    if nan_excluded:
-        merged_exclusions["nan_labels"] = nan_excluded
-    if dup_excluded:
-        merged_exclusions["duplicate_rows_excluded"] = dup_excluded
-
+def _split(X, y, *, metadata, test_fraction, val_fraction, seed, domain,
+           source_file_hashes, duplicate_group_policy, exclusion_reasons,
+           sampling_metadata, require_class_support, split_type):
+    if duplicate_group_policy != "keep_first_disjoint":
+        raise ValueError(f"Unsupported duplicate_group_policy: {duplicate_group_policy}")
+    original_count = len(X)
+    X, y, meta, nan_count, dup_count = _prepare(X, y, metadata, domain)
+    if require_class_support and set(y.unique()) != {0, 1}:
+        raise PartitionSupportError("Single-class sample after cleaning/deduplication; both classes are required")
+    domains = meta["domain"] if domain == "omni" and "domain" in meta else None
+    pool, test = _partition(X.index, y, meta.group_id, test_fraction, seed, domains)
+    train, val = _partition(pool, y, meta.group_id, val_fraction, seed, domains)
+    idx = (train, val, test)
+    labels = tuple(y.loc[i] for i in idx)
+    support = {}
+    if require_class_support:
+        support = validate_partition_support(*labels, domains=domains, indices=idx)
+    group_sets = [set(meta.loc[i, "group_id"]) for i in idx]
+    if any(group_sets[i] & group_sets[j] for i, j in ((0, 1), (0, 2), (1, 2))):
+        raise ValueError("Split groups overlap")
+    exclusions = dict(exclusion_reasons or {})
+    exclusions.update(nan_labels=nan_count, duplicate_rows_excluded=dup_count)
     manifest = SplitManifest(
-        seed=seed,
-        test_fraction=1.0 - study_fraction,
-        val_fraction=val_fraction_of_study,
-        total_rows=len(X),
-        excluded_rows=nan_excluded + dup_excluded,
-        exclusion_reasons=merged_exclusions,
-        source_file_hashes=dict(source_file_hashes or {}),
-        duplicate_group_policy=duplicate_group_policy,
-        duplicate_rows_excluded=dup_excluded,
-        unique_groups_count=unique_groups,
-        train_count=len(X_study_train),
-        val_count=len(X_study_val),
-        test_count=len(X_exam),
-        train_class_counts=dict(pd.Series(y_study_train).value_counts()),
-        val_class_counts=dict(pd.Series(y_study_val).value_counts()),
-        test_class_counts=dict(pd.Series(y_exam).value_counts()),
-        train_indices=list(X_study_train.index),
-        val_indices=list(X_study_val.index),
-        test_indices=list(X_exam.index),
-        train_flow_ids=train_flow_ids,
-        val_flow_ids=val_flow_ids,
-        test_flow_ids=test_flow_ids,
-        dataset_domain=domain,
-        split_type="adaptation_study_exam",
+        seed=seed, test_fraction=test_fraction, val_fraction=val_fraction,
+        total_rows=original_count, excluded_rows=nan_count + dup_count,
+        exclusion_reasons=exclusions, source_file_hashes=dict(source_file_hashes or {}),
+        duplicate_group_policy=duplicate_group_policy, duplicate_rows_excluded=dup_count,
+        unique_groups_count=int(meta.group_id.nunique()), dataset_domain=domain, split_type=split_type,
+        sampling_metadata=sampling_metadata or {}, partition_support=support,
+        identity_policy="raw_record_sha256_v1" if metadata is not None and "duplicate_id" in metadata else "source_identity_only",
+        grouping_policy="session_start_else_tuple_else_raw_record_v1",
+        notes="Keep first exact raw duplicate; retain all distinct records in each split group. "
+              "Fractions target groups; row/class counts below are authoritative. No feature-vector deduplication.",
     )
+    records_columns = [c for c in ("domain", "source_file", "source_file_hash", "source_row_index",
+                                   "source_flow_id", "duplicate_id", "group_id", "group_scope", "original_flow_id") if c in meta]
+    for name, i, label in zip(("train", "val", "test"), idx, labels):
+        setattr(manifest, name + "_count", len(i))
+        setattr(manifest, name + "_class_counts", {str(k): int(v) for k, v in label.value_counts().items()})
+        setattr(manifest, name + "_indices", list(i))
+        setattr(manifest, name + "_flow_ids", meta.loc[i, "source_flow_id"].tolist())
+        setattr(manifest, name + "_group_ids", meta.loc[i, "group_id"].tolist())
+        setattr(manifest, name + "_records", json.loads(meta.loc[i, records_columns].to_json(orient="records")))
+    return (*(X.loc[i] for i in idx), *labels, manifest)
 
-    return (X_study_train, X_study_val, X_exam,
-            y_study_train, y_study_val, y_exam,
-            manifest)
+
+def stratified_split(X, y, *, metadata=None, test_fraction=0.20, val_fraction=0.10,
+                     seed=42, domain="", source_file_hashes=None,
+                     duplicate_group_policy="keep_first_disjoint", exclusion_reasons=None,
+                     sampling_metadata=None, require_class_support=False):
+    return _split(X, y, metadata=metadata, test_fraction=test_fraction, val_fraction=val_fraction,
+                  seed=seed, domain=domain, source_file_hashes=source_file_hashes,
+                  duplicate_group_policy=duplicate_group_policy, exclusion_reasons=exclusion_reasons,
+                  sampling_metadata=sampling_metadata, require_class_support=require_class_support,
+                  split_type="stratified_session_groups")
+
+
+def adaptation_split(X, y, *, metadata=None, study_fraction=0.20, val_fraction_of_study=0.10,
+                     seed=42, domain="", source_file_hashes=None,
+                     duplicate_group_policy="keep_first_disjoint", exclusion_reasons=None,
+                     sampling_metadata=None, require_class_support=False):
+    return _split(X, y, metadata=metadata, test_fraction=1.0-study_fraction, val_fraction=val_fraction_of_study,
+                  seed=seed, domain=domain, source_file_hashes=source_file_hashes,
+                  duplicate_group_policy=duplicate_group_policy, exclusion_reasons=exclusion_reasons,
+                  sampling_metadata=sampling_metadata, require_class_support=require_class_support,
+                  split_type="adaptation_session_groups")

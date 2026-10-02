@@ -29,6 +29,7 @@ from sentrix_ml.schema import (
 from sentrix_ml.preprocessing import encode_dataframe
 from sentrix_ml.splits import clean_labels
 from sentrix_ml.sampler import stream_dataset_files, file_sha256
+from sentrix_ml.provenance import raw_metadata_factory
 
 
 SCHEMA_MAPPING = {
@@ -170,7 +171,11 @@ def load_cic_ids2017(
         if "label" not in chunk.columns:
             raise ValueError("CIC-IDS2017 dataset missing label column")
 
-        has_5tuple = all(c in chunk.columns for c in ["source ip", "source port", "destination ip", "destination port", "protocol"])
+        chunk = chunk.reset_index(drop=True)
+        metadata_for_row = raw_metadata_factory(
+            chunk, domain="cic_ids2017", filename=fname, row_offset=row_offset,
+            tuple_columns=["source ip", "source port", "destination ip", "destination port", "protocol"], time_column="timestamp",
+        )
         has_flowid = "flow id" in chunk.columns
         has_ts = "timestamp" in chunk.columns
 
@@ -183,7 +188,7 @@ def load_cic_ids2017(
 
         # Injected columns for missing network fields
         if "proto" not in chunk.columns:
-            chunk["proto"] = "other"
+            chunk["proto"] = chunk["protocol"].astype(str).str.strip().replace({"6": "tcp", "17": "udp", "6.0": "tcp", "17.0": "udp"}) if "protocol" in chunk else "other"
         if "conn_state" not in chunk.columns:
             chunk["conn_state"] = "OTH"
 
@@ -222,22 +227,7 @@ def load_cic_ids2017(
         raw_valid = chunk.loc[valid_mask]
 
         def meta_fn(idx: int) -> dict:
-            orig_row = row_offset + int(raw_valid.index[idx])
-            if has_5tuple:
-                r = raw_valid.iloc[idx]
-                group_id = f"{r['source ip']}:{r['source port']}->{r['destination ip']}:{r['destination port']}/{r['protocol']}"
-            else:
-                group_id = f"{fname}:{orig_row}"
-            source_flow_id = str(raw_valid["flow id"].iloc[idx]) if has_flowid else f"{fname}:{orig_row}"
-            rec = {
-                "__meta_source_file__": fname,
-                "__meta_source_row_index__": orig_row,
-                "__meta_source_flow_id__": source_flow_id,
-                "__meta_group_id__": group_id,
-            }
-            if has_ts:
-                rec["__meta_timestamp__"] = raw_valid["timestamp"].iloc[idx]
-            return rec
+            return metadata_for_row(raw_valid.index[idx])
 
         drop_now = [c for c in _DROP_METADATA_COLUMNS + ["label"] if c in clean_chunk.columns]
         clean_chunk.drop(columns=drop_now, inplace=True)
@@ -251,6 +241,7 @@ def load_cic_ids2017(
         seed=seed,
         chunksize=chunksize,
         nrows_per_file=nrows_per_file,
+        read_csv_kwargs={"dtype": str},
     )
 
     info.update(stream_info)
@@ -267,6 +258,7 @@ def load_cic_ids2017(
     else:
         X_encoded = pd.DataFrame(columns=EXPECTED_FEATURES)
 
+    info.update(max_files=max_files, chunksize=chunksize)
     info["final_shape"] = X_encoded.shape
     info["class_counts"] = {str(k): int(v) for k, v in y_binary.value_counts().items()}
 

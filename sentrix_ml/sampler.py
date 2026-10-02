@@ -31,6 +31,8 @@ class ReservoirBuffer:
     """In-memory reservoir buffer holding at most K rows."""
 
     def __init__(self, capacity: int, seed: int = 42):
+        if not isinstance(capacity, int) or isinstance(capacity, bool) or capacity < 1:
+            raise ValueError("sample_n must be a positive integer")
         self.capacity = capacity
         self.rng = np.random.default_rng(seed)
         self.reservoir: list[dict] = []
@@ -163,6 +165,18 @@ def stream_dataset_files(
             source_class_counts["0"] = source_class_counts.get("0", 0) + int(b[0])
             source_class_counts["1"] = source_class_counts.get("1", 0) + int(b[1])
 
+            # Bind each selected raw record to the bytes of its actual source file.
+            original_meta = clean_meta
+            def bound_meta(i, original=original_meta, name=fname, digest=source_file_hashes[fname]):
+                rec = dict(original(i)) if callable(original) else {
+                    f"__meta_{col}__": original.iloc[i][col] for col in original.columns
+                }
+                domain = rec.get("__meta_domain__", "unknown")
+                row = rec["__meta_source_row_index__"]
+                rec["__meta_source_file_hash__"] = digest
+                rec["__meta_source_flow_id__"] = f"{domain}:{name}:{digest}:row:{row}"
+                return rec
+            clean_meta = bound_meta
             if use_reservoir:
                 reservoir.add_chunk(clean_feat, clean_y, clean_meta)
             else:
@@ -207,7 +221,9 @@ def stream_dataset_files(
         "source_file_hashes": source_file_hashes,
         "total_rows_considered": total_raw_rows,
         "total_valid_rows": total_valid_rows,
-        "selection_policy": "reservoir_sampling" if use_reservoir else "complete_stream",
+        "selection_policy": "reservoir_sampling" if use_reservoir else ("bounded_prefix_then_sample" if nrows_per_file is not None else "complete_stream"),
+        "sample_n": sample_n,
+        "nrows_per_file": nrows_per_file,
         "seed": seed,
         "source_class_counts": source_class_counts,
         "selected_class_counts": {str(k): int(v) for k, v in y_binary.value_counts().items()},

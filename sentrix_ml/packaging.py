@@ -276,10 +276,36 @@ def validate_package(
             sm = SplitManifest.load(split_path)
             if not sm.source_file_hashes:
                 raise PackageValidationError("Strict deployment requires non-empty source_file_hashes in split manifest.")
-            if not sm.train_flow_ids or not sm.test_flow_ids:
-                raise PackageValidationError("Strict deployment requires non-empty flow IDs in split manifest partitions.")
+            if not sm.train_flow_ids or not sm.val_flow_ids or not sm.test_flow_ids:
+                raise PackageValidationError("Strict deployment requires non-empty flow IDs in all split partitions.")
             if sm.duplicate_group_policy != "keep_first_disjoint":
                 raise PackageValidationError(f"Invalid duplicate_group_policy in split manifest: '{sm.duplicate_group_policy}'")
+            if sm.identity_policy != "raw_record_sha256_v1" or not sm.sampling_metadata:
+                raise PackageValidationError("Strict deployment requires raw record identities and the saved sampling audit.")
+            seen_ids, seen_groups, seen_duplicates = set(), set(), set()
+            for part in ("train", "val", "test"):
+                ids = getattr(sm, part + "_flow_ids")
+                groups = getattr(sm, part + "_group_ids")
+                records = getattr(sm, part + "_records")
+                count = getattr(sm, part + "_count")
+                counts = getattr(sm, part + "_class_counts")
+                if len(ids) != count or len(groups) != count or len(records) != count or len(set(ids)) != count:
+                    raise PackageValidationError(f"Inconsistent {part} lineage lengths or repeated source IDs")
+                if set(map(str, counts)) != {"0", "1"} or sum(counts.values()) != count or min(counts.values()) < (2 if part == "train" else 1):
+                    raise PackageValidationError(f"Insufficient or inconsistent {part} class counts")
+                duplicate_ids = {record.get("duplicate_id") for record in records}
+                if seen_ids.intersection(ids) or seen_groups.intersection(groups) or seen_duplicates.intersection(duplicate_ids):
+                    raise PackageValidationError("Source identities, raw duplicates, or session groups cross partitions")
+                for record, flow_id, group_id in zip(records, ids, groups):
+                    key = record.get("source_file", "")
+                    if manifest.domain == "omni":
+                        key = record.get("domain", "") + "/" + key
+                    digest = sm.source_file_hashes.get(key)
+                    if (not digest or record.get("source_file_hash") != digest or
+                        record.get("source_flow_id") != flow_id or record.get("group_id") != group_id or
+                        not isinstance(record.get("source_row_index"), int) or record["source_row_index"] < 0):
+                        raise PackageValidationError(f"Invalid {part} raw source identity")
+                seen_ids.update(ids); seen_groups.update(groups); seen_duplicates.update(duplicate_ids)
         except PackageValidationError:
             raise
         except Exception as e:
@@ -318,7 +344,7 @@ def validate_package(
                 raise PackageValidationError("RF model missing predict_proba method.")
             if getattr(rf, "n_features_in_", None) != NUM_FEATURES:
                 raise PackageValidationError(f"RF expects {getattr(rf, 'n_features_in_', None)} features, not {NUM_FEATURES}.")
-            if len(getattr(rf, "classes_", [])) != 2:
+            if list(getattr(rf, "classes_", [])) != [0, 1]:
                 raise PackageValidationError(f"RF classes_ must contain 2 classes, got {getattr(rf, 'classes_', None)}.")
         except Exception as e:
             raise PackageValidationError(f"RF model deep inspection failed: {e}") from e
@@ -332,6 +358,8 @@ def validate_package(
             # (None, 28, 1)
             if in_shape[-2:] != (NUM_FEATURES, 1):
                 raise PackageValidationError(f"CNN input shape mismatch: {in_shape} does not end with ({NUM_FEATURES}, 1)")
+            if cnn.output_shape[-1:] != (1,):
+                raise PackageValidationError(f"CNN output shape mismatch: {cnn.output_shape}")
         except ImportError:
             raise PackageValidationError("TensorFlow is required to inspect and validate CNN model for deployment.")
         except Exception as e:
@@ -376,6 +404,8 @@ def create_package(
     Copies all files into ``output_dir`` and creates a validated manifest with SHA256 hashes.
     """
     out = Path(output_dir)
+    if out.exists() and any(out.iterdir()):
+        raise PackageValidationError("Candidate directory is not empty; choose a new versioned output path.")
     out.mkdir(parents=True, exist_ok=True)
 
     rf_dest = out / "rf_model.joblib"

@@ -29,6 +29,7 @@ from sentrix_ml.schema import (
 from sentrix_ml.preprocessing import encode_dataframe
 from sentrix_ml.splits import clean_labels
 from sentrix_ml.sampler import stream_dataset_files, file_sha256
+from sentrix_ml.provenance import raw_metadata_factory
 
 
 # Columns that are identifiers/timestamps — must not become predictors
@@ -56,7 +57,11 @@ def _clean_and_extract_ton_chunk(
     if _LABEL_COL not in chunk.columns:
         raise ValueError("ToN-IoT dataset missing 'label' column")
 
-    has_5tuple = all(c in chunk.columns for c in ["src_ip", "src_port", "dst_ip", "dst_port", "proto"])
+    chunk = chunk.reset_index(drop=True)
+    metadata_for_row = raw_metadata_factory(
+        chunk, domain="ton_iot", filename=fname, row_offset=row_offset,
+        tuple_columns=["src_ip", "src_port", "dst_ip", "dst_port", "proto"], time_column="ts",
+    )
 
     # Clean labels
     y_bin, exclusions = clean_labels(chunk[_LABEL_COL], domain="ton_iot")
@@ -97,23 +102,7 @@ def _clean_and_extract_ton_chunk(
     has_type = _TYPE_COL in raw_valid.columns
 
     def meta_fn(idx: int) -> dict:
-        orig_row = row_offset + int(raw_valid.index[idx])
-        if has_5tuple:
-            r = raw_valid.iloc[idx]
-            group_id = f"{r['src_ip']}:{r['src_port']}->{r['dst_ip']}:{r['dst_port']}/{r['proto']}"
-        else:
-            group_id = f"{fname}:{orig_row}"
-        rec = {
-            "__meta_source_file__": fname,
-            "__meta_source_row_index__": orig_row,
-            "__meta_source_flow_id__": f"{fname}:{orig_row}",
-            "__meta_group_id__": group_id,
-        }
-        if has_ts:
-            rec["__meta_ts__"] = raw_valid["ts"].iloc[idx]
-        if has_type:
-            rec["__meta_attack_type__"] = raw_valid[_TYPE_COL].iloc[idx]
-        return rec
+        return metadata_for_row(raw_valid.index[idx])
 
     # Drop non-predictor identifier columns
     drop_now = [c for c in _DROP_COLUMNS + [_LABEL_COL, _TYPE_COL] if c in clean_chunk.columns]
@@ -165,6 +154,7 @@ def load_ton_iot(
         seed=seed,
         chunksize=chunksize,
         nrows_per_file=nrows_per_file,
+        read_csv_kwargs={"dtype": str},
     )
 
     info["domain"] = "ton_iot"
@@ -179,6 +169,7 @@ def load_ton_iot(
     else:
         X_encoded = pd.DataFrame(columns=EXPECTED_FEATURES)
 
+    info.update(max_files=max_files, chunksize=chunksize)
     info["final_shape"] = X_encoded.shape
     info["class_counts"] = {str(k): int(v) for k, v in y_binary.value_counts().items()}
 
