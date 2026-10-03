@@ -163,10 +163,11 @@ def test_mixed_label_fingerprint_groups_split_correctly():
     """Mixed-label measurement groups must split without error.
 
     Simulates CIC-IDS2017 scenario: rows with identical measurement fingerprints
-    (same duplicate_id) but different labels. The splitter should:
-    1. Warn about conflicting labels
-    2. Deduplicate (keep first)
-    3. Split remaining rows into disjoint partitions
+    (same group_id) but different labels.
+    Under retain-and-group (default):
+    1. Warns about conflicting labels
+    2. Retains ALL original observations and original labels (no keep-first deletion)
+    3. Partitions whole measurement groups into disjoint splits
     """
     n_groups = 30
     rows_per_group = 6
@@ -174,7 +175,6 @@ def test_mixed_label_fingerprint_groups_split_correctly():
     rng = np.random.default_rng(42)
     X = pd.DataFrame(rng.standard_normal((n_rows, 3)), columns=["a", "b", "c"])
     # Each group has 3 benign + 3 attack rows (mixed-label fingerprint).
-    # Alternating initial labels ensure both classes are represented after keep-first dedup.
     labels = []
     for g in range(n_groups):
         if g % 2 == 0:
@@ -191,17 +191,24 @@ def test_mixed_label_fingerprint_groups_split_correctly():
     import warnings
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
-        parts = stratified_split(X, y, metadata=meta, require_class_support=True)
+        parts = stratified_split(X, y, metadata=meta, require_class_support=True, conflict_policy="retain_and_group")
         conflict_warnings = [x for x in w if "conflicting labels" in str(x.message)]
         assert len(conflict_warnings) >= 1
 
     manifest = parts[-1]
-    # After keep-first dedup, each fingerprint group retains 1 row
-    total_rows_after_dedup = sum(map(len, parts[:3]))
-    assert total_rows_after_dedup == n_groups  # 30 unique fingerprints
-    assert manifest.duplicate_rows_excluded == n_rows - n_groups
-    assert manifest.exclusion_reasons.get("conflicting_label_duplicates_resolved", 0) == n_rows
+    # Under retain-and-group, all observations are retained with their original labels
+    total_rows = sum(map(len, parts[:3]))
+    assert total_rows == n_rows  # All 180 rows retained!
+    assert manifest.duplicate_rows_excluded == 0
+    assert manifest.exclusion_reasons.get("conflicting_label_groups_retained", 0) == n_rows
     # Partitions must be disjoint
     groups = [set(getattr(manifest, p + "_group_ids")) for p in ("train", "val", "test")]
     assert not (groups[0] & groups[1] or groups[0] & groups[2] or groups[1] & groups[2])
+
+    # Also test legacy keep_first policy when explicitly requested
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        parts_kf = stratified_split(X, y, metadata=meta, require_class_support=True, conflict_policy="keep_first")
+        assert sum(map(len, parts_kf[:3])) == n_groups
+        assert parts_kf[-1].duplicate_rows_excluded == n_rows - n_groups
 

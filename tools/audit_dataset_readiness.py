@@ -128,7 +128,7 @@ def raw_identity(domain, row, columns):
     return fingerprint(), "raw_record_only", fingerprint
 
 
-def trace_split(X, y, metadata, *, domain, seed, test_fraction, val_fraction=.10):
+def trace_split(X, y, metadata, *, domain, seed, test_fraction, val_fraction=.10, conflict_policy="retain_and_group"):
     """Execute production preparation and both group allocations; retain failures."""
     trace = {"seed": seed, "test_fraction": test_fraction, "val_fraction": val_fraction}
     stage = "prepare"
@@ -136,7 +136,9 @@ def trace_split(X, y, metadata, *, domain, seed, test_fraction, val_fraction=.10
         input_counts = {str(k): int(v) for k, v in pd.Series(y).dropna().astype(int).value_counts().items()}
         with warnings.catch_warnings(record=True) as observed:
             warnings.simplefilter("always")
-            X, y, meta, invalid, duplicates, conflict_rows = _prepare(X, y, metadata, domain)
+            X, y, meta, invalid, duplicates, conflict_rows = _prepare(
+                X, y, metadata, domain, conflict_policy=conflict_policy
+            )
         prepared_counts = {str(k): int(v) for k, v in y.value_counts().items()}
         trace.update(rows_after_preparation=len(y), duplicates_excluded=duplicates,
                      invalid_labels_excluded=invalid, unique_groups=int(meta.group_id.nunique()),
@@ -161,11 +163,12 @@ def trace_split(X, y, metadata, *, domain, seed, test_fraction, val_fraction=.10
         trace["partition_support"] = validate_partition_support(
             y.loc[train], y.loc[val], y.loc[exam], domains=domains, indices=(train, val, exam))
         trace["production_partition_status"] = "READY"
-        trace["status"] = "REVIEW_REQUIRED" if conflict_rows else "READY"
+        is_review = bool(conflict_rows and duplicates)
+        trace["status"] = "REVIEW_REQUIRED" if is_review else "READY"
         trace["scope_note"] = (
             "Production class-support gates passed after keep-first discarded ambiguous rows; "
             "this does not resolve label correctness or authorize training."
-            if conflict_rows else
+            if is_review else
             "Configured partition support only; this is not a validation of the research sampling or identity protocol."
         )
     except (ValueError, KeyError) as exc:
@@ -511,7 +514,7 @@ def main(argv=None):
         "python_executable": sys.executable, "python_version": sys.version.split()[0],
         "git_commit": version.stdout.strip() if version.returncode == 0 else "UNAVAILABLE",
         "packages": versions, "ram_available_gb": round(psutil.virtual_memory().available / 1024**3, 2),
-        "disk_free_gb": round(psutil.disk_usage(output).free / 1024**3, 2),
+        "disk_free_gb": round(psutil.disk_usage(str(output)).free / 1024**3, 2),
     }
     domains, errors = {}, {}
     omni = {"status": "NOT_RUN", "reason": "Use --include-omni for a combined ToN/BoT/CIC replay."}

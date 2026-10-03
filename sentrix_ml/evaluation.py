@@ -24,24 +24,34 @@ from sklearn.metrics import (
 )
 
 
-def _compute_single_mode_metrics(y_true: np.ndarray, y_pred: np.ndarray, y_proba: np.ndarray) -> dict:
-    """Compute binary classification metrics for one mode."""
-    acc = float(accuracy_score(y_true, y_pred))
-    prec = float(precision_score(y_true, y_pred, zero_division=0))
-    rec = float(recall_score(y_true, y_pred, zero_division=0))
-    f1 = float(f1_score(y_true, y_pred, zero_division=0))
+def _compute_single_mode_metrics(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    y_proba: np.ndarray,
+    sample_weight: np.ndarray | None = None,
+) -> dict:
+    """Compute binary classification metrics for one mode, with optional sample weights."""
+    acc = float(accuracy_score(y_true, y_pred, sample_weight=sample_weight))
+    prec = float(precision_score(y_true, y_pred, sample_weight=sample_weight, zero_division=0))
+    rec = float(recall_score(y_true, y_pred, sample_weight=sample_weight, zero_division=0))
+    f1 = float(f1_score(y_true, y_pred, sample_weight=sample_weight, zero_division=0))
 
     unique_classes = set(np.unique(y_true))
     if unique_classes == {0, 1}:
         try:
-            auc = float(roc_auc_score(y_true, y_proba))
+            auc = float(roc_auc_score(y_true, y_proba, sample_weight=sample_weight))
         except ValueError:
             auc = None
     else:
         auc = None
 
-    cm = confusion_matrix(y_true, y_pred, labels=[0, 1])
+    cm = confusion_matrix(y_true, y_pred, labels=[0, 1], sample_weight=sample_weight)
     tn, fp, fn, tp = cm.ravel()
+
+    # Specificity (True Negative Rate) and False Positive Rate
+    denom_neg = tn + fp
+    specificity = float(tn / denom_neg) if denom_neg > 0 else 0.0
+    fpr = float(fp / denom_neg) if denom_neg > 0 else 0.0
 
     return {
         "accuracy": acc,
@@ -49,11 +59,13 @@ def _compute_single_mode_metrics(y_true: np.ndarray, y_pred: np.ndarray, y_proba
         "recall": rec,
         "f1": f1,
         "roc_auc": auc,
+        "specificity": specificity,
+        "false_positive_rate": fpr,
         "confusion_matrix": {
-            "tn": int(tn),
-            "fp": int(fp),
-            "fn": int(fn),
-            "tp": int(tp),
+            "tn": int(round(tn)) if sample_weight is None else float(round(tn, 2)),
+            "fp": int(round(fp)) if sample_weight is None else float(round(fp, 2)),
+            "fn": int(round(fn)) if sample_weight is None else float(round(fn, 2)),
+            "tp": int(round(tp)) if sample_weight is None else float(round(tp, 2)),
         },
     }
 
@@ -79,8 +91,13 @@ class EvaluationResult:
     evidence_file: Optional[str] = None
     evidence_hash: Optional[str] = None
 
-    # Multi-mode metrics: keys 'rf', 'cnn', 'hybrid'
+    # Multi-mode metrics: keys 'rf', 'cnn', 'hybrid' (unweighted empirical holdout)
     modes: dict[str, dict] = field(default_factory=dict)
+
+    # Population-weighted metrics: keys 'rf', 'cnn', 'hybrid' (when sampling weights provided)
+    weighted_modes: dict[str, dict] = field(default_factory=dict)
+    has_sampling_weights: bool = False
+    population_weights: dict = field(default_factory=dict)
 
     # Per-domain breakdown (for Omni)
     per_domain: dict[str, dict] = field(default_factory=dict)
@@ -187,6 +204,9 @@ def compute_multimode_metrics(
     p_rf: np.ndarray,
     p_cnn: np.ndarray,
     p_hybrid: np.ndarray,
+    sample_weight: np.ndarray | list | None = None,
+    inclusion_probability: np.ndarray | list | None = None,
+    population_weights: dict | None = None,
     domain: str = "",
     run_type: str = "smoke",
     dataset: str = "",
@@ -210,11 +230,26 @@ def compute_multimode_metrics(
     pred_cnn = (p_cnn >= 0.5).astype(int)
     pred_hybrid = (p_hybrid >= 0.5).astype(int)
 
+    # Unweighted empirical metrics
     modes = {
         "rf": _compute_single_mode_metrics(y_true, pred_rf, p_rf),
         "cnn": _compute_single_mode_metrics(y_true, pred_cnn, p_cnn),
         "hybrid": _compute_single_mode_metrics(y_true, pred_hybrid, p_hybrid),
     }
+
+    # Population-weighted metrics (when weights provided)
+    weighted_modes = {}
+    has_weights = False
+    sw_arr = None
+    if sample_weight is not None:
+        sw_arr = np.asarray(sample_weight, dtype=float)
+        if len(sw_arr) == len(y_true):
+            has_weights = bool(np.any(np.abs(sw_arr - 1.0) > 1e-6))
+            weighted_modes = {
+                "rf": _compute_single_mode_metrics(y_true, pred_rf, p_rf, sample_weight=sw_arr),
+                "cnn": _compute_single_mode_metrics(y_true, pred_cnn, p_cnn, sample_weight=sw_arr),
+                "hybrid": _compute_single_mode_metrics(y_true, pred_hybrid, p_hybrid, sample_weight=sw_arr),
+            }
 
     per_domain = {}
     if domain_labels is not None:
@@ -223,12 +258,20 @@ def compute_multimode_metrics(
             mask = (dom_arr == dom)
             if np.any(mask):
                 y_dom = y_true[mask]
-                per_domain[str(dom)] = {
+                dom_sw = sw_arr[mask] if sw_arr is not None else None
+                dom_entry = {
                     "sample_count": int(np.sum(mask)),
                     "rf": _compute_single_mode_metrics(y_dom, pred_rf[mask], p_rf[mask]),
                     "cnn": _compute_single_mode_metrics(y_dom, pred_cnn[mask], p_cnn[mask]),
                     "hybrid": _compute_single_mode_metrics(y_dom, pred_hybrid[mask], p_hybrid[mask]),
                 }
+                if dom_sw is not None and has_weights:
+                    dom_entry["weighted"] = {
+                        "rf": _compute_single_mode_metrics(y_dom, pred_rf[mask], p_rf[mask], sample_weight=dom_sw),
+                        "cnn": _compute_single_mode_metrics(y_dom, pred_cnn[mask], p_cnn[mask], sample_weight=dom_sw),
+                        "hybrid": _compute_single_mode_metrics(y_dom, pred_hybrid[mask], p_hybrid[mask], sample_weight=dom_sw),
+                    }
+                per_domain[str(dom)] = dom_entry
 
     return EvaluationResult(
         model_domain=domain,
@@ -246,6 +289,9 @@ def compute_multimode_metrics(
         evidence_file=evidence_file,
         evidence_hash=evidence_hash,
         modes=modes,
+        weighted_modes=weighted_modes,
+        has_sampling_weights=has_weights,
+        population_weights=population_weights or {},
         per_domain=per_domain,
     )
 
@@ -259,6 +305,11 @@ def save_prediction_evidence(
     p_hybrid: np.ndarray,
     sample_ids: np.ndarray | list | None = None,
     domain_labels: np.ndarray | list | None = None,
+    source_files: np.ndarray | list | None = None,
+    source_row_indices: np.ndarray | list | None = None,
+    group_ids: np.ndarray | list | None = None,
+    inclusion_probabilities: np.ndarray | list | None = None,
+    sampling_weights: np.ndarray | list | None = None,
 ) -> str:
     """Save per-sample prediction evidence as a CSV file and return its sha256 hash."""
     path = Path(path)
@@ -279,21 +330,46 @@ def save_prediction_evidence(
     import hashlib
     h = hashlib.sha256()
 
+    has_extras = any(x is not None for x in (source_files, source_row_indices, group_ids,
+                                            inclusion_probabilities, sampling_weights))
+
     with open(path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
-        header = [
-            "sample_id", "domain", "y_true",
-            "p_rf", "p_cnn", "p_hybrid",
-            "pred_rf", "pred_cnn", "pred_hybrid",
-        ]
-        writer.writerow(header)
-        for i in range(n):
-            row = [
-                ids[i], doms[i], y_true[i],
-                round(float(p_rf[i]), 6), round(float(p_cnn[i]), 6), round(float(p_hybrid[i]), 6),
-                pred_rf[i], pred_cnn[i], pred_hybrid[i],
+        if has_extras:
+            header = [
+                "sample_id", "domain", "source_file", "source_row_index", "group_id",
+                "y_true", "inclusion_probability", "sampling_weight",
+                "p_rf", "p_cnn", "p_hybrid",
+                "pred_rf", "pred_cnn", "pred_hybrid",
             ]
-            writer.writerow(row)
+            s_files = source_files if source_files is not None else [""] * n
+            s_rows = source_row_indices if source_row_indices is not None else [""] * n
+            s_groups = group_ids if group_ids is not None else [""] * n
+            s_probs = inclusion_probabilities if inclusion_probabilities is not None else [1.0] * n
+            s_weights = sampling_weights if sampling_weights is not None else [1.0] * n
+            writer.writerow(header)
+            for i in range(n):
+                row = [
+                    ids[i], doms[i], s_files[i], s_rows[i], s_groups[i],
+                    y_true[i], round(float(s_probs[i]), 8), round(float(s_weights[i]), 6),
+                    round(float(p_rf[i]), 6), round(float(p_cnn[i]), 6), round(float(p_hybrid[i]), 6),
+                    pred_rf[i], pred_cnn[i], pred_hybrid[i],
+                ]
+                writer.writerow(row)
+        else:
+            header = [
+                "sample_id", "domain", "y_true",
+                "p_rf", "p_cnn", "p_hybrid",
+                "pred_rf", "pred_cnn", "pred_hybrid",
+            ]
+            writer.writerow(header)
+            for i in range(n):
+                row = [
+                    ids[i], doms[i], y_true[i],
+                    round(float(p_rf[i]), 6), round(float(p_cnn[i]), 6), round(float(p_hybrid[i]), 6),
+                    pred_rf[i], pred_cnn[i], pred_hybrid[i],
+                ]
+                writer.writerow(row)
 
     with open(path, "rb") as f:
         for chunk in iter(lambda: f.read(1 << 16), b""):

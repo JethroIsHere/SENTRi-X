@@ -265,9 +265,15 @@ def load_bot_iot(
     info["source_type"] = "raw_csvs"
     if buffer is not None:
         info["selection_policy"] = "stratified_reservoir_sampling"
-        info["minority_label"] = 0
+        info["minority_label"] = buffer.minority_label
+        info["minority_records_seen"] = buffer.minority_seen
+        info["majority_records_seen"] = buffer.majority_seen
         info["minority_records_collected"] = len(buffer.minority_records)
         info["majority_records_sampled"] = len(buffer.majority_records)
+        info["minority_records_selected"] = getattr(buffer, "minority_selected", len(buffer.minority_records))
+        info["majority_records_selected"] = getattr(buffer, "majority_selected", len(buffer.majority_records))
+        info["inclusion_probabilities"] = dict(getattr(buffer, "inclusion_probabilities", {}))
+        info["sampling_weights"] = dict(getattr(buffer, "sampling_weights", {}))
     info["raw_rows"] = info["total_rows_considered"]
     info["cleaned_rows"] = info["total_valid_rows"]
     info["valid_label_rows"] = info["total_valid_rows"]

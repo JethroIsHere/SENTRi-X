@@ -227,7 +227,7 @@ def test_passing_class_gate_does_not_hide_conflicting_label_deletion():
     meta = pd.DataFrame({"source_flow_id": [f"row:{i}" for i in range(n)],
                          "duplicate_id": [f"fp:{i//6}" for i in range(n)],
                          "group_id": [f"fp:{i//6}" for i in range(n)]})
-    trace = audit.trace_split(X, y, meta, domain="cic_ids2017", seed=42, test_fraction=.2)
+    trace = audit.trace_split(X, y, meta, domain="cic_ids2017", seed=42, test_fraction=.2, conflict_policy="keep_first")
     assert trace["production_partition_status"] == "READY"
     assert trace["status"] == "REVIEW_REQUIRED"
     assert trace["input_class_counts"] == {"0": 90, "1": 90}
@@ -236,6 +236,25 @@ def test_passing_class_gate_does_not_hide_conflicting_label_deletion():
     assert trace["duplicates_excluded"] == 150
     assert trace["conflicting_label_rows_before_preparation"] == 180
     assert "keep-first" in trace["preparation_warnings"][0]
+
+
+def test_retain_and_group_preserves_conflicting_labels():
+    n = 180
+    X = pd.DataFrame({"duration": np.repeat(np.arange(30), 6)})
+    labels = [label for g in range(30) for label in ([g % 2] * 3 + [1-g % 2] * 3)]
+    y = pd.Series(labels)
+    meta = pd.DataFrame({"source_flow_id": [f"row:{i}" for i in range(n)],
+                         "duplicate_id": [f"fp:{i//6}" for i in range(n)],
+                         "group_id": [f"fp:{i//6}" for i in range(n)]})
+    trace = audit.trace_split(X, y, meta, domain="cic_ids2017", seed=42, test_fraction=.2, conflict_policy="retain_and_group")
+    assert trace["production_partition_status"] == "READY"
+    assert trace["status"] == "READY"
+    assert trace["input_class_counts"] == {"0": 90, "1": 90}
+    assert trace["prepared_class_counts"] == {"0": 90, "1": 90}
+    assert trace["removed_class_counts"] == {"0": 0, "1": 0}
+    assert trace["duplicates_excluded"] == 0
+    assert trace["conflicting_label_rows_before_preparation"] == 180
+    assert "retained in candidate pool" in trace["preparation_warnings"][0]
 
 
 def test_hash_comparison_detects_removed_and_added_files():

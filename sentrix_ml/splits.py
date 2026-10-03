@@ -60,6 +60,9 @@ class SplitManifest:
     test_records: list[dict] = field(default_factory=list)
     sampling_metadata: dict = field(default_factory=dict)
     partition_support: dict = field(default_factory=dict)
+    inclusion_probabilities: dict = field(default_factory=dict)
+    sampling_weights: dict = field(default_factory=dict)
+    conflict_policy: str = "retain_and_group"
     identity_policy: str = ""
     grouping_policy: str = ""
 
@@ -110,7 +113,7 @@ def clean_labels(
     y_str = y.astype(str).str.strip().str.lower()
     exclusions: dict[str, int] = {}
 
-    nan_mask = y_str.isin(("nan", "none", ""))
+    nan_mask = y.isna() | y_str.isna() | y_str.isin(("nan", "none", ""))
     nan_count = int(nan_mask.sum())
     if nan_count > 0:
         exclusions[f"nan_or_empty_labels({domain})"] = nan_count
@@ -153,7 +156,7 @@ def validate_partition_support(y_train, y_val, y_test, *, domains=None, indices=
     return result
 
 
-def _prepare(X, y, metadata, domain):
+def _prepare(X, y, metadata, domain, *, conflict_policy: str = "retain_and_group"):
     if isinstance(X, np.ndarray):
         X = pd.DataFrame(X)
     if isinstance(y, np.ndarray):
@@ -178,26 +181,41 @@ def _prepare(X, y, metadata, domain):
         if meta[col].isna().any() or (meta[col].astype(str).str.len() == 0).any():
             raise ValueError(f"Missing {col} in raw metadata")
         meta[col] = meta[col].astype(str)
-    # Check for conflicting labels within duplicate_id groups.
-    # When session identifiers are absent (e.g. CIC-IDS2017), identical measurement
-    # fingerprints may carry both benign and attack labels.  Rather than aborting,
-    # record the count and let the keep-first deduplication below resolve them.
-    conflict = yv.groupby(meta.duplicate_id).nunique()
+
+    # Check for conflicting labels within duplicate_id / group_id groups
+    check_col = "duplicate_id" if "duplicate_id" in meta and conflict_policy == "keep_first" else "group_id"
+    conflict = yv.groupby(meta[check_col]).nunique()
     conflicting_ids = conflict[conflict > 1].index
     conflicting_label_rows = 0
     if len(conflicting_ids) > 0:
-        conflicting_label_rows = int(meta.duplicate_id.isin(conflicting_ids).sum())
-        import warnings
-        warnings.warn(
-            f"{len(conflicting_ids)} duplicate_id group(s) ({conflicting_label_rows} rows) have "
-            f"conflicting labels; resolved by keep-first deduplication.",
-            stacklevel=2,
-        )
-    if (meta.groupby("duplicate_id").group_id.nunique() > 1).any():
-        raise ValueError("One raw duplicate identity maps to different split groups")
-    duplicates = meta.duplicate_id.duplicated(keep="first")
-    return (Xv.loc[~duplicates], yv.loc[~duplicates], meta.loc[~duplicates],
-            int((~valid).sum()), int(duplicates.sum()), conflicting_label_rows)
+        conflicting_label_rows = int(meta[check_col].isin(conflicting_ids).sum())
+
+    if conflict_policy == "keep_first":
+        if conflicting_label_rows > 0:
+            import warnings
+            warnings.warn(
+                f"{len(conflicting_ids)} duplicate_id group(s) ({conflicting_label_rows} rows) have "
+                f"conflicting labels; resolved by keep-first deduplication.",
+                stacklevel=2,
+            )
+        if (meta.groupby("duplicate_id").group_id.nunique() > 1).any():
+            raise ValueError("One raw duplicate identity maps to different split groups")
+        duplicates = meta.duplicate_id.duplicated(keep="first")
+        return (Xv.loc[~duplicates], yv.loc[~duplicates], meta.loc[~duplicates],
+                int((~valid).sum()), int(duplicates.sum()), conflicting_label_rows)
+    else:
+        # Retain-and-group: preserve all source observations and original labels.
+        # Deduplicate only true duplicate source rows (same file and row offset).
+        if conflicting_label_rows > 0:
+            import warnings
+            warnings.warn(
+                f"{len(conflicting_ids)} measurement group(s) ({conflicting_label_rows} rows) have "
+                f"conflicting labels; retained in candidate pool without keep-first deletion.",
+                stacklevel=2,
+            )
+        duplicates = meta.source_flow_id.duplicated(keep="first")
+        return (Xv.loc[~duplicates], yv.loc[~duplicates], meta.loc[~duplicates],
+                int((~valid).sum()), int(duplicates.sum()), conflicting_label_rows)
 
 
 def _partition(index, y, groups, fraction, seed, domains=None):
@@ -231,11 +249,18 @@ def _partition(index, y, groups, fraction, seed, domains=None):
 
 def _split(X, y, *, metadata, test_fraction, val_fraction, seed, domain,
            source_file_hashes, duplicate_group_policy, exclusion_reasons,
-           sampling_metadata, require_class_support, split_type):
-    if duplicate_group_policy != "keep_first_disjoint":
+           sampling_metadata, require_class_support, split_type,
+           conflict_policy: str | None = None):
+    if duplicate_group_policy not in ("keep_first_disjoint", "retain_and_group_disjoint"):
         raise ValueError(f"Unsupported duplicate_group_policy: {duplicate_group_policy}")
+
+    if conflict_policy is None:
+        conflict_policy = "keep_first" if duplicate_group_policy == "keep_first_disjoint" else "retain_and_group"
+
     original_count = len(X)
-    X, y, meta, nan_count, dup_count, conflict_count = _prepare(X, y, metadata, domain)
+    X, y, meta, nan_count, dup_count, conflict_count = _prepare(
+        X, y, metadata, domain, conflict_policy=conflict_policy
+    )
     if require_class_support and set(y.unique()) != {0, 1}:
         raise PartitionSupportError("Single-class sample after cleaning/deduplication; both classes are required")
     domains = meta["domain"] if domain == "omni" and "domain" in meta else None
@@ -252,21 +277,32 @@ def _split(X, y, *, metadata, test_fraction, val_fraction, seed, domain,
     exclusions = dict(exclusion_reasons or {})
     exclusions.update(nan_labels=nan_count, duplicate_rows_excluded=dup_count)
     if conflict_count > 0:
-        exclusions["conflicting_label_duplicates_resolved"] = conflict_count
+        if conflict_policy == "keep_first":
+            exclusions["conflicting_label_duplicates_resolved"] = conflict_count
+        else:
+            exclusions["conflicting_label_groups_retained"] = conflict_count
+
+    samp_meta = sampling_metadata or {}
+    inc_probs = samp_meta.get("inclusion_probabilities", {})
+    samp_weights = samp_meta.get("sampling_weights", {})
+
     manifest = SplitManifest(
         seed=seed, test_fraction=test_fraction, val_fraction=val_fraction,
         total_rows=original_count, excluded_rows=nan_count + dup_count,
         exclusion_reasons=exclusions, source_file_hashes=dict(source_file_hashes or {}),
         duplicate_group_policy=duplicate_group_policy, duplicate_rows_excluded=dup_count,
         unique_groups_count=int(meta.group_id.nunique()), dataset_domain=domain, split_type=split_type,
-        sampling_metadata=sampling_metadata or {}, partition_support=support,
-        identity_policy="raw_record_sha256_v1" if metadata is not None and "duplicate_id" in metadata else "source_identity_only",
-        grouping_policy="session_start_else_tuple_else_raw_record_v1",
-        notes="Keep first exact raw duplicate; retain all distinct records in each split group. "
+        sampling_metadata=samp_meta, partition_support=support,
+        inclusion_probabilities=inc_probs, sampling_weights=samp_weights,
+        conflict_policy=conflict_policy,
+        identity_policy="raw_record_sha256_v2" if metadata is not None and "duplicate_id" in metadata else "source_identity_only",
+        grouping_policy="session_start_else_tuple_else_raw_record_v2",
+        notes="Retain all distinct observations and original labels in each split group. "
               "Fractions target groups; row/class counts below are authoritative. No feature-vector deduplication.",
     )
     records_columns = [c for c in ("domain", "source_file", "source_file_hash", "source_row_index",
-                                   "source_flow_id", "duplicate_id", "group_id", "group_scope", "original_flow_id") if c in meta]
+                                   "source_flow_id", "duplicate_id", "group_id", "group_scope",
+                                   "original_flow_id", "inclusion_probability", "sampling_weight") if c in meta]
     for name, i, label in zip(("train", "val", "test"), idx, labels):
         setattr(manifest, name + "_count", len(i))
         setattr(manifest, name + "_class_counts", {str(k): int(v) for k, v in label.value_counts().items()})
@@ -280,20 +316,22 @@ def _split(X, y, *, metadata, test_fraction, val_fraction, seed, domain,
 def stratified_split(X, y, *, metadata=None, test_fraction=0.20, val_fraction=0.10,
                      seed=42, domain="", source_file_hashes=None,
                      duplicate_group_policy="keep_first_disjoint", exclusion_reasons=None,
-                     sampling_metadata=None, require_class_support=False):
+                     sampling_metadata=None, require_class_support=False,
+                     conflict_policy: str | None = None):
     return _split(X, y, metadata=metadata, test_fraction=test_fraction, val_fraction=val_fraction,
                   seed=seed, domain=domain, source_file_hashes=source_file_hashes,
                   duplicate_group_policy=duplicate_group_policy, exclusion_reasons=exclusion_reasons,
                   sampling_metadata=sampling_metadata, require_class_support=require_class_support,
-                  split_type="stratified_session_groups")
+                  split_type="stratified_session_groups", conflict_policy=conflict_policy)
 
 
 def adaptation_split(X, y, *, metadata=None, study_fraction=0.20, val_fraction_of_study=0.10,
                      seed=42, domain="", source_file_hashes=None,
                      duplicate_group_policy="keep_first_disjoint", exclusion_reasons=None,
-                     sampling_metadata=None, require_class_support=False):
+                     sampling_metadata=None, require_class_support=False,
+                     conflict_policy: str | None = None):
     return _split(X, y, metadata=metadata, test_fraction=1.0-study_fraction, val_fraction=val_fraction_of_study,
                   seed=seed, domain=domain, source_file_hashes=source_file_hashes,
                   duplicate_group_policy=duplicate_group_policy, exclusion_reasons=exclusion_reasons,
                   sampling_metadata=sampling_metadata, require_class_support=require_class_support,
-                  split_type="adaptation_session_groups")
+                  split_type="adaptation_session_groups", conflict_policy=conflict_policy)

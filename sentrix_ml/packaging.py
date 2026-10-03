@@ -278,9 +278,9 @@ def validate_package(
                 raise PackageValidationError("Strict deployment requires non-empty source_file_hashes in split manifest.")
             if not sm.train_flow_ids or not sm.val_flow_ids or not sm.test_flow_ids:
                 raise PackageValidationError("Strict deployment requires non-empty flow IDs in all split partitions.")
-            if sm.duplicate_group_policy != "keep_first_disjoint":
+            if sm.duplicate_group_policy not in ("keep_first_disjoint", "retain_and_group_disjoint"):
                 raise PackageValidationError(f"Invalid duplicate_group_policy in split manifest: '{sm.duplicate_group_policy}'")
-            if sm.identity_policy != "raw_record_sha256_v1" or not sm.sampling_metadata:
+            if sm.identity_policy not in ("raw_record_sha256_v1", "raw_record_sha256_v2") or not sm.sampling_metadata:
                 raise PackageValidationError("Strict deployment requires raw record identities and the saved sampling audit.")
             seen_ids, seen_groups, seen_duplicates = set(), set(), set()
             for part in ("train", "val", "test"):

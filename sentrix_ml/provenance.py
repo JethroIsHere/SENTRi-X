@@ -14,8 +14,8 @@ import numbers
 import pandas as pd
 
 
-IDENTITY_POLICY = "raw_record_sha256_v1"
-GROUP_POLICY = "session_start_else_tuple_else_raw_record_v1"
+IDENTITY_POLICY = "raw_record_sha256_v2"
+GROUP_POLICY = "session_start_else_tuple_else_raw_record_v2"
 _ANNOTATIONS = {"label", "attack", "type", "category", "subcategory"}
 _COUNTERS = {"pkseqid", "seq", "unnamed: 0"}
 
@@ -85,11 +85,16 @@ def sampling_audit(info):
     keys = ("domain", "files_considered", "source_file_hashes", "total_rows_considered",
             "total_valid_rows", "selection_policy", "seed", "source_class_counts",
             "selected_class_counts", "exclusion_reasons", "sample_n", "nrows_per_file",
-            "max_files", "chunksize", "ip_bytes_policy", "duration_unit")
+            "max_files", "chunksize", "ip_bytes_policy", "duration_unit",
+            "minority_label", "minority_records_seen", "majority_records_seen",
+            "minority_records_collected", "majority_records_sampled",
+            "minority_records_selected", "majority_records_selected",
+            "inclusion_probabilities", "sampling_weights")
     audit = {key: info[key] for key in keys if key in info}
     audit.update(identity_policy=IDENTITY_POLICY, grouping_policy=GROUP_POLICY,
                  limitation="Without session fields, identical raw observations cannot be distinguished; "
-                            "tuple-only groups may include multiple sessions. No feature-vector deduplication.")
+                            "tuple-only groups may include multiple sessions. Measurement fingerprints group "
+                            "identical observations without discarding conflicting labels.")
     metadata = info.get("metadata")
     if metadata is not None and "group_scope" in metadata:
         audit["selected_group_scopes"] = {str(k): int(v) for k, v in metadata.group_scope.value_counts().items()}
