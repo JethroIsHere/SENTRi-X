@@ -1,127 +1,96 @@
-# SENTRi-X: Sampling, Identity & Partitioning Correction Proposal
+# SENTRi-X sampling and identity correction proposal
 
-**Author**: Antigravity Pair Programmer  
-**Date**: 3 October 2026  
-**Target Milestone**: Prompt 2 (Research Retraining & Cross-Domain Evaluation)  
-**Audited Datasets**: BoT-IoT (3.67M rows) & CIC-IDS2017 (2.83M rows)  
+Revised 3 October 2026. This supersedes the original proposal in commit `cbcbd0b`.
 
----
+**Status: proposed training-pipeline work, not implemented by the audit repair.** The original dataset files and existing training behavior remain unchanged. Dataset labels, identity evidence and evaluation scope must not be changed merely to make preflight pass.
 
-## 1. Context & Motivation
+## 1. Evidence and scope
 
-The Prompt 1 corrections resolved software regressions, duplicate leakage, and offline/backend prediction parity (86/86 unit/integration tests passing). However, running preflight against the actual raw datasets identified two fundamental data blockers:
-1. **BoT-IoT Minority Class Scarcity**: Only 477 benign rows exist in the entire 3,668,522-row dataset (0.013%). Uniform Algorithm R reservoir sampling at $K=50,000$ draws only ~4 benign rows, rendering stratified validation partitioning mathematically impossible (`min(counts) < 2`).
-2. **CIC-IDS2017 Measurement Collisions**: Raw ISCX CSVs completely lack Source IP, Destination IP, Source Port, Protocol, and Timestamp. Aggregating 78 numeric measurements without session identifiers results in 698 fingerprint groups (7,020 rows) where identical measurements are annotated as both `BENIGN` and `ATTACK` (e.g. DoS Hulk or PortScan). The pipeline strictly rejects conflicting annotations.
+The earlier production preflight found only 477 benign records among 3,668,522 BoT rows. Its uniform 50,000-row sample contained four benign records, of which one entered the study pool. The corrected full-source audit must establish group counts and mixed groups before an experiment is frozen.
 
-This proposal evaluates concrete, scientifically defensible solutions for both datasets and outlines the exact code changes, test updates, and governance required.
+CIC exports contain 698 mixed-label measurement groups covering 7,020 rows. Their physical event identity is unresolved. Equal recorded measurements are not proof of duplicate events, even when labels agree.
 
----
+Counts above describe these source files. They are neither runtime constants for ingestion nor measured prevalence in the live Pi network.
 
-## 2. BoT-IoT Proposals (Addressing Benign Scarcity)
+## 2. BoT: group partitioning followed by bounded sampling
 
-### 2.1 Option A: Scale Up Uniform Reservoir Sample Size ($K$)
-To obtain enough benign rows under uniform Algorithm R sampling ($P = K / N$ where $N = 3,668,522$):
-* To achieve $\mathbb{E}[N_{ben}] = 50$ rows:
-  $$K \ge 50 \times \frac{3,668,522}{477} \approx 384,541 \text{ rows}$$
-* To achieve $\mathbb{E}[N_{ben}] = 100$ rows:
-  $$K \ge 769,082 \text{ rows}$$
+Recommended design:
 
-**Evaluation of Option A**:
-* **Scientific Merit**: Preserves natural population prevalence ($\approx 0.013\%$).
-* **Resource Impact (Host Hardware)**:
-  * Ingesting and training RF and CNN models on 385,000 to 769,000 rows in memory requires 8–16 GB of unreserved RAM.
-  * The current host laptop has ~1.91 GB available RAM. Running a 700k-row training job on this laptop would cause immediate Out-Of-Memory (OOM) paging or process failure.
-* **Partition Vulnerability**:
-  * Even with $K = 384,541$ (drawing 50 benign rows): taking a 20% Study split yields only $\approx 10$ benign rows. Taking a 10% validation split inside Study yields only **1 benign row**, which still risks failing `min(counts) >= 2`.
-* **Conclusion**: Option A is computationally infeasible on the thesis laptop and does not reliably guarantee partition support without extreme sample sizes ($K > 800,000$).
+1. Enumerate eligible source rows and session groups with file-hash/row lineage, using bounded processing and a disk-backed index.
+2. Assign whole source groups to study/exam once, using the declared seed and class-count information. Assign study groups to fitting/validation once. Keep the existing 20% study / 80% exam and 10% validation-within-study targets as the baseline; report actual row fractions when groups have unequal sizes.
+3. Only after group assignment, select bounded fitting rows. Retain or sample benign fitting rows under declared capacity rules; sample attack fitting rows using a seeded reservoir. Do not hard-code 477 or silently truncate an overflowing minority allocation.
+4. Fit preprocessing on original selected fitting rows, then apply declared training-only balancing. No duplicate source record or group may cross partitions.
+5. Evaluate either the complete held-out partitions in bounded batches or an explicitly documented probability sample from each held-out partition.
 
----
+This changes the old "uniform global sample, then split" protocol and therefore needs a new versioned sampling manifest. It is not a silent change to an existing frozen experiment.
 
-### 2.2 Option B (Recommended): Dual-Reservoir Class-Guaranteed Ingestion with Prevalence Weighting
+### Evaluation choices
 
-Instead of a single uniform reservoir where minority records are lost in a 99.987% attack flood, the BoT-IoT adapter maintains two deterministic, bounded reservoirs:
-1. **Benign Reservoir**: Capacity $K_{ben} = 477$ (preserves all available valid benign records across the entire dataset).
-2. **Attack Reservoir**: Capacity $K_{att} = K - K_{ben}$ (e.g. $49,523$ rows for a $K=50,000$ target), sampled uniformly via Algorithm R across all 3.67M attack rows.
+**Full held-out population:** stream predictions, keep original class prevalence and save prediction-level evidence. Avoid loading all raw predictors into RAM. Runtime, model memory and artifact size still need measurement.
 
-#### Split Protocol under Option B:
-1. **Group Partitioning**: All 477 benign groups and $K_{att}$ attack groups are partitioned *before* model training:
-   * **Adaptation Split**: 20% Study ($95$ benign, $9,905$ attack) and 80% Exam ($382$ benign, $39,618$ attack).
-   * **Validation Split**: 10% of Study ($10$ benign, $990$ attack) allocated to validation; remaining 90% ($85$ benign, $8,915$ attack) allocated to training.
-2. **Partition Support Guarantee**: Every partition receives ample support:
-   * Train: 85 benign, 8,915 attack (well above `min=2`).
-   * Validation: 10 benign, 990 attack (well above `min=1`).
-   * Test Holdout (Exam): 382 benign, 39,618 attack (well above `min=1`).
-3. **Scientific Evaluation & Honest Reporting**:
-   * The evaluation holdout prevalence under this protocol is $382 / 40,000 = 0.955\%$, which is enriched relative to the raw source prevalence ($0.013\%$).
-   * **Mandatory Requirement**: In the evaluation report, metrics must be reported in two ways:
-     1. *Enriched Empirical Metrics*: Raw accuracy, precision, recall, and F1 on the test holdout.
-     2. *Prevalence-Calibrated Metrics*: Precision and F1 recalculated using Bayes' theorem / importance sampling weights ($w_{ben} = \frac{477 / 3,668,522}{382 / 40,000} \approx 0.0136$, $w_{att} \approx 1.009$) so that thesis claims accurately reflect performance in the physical 0.013% environment.
+**Bounded class-stratified evaluation:** if full evaluation is too costly, sample within the already assigned validation and exam partitions. Record each class population `N_c`, selected count `K_c`, inclusion probability `pi_c = K_c / N_c` and row weight `1 / pi_c` for uniform within-class row sampling. Every represented class must have positive inclusion probability.
 
----
+That simple weight formula applies to the stated within-partition uniform row design. A different group/cluster selection scheme needs its actual inclusion probabilities. Do not use a prevalence ratio as a substitute for an unspecified sampling design.
 
-## 3. CIC-IDS2017 Proposals (Addressing Measurement Collisions)
+Report:
 
-### 3.1 Option A: Recover Richer Raw Source Files (PCAPs / Full Flow Records)
-* **Investigation Finding**: The audit proved that all 8 raw CSVs in `data/raw/cic_ids2017/` are pre-extracted tabular files lacking Source IP, Destination IP, Source Port, Protocol, and Timestamp. The repository only contains a 7 KB demo pcap (`cicids2017_ddos.pcap`), not the multi-gigabyte raw pcaps of the 2017 capture week.
-* **Conclusion**: Richer session identifiers cannot be recovered from the existing local dataset directory without re-downloading ~50 GB of original PCAPs from the University of New Brunswick repository.
+- Unweighted sample confusion matrices and metrics, clearly labelled as enriched-sample results.
+- Source-heldout-population estimates computed consistently from the saved weights and predictions for RF, CNN and Hybrid.
+- Weighted confusion totals, accuracy, precision, recall, specificity/false-positive rate and F1; compute weighted ROC/PR summaries where reported.
+- Observed class support and uncertainty, especially for the rare benign class.
 
----
+A minimum class-support check only establishes that a computation is possible; one or a few validation examples do not establish stable estimates. Declare the validation/early-stopping/threshold-selection criterion in advance, including whether it uses sampling weights. Keep final exam outcomes out of model selection.
 
-### 3.2 Option B: Measurement Fingerprint Partition Grouping
-* Keep separate source row identities (`cic_ids2017:{file}:{row_index}`) but group identical measurement fingerprints into the same split partition.
-* **Defect**: When a measurement fingerprint contains *both* Benign and Attack records, assigning the entire group to one partition causes label contamination, and sklearn's stratified splitter fails because the group's profile is mixed (`0|1`).
+Source-population weighting does not establish deployment calibration or live detection performance. Those require later physical trials and a separately measured target population.
 
----
+### Alternative: larger uniform reservoir
 
-### 3.3 Option C (Recommended): Quarantined Ambiguity Exclusion Policy
+This remains a possible design. Expected benign support is `K * 477 / 3,668,522`, not a guarantee. For example, roughly 384,541 rows gives an expectation near 50 benign rows before grouping and subsequent splits.
 
-* **Audit Finding**: Out of 2,521,557 unique measurement fingerprints across 2.83M rows, exactly **698 groups** (comprising **7,020 rows**, or **0.248%** of the dataset) have contradictory ground-truth labels (labeled both `BENIGN` and an attack such as `DoS Hulk` or `PortScan`).
-* **Root Cause**: Because the ISCX CSV lacks IP addresses and timestamps, standard 2-packet TCP ACK probes (0 bytes, port 80, window 274) sent during normal web browsing have identical statistical metrics to 2-packet TCP ACK probes sent during a DoS flood. No machine learning algorithm can predict both 0 and 1 for the identical input vector.
-* **Proposed Protocol**:
-  1. During the CIC-IDS2017 adapter streaming pass, identify measurement fingerprints that have contradictory ground-truth labels across the dataset.
-  2. Drop the 7,020 contradictory observations as:
-     `exclusion_reasons["ambiguous_conflicting_measurement_fingerprint"] = 7020`
-  3. The remaining **2,823,608 valid rows (99.752%)** have 100% consistent ground-truth annotations and clean measurement fingerprints.
-  4. Deduplicate clean same-label repeated fingerprints (`keep="first"`) as currently designed, leaving **2,520,859 completely disjoint, unambiguous, unique flow records**.
-  5. The split manifest explicitly records the SHA-256 digests and row counts of all quarantined collision groups in `quarantined_collision_fingerprints`.
+Assess actual group support and memory for a predeclared configuration. Do not scan seeds or sample sizes until a preferred score appears. The earlier blanket 8–16 GB requirement and guaranteed OOM prediction are withdrawn.
 
----
+## 3. CIC: separate source-row identity from measurement grouping
 
-## 4. Implementation Specification
+Recommended primary analysis:
 
-To maintain complete architectural integrity, the proposed corrections will be implemented uniformly across the entire pipeline:
+1. Preserve each eligible source record and its original label.
+2. Identify rows by domain, file SHA-256 and original record position.
+3. Where physical identifiers are absent, treat the full nonlabel measurement fingerprint as a conservative **partition grouping key**, not proof that rows should be merged or labels rejected.
+4. Assign every member of a measurement group to one partition, including same-label repeated observations and mixed-label observations.
+5. Keep IPs, timestamps, source filenames, row IDs, fingerprints and labels outside predictor features unless explicitly part of the declared model contract.
 
-```
-+-------------------------------------------------------------------------------------------------------+
-|                                    AFFECTED ARCHITECTURAL COMPONENTS                                  |
-+------------------------------------+------------------------------------------------------------------+
-| Component                          | Intended Modification                                            |
-+------------------------------------+------------------------------------------------------------------+
-| sentrix_ml/sampler.py              | Add `StratifiedReservoirBuffer` (dual-reservoir sampling for rare|
-|                                    | minority classes like BoT-IoT benign).                           |
-| sentrix_ml/adapters/bot_iot.py     | Integrate dual-reservoir sampling to guarantee all 477 benign    |
-|                                    | records enter the candidate sample without changing chunk reads. |
-| sentrix_ml/adapters/cic_ids2017.py | Add two-pass or index-based quarantine for the 698 contradictory |
-|                                    | measurement collision fingerprints (0.248% excluded).           |
-| sentrix_ml/splits.py               | Update `_prepare` to log quarantined ambiguity exclusions and    |
-|                                    | increment policy to `duplicate_group_policy="keep_first_disjoint_v2"`|
-| sentrix_ml/preflight.py            | Update preflight checks to validate calibrated partition support |
-|                                    | and verify collision quarantine.                                 |
-| tests/test_data_integrity.py       | Add regression tests verifying BoT minority support (>10 rows per|
-|                                    | partition) and CIC collision quarantine.                         |
-+------------------------------------+------------------------------------------------------------------+
-```
+This prevents matching measurement groups from leaking across partitions while retaining the observed ambiguity and multiplicity.
 
----
+At cbcbd0b the preparation step rejected mixed labels attached to the same duplicate identity. Commit 557a68c replaced that rejection with a warning and keep-first deletion; this does not implement retain-and-group. Preparation must become domain/policy aware and preserve the source observations for the proposed primary analysis. Package checks must separately validate source-row overlap and group overlap; changing the identity field without updating lineage validation is incomplete.
 
-## 5. Decision & Next Actions
+The current stratifier accepts mixed profiles when sufficiently represented, but its rare-profile checks can block a single mixed group. Add and document a deterministic group-allocation rule that uses group class-count vectors, keeps groups intact and checks per-class/per-domain support. It must not require every rare composite profile in every partition, choose seeds using evaluation scores, or silently fall back to row splitting. If the declared constraints cannot be met, report the infeasibility.
 
-1. **Review and Approval**:
-   * Approve **BoT-IoT Option B** (Dual-reservoir class-guaranteed ingestion with calibrated evaluation metrics).
-   * Approve **CIC-IDS2017 Option C** (Quarantine 0.248% ambiguous contradictory measurement fingerprints).
-2. **Execute Implementation**:
-   * Implement the changes in `sentrix_ml/adapters/` and `sentrix_ml/splits.py`.
-   * Run the test suite (`python tests/run_all_tests.py`) to verify zero regressions.
-   * Run preflight (`python -m sentrix_ml.preflight --require-tf --target all`) to achieve **PREFLIGHT STATUS: READY FOR CONFIGURED RUN**.
-3. **Proceed to Prompt 2**:
-   * Once preflight passes cleanly with real dataset support, freeze sample seeds and execute Prompt 2 research training sequentially.
+### Other options and limits
+
+Richer existing CSV/flow exports may improve event identity. Inventory them before claiming that a particular download or storage size is required. Do not infer omitted protocol fields using an undocumented heuristic.
+
+A quarantined version may be a separately labelled sensitivity analysis if there is a documented reason. Exclude an entire predefined group consistently, retain every exclusion reference and report changes to class composition. Preserve an unfiltered primary result or clearly limit claims to the altered population. Do not describe every measurement collision as erroneous annotation or claim that filtering establishes correct ground truth.
+
+## 4. Required implementation coverage
+
+| Component | Required consistency |
+| --- | --- |
+| `sentrix_ml/provenance.py` | Distinguish source-row identity, measured event identity where available, and grouping fingerprints. Version the policy. |
+| `sentrix_ml/sampler.py` and adapters | Implement the declared post-partition sampling design with source counts, capacities and actual inclusion probabilities. |
+| `sentrix_ml/splits.py` | Keep whole groups, retain CIC observations and mixed labels, handle rare profiles under the declared rule, and validate support. |
+| `sentrix_ml/datasets.py` | Apply the same rules to Omni, with domain-qualified identities and explicit domain-mixture weights. |
+| `sentrix_ml/preflight.py` | Exercise exactly the configured training/evaluation selection and allocations. |
+| Training entry points and notebooks | Consume the same frozen partitions and weights; fit preprocessing and balancing on fitting data only. |
+| `sentrix_ml/evaluation.py` | Export predictions with source references, inclusion probabilities and weights; distinguish empirical and population-estimated metrics. |
+| `sentrix_ml/packaging.py` | Validate the new policy, manifests, weights, source hashes and disjointness. Reject incompatible legacy packages explicitly. |
+| Backend metric reporting | Label the evaluation population, sample design and metric variant; preserve artifact provenance. |
+| Tests | Cover order/chunk stability, minority overflow, rare/mixed groups, retained CIC multiplicity, no overlap, weight arithmetic and unchanged RF/CNN/backend prediction parity. |
+
+Do not implement an audit- or preflight-only exception that training cannot reproduce. Keep class-support and lineage gates enforced. A passed gate under the latest keep-first conflict policy is not approval of the research protocol; replace that behavior consistently before treating the dataset as ready.
+
+## 5. Next execution sequence
+
+1. Run the repaired audit in a fresh directory on the actual source files. Review actual groups, corrected split traces and resource observations.
+2. Implement the chosen design across the components above, with focused regressions and full integration verification.
+3. Run actual-dataset preflight using the exact declared training configuration. Save its manifest, class counts, source hashes and resource evidence.
+4. Freeze the protocol and proceed with sequential Prompt 2 candidate training and evaluation. Activation, Pi feature parity, physical attack/Snort trials and expert evaluation remain subsequent milestones.

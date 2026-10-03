@@ -257,5 +257,24 @@
       ],
       "preflight_failure_cause": "In the seed-42 50k sample, 1 fingerprint(s) contained both benign (0) and attack (1) rows. The strict duplicate check `(yv.groupby(meta.duplicate_id).nunique() > 1)` immediately aborted execution: 'Identical raw records have conflicting labels; resolve source annotations before training'."
     }
+  },
+  "review_corrections": {
+    "reviewed_on": "2026-10-03",
+    "reviewed_commit": "cbcbd0b0daab30667db0dd7b0be8f194f08e2ac4",
+    "status": "HISTORICAL_RUN_WITH_UNVERIFIED_AND_MISLABELLED_FIELDS",
+    "full_source_rerun_with_corrected_tool": false,
+    "original_numerical_observations_preserved": true,
+    "read_first": "DATASET_AUDIT_REPORT.md",
+    "fields": {
+      "peak_rss_mb": "This was end-of-run process RSS, not a measured peak.",
+      "bot_iot_audit.total_rows_considered": "The archived run reused an inventory and hard-coded population totals. Compare the separate production preflight; require a fresh audit.",
+      "bot_iot_audit.file_stats": "Hard-coded in the reused-inventory path; not freshly measured by this run.",
+      "bot_iot_audit.mixed_label_groups_count": "Unverified. Reuse forced zero, and the old fresh path missed attacks preceding benign group members.",
+      "bot_iot_audit.sample_50k_reproduction.adaptation_failure_cause": "Incorrect narrative: the full sample had four benign groups; its study pool had one, and exam had three.",
+      "bot_iot_audit.sample_30k_reproduction.omni_failure_cause": "Copied interpretation of the earlier full preflight, not a replay of the combined Omni allocation.",
+      "cic_ids2017_audit.fingerprint_statistics.intra_file_conflict_groups": "Counts groups confined to one source file; it is not the total of all within-file conflicts.",
+      "cic_ids2017_audit.fingerprint_statistics.inter_file_conflict_groups": "Counts conflicting groups spanning files; these can also contain within-file conflicts.",
+      "cic_ids2017_audit.fingerprint_statistics.same_label_removable_duplicates": "Potential removals under the old policy, not proven redundant physical events."
+    }
   }
 }
