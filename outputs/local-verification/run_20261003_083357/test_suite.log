@@ -1,0 +1,52 @@
+........................................................................ [ 83%]
+..............                                                           [100%]
+============================== warnings summary ===============================
+tests/test_notebook_executions.py::test_notebook_execution[03_Model_Training_CNN_ToN_IoT.ipynb]
+tests/test_notebook_executions.py::test_notebook_execution[04_Hybrid_Ensemble_Fusion_ToN_IoT.ipynb]
+tests/test_notebook_executions.py::test_notebook_execution[10_Omni_Model_Training.ipynb]
+tests/test_prompt1_review_fixes.py::test_item10_end_to_end_training_persists_lineage_and_adaptation_source_hash
+tests/test_real_backend_parity.py::test_real_saved_models_match_backend_in_all_modes
+tests/test_real_backend_parity.py::test_real_saved_models_match_backend_in_all_modes
+  C:\Users\LENOVO\SENTRi-X\venv\Lib\site-packages\keras\src\layers\convolutional\base_conv.py:113: UserWarning: Do not pass an `input_shape`/`input_dim` argument to a layer. When using Sequential models, prefer using an `Input(shape)` object as the first layer in the model instead.
+    super().__init__(activity_regularizer=activity_regularizer, **kwargs)
+
+tests/test_notebook_executions.py: 44 warnings
+tests/test_prompt1_review_fixes.py: 64 warnings
+tests/test_real_backend_parity.py: 128 warnings
+  C:\Users\LENOVO\SENTRi-X\venv\Lib\site-packages\keras\src\backend\tensorflow\core.py:171: DeprecationWarning: __array__ implementation doesn't accept a copy keyword, so passing copy=False failed. __array__ must implement 'dtype' and 'copy' keyword arguments. To learn more, see the migration guide https://numpy.org/devdocs/numpy_2_0_migration_guide.html#adapting-to-changes-in-the-copy-keyword
+    return np.array(x)
+
+tests/test_prompt1_review_fixes.py::test_item3_backend_loader_rejects_mock_smoke_and_target_mismatch
+tests/test_t11_existing_behavior.py::test_t11_attack_injection_rejected
+  C:\Users\LENOVO\SENTRi-X\backend\main.py:409: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    @app.on_event('startup')
+
+tests/test_prompt1_review_fixes.py::test_item3_backend_loader_rejects_mock_smoke_and_target_mismatch
+tests/test_prompt1_review_fixes.py::test_item3_backend_loader_rejects_mock_smoke_and_target_mismatch
+tests/test_t11_existing_behavior.py::test_t11_attack_injection_rejected
+tests/test_t11_existing_behavior.py::test_t11_attack_injection_rejected
+  C:\Users\LENOVO\SENTRi-X\venv\Lib\site-packages\fastapi\applications.py:4656: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    return self.router.on_event(event_type)  # ty: ignore[deprecated]
+
+tests/test_prompt1_review_fixes.py::test_item3_backend_loader_rejects_mock_smoke_and_target_mismatch
+tests/test_t11_existing_behavior.py::test_t11_attack_injection_rejected
+  C:\Users\LENOVO\SENTRi-X\backend\main.py:418: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    @app.on_event('shutdown')
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+86 passed, 250 warnings in 85.42s (0:01:25)

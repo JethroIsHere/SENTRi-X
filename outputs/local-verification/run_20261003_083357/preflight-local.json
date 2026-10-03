@@ -1,0 +1,429 @@
+{
+  "schema": "28f-v2",
+  "environment": {
+    "python_version": "3.11.0",
+    "numpy": "2.4.3",
+    "pandas": "3.0.1",
+    "scikit-learn": "1.8.0",
+    "joblib": "1.5.3",
+    "psutil": "7.2.2",
+    "tensorflow": "2.21.0",
+    "ram_total_gb": 13.83,
+    "ram_available_gb": 2.26,
+    "disk_free_gb": 27.07
+  },
+  "datasets": {
+    "ton_iot": {
+      "status": "READY",
+      "domain": "ton_iot",
+      "sample_n": 50000,
+      "seed": 42,
+      "selected_class_counts": {
+        "1": 48230,
+        "0": 1770
+      },
+      "sampling_metadata": {
+        "domain": "ton_iot",
+        "files_considered": [
+          "Network_dataset_1.csv",
+          "Network_dataset_10.csv",
+          "Network_dataset_11.csv",
+          "Network_dataset_12.csv",
+          "Network_dataset_13.csv",
+          "Network_dataset_14.csv",
+          "Network_dataset_15.csv",
+          "Network_dataset_16.csv",
+          "Network_dataset_17.csv",
+          "Network_dataset_18.csv",
+          "Network_dataset_19.csv",
+          "Network_dataset_2.csv",
+          "Network_dataset_20.csv",
+          "Network_dataset_21.csv",
+          "Network_dataset_22.csv",
+          "Network_dataset_23.csv",
+          "Network_dataset_3.csv",
+          "Network_dataset_4.csv",
+          "Network_dataset_5.csv",
+          "Network_dataset_6.csv",
+          "Network_dataset_7.csv",
+          "Network_dataset_8.csv",
+          "Network_dataset_9.csv"
+        ],
+        "source_file_hashes": {
+          "Network_dataset_1.csv": "sha256:37ea5238fcd2a7a18574b8e37e0427086c6c34d03a22f690256fc925946c0448",
+          "Network_dataset_10.csv": "sha256:c33290654db525d0f926d4bc010d27f82c615e1ba87cff0c9e87b1cff673d2ad",
+          "Network_dataset_11.csv": "sha256:ffd77ddb051852facd348ec189cf1204a01c0cc840da312c1a440fd0d8c287cf",
+          "Network_dataset_12.csv": "sha256:80fd7d6782d4acdd9c528085d38823e1036b530c551d3b646bc7d0eeb5298512",
+          "Network_dataset_13.csv": "sha256:fc295ee26ebee93e3ab0b0e61ae7ab567fb86c1b67cbcd1d8025944c9e5ad24c",
+          "Network_dataset_14.csv": "sha256:8eb759212e6b36c29478b5e45102814438b48e7929477a5bb8e734390cdc3ab0",
+          "Network_dataset_15.csv": "sha256:f7dded78b7670900cfa9c56e4b3df1c6c6f8ec3d82262c1b184af7f9d87e9f43",
+          "Network_dataset_16.csv": "sha256:415376cfbd6a4592b717b5e756ca5c1548d4491121e01fb0bab79555d8665cae",
+          "Network_dataset_17.csv": "sha256:d933a39088804258386441d83e4dec29ad14b97378b2a216f9919b0f5180143a",
+          "Network_dataset_18.csv": "sha256:32d04d9cfefee40774e979c600ec322e2da6518bb6d8974999075007794c3934",
+          "Network_dataset_19.csv": "sha256:162203394dc41b3020bdc70b99e213f620fd66bacd333dbdf1cd5279adbd5f5d",
+          "Network_dataset_2.csv": "sha256:63b70bb96a95499b477b890674b74cc207ccb638b68ea4cc3a3dea9a448772c1",
+          "Network_dataset_20.csv": "sha256:ca793a8ff6860c2a8b8e8b4bc72271bbbfc011b0b6c523765658949e1513fd0f",
+          "Network_dataset_21.csv": "sha256:63fe9f2c91c48c0f30721eda03864675e1d87103a36cd61c19a3ac68d8ac077b",
+          "Network_dataset_22.csv": "sha256:a1f6009f2be53bc1fba90f044d07ff5a9c5cfe4912b56690d8f02fb75aa335c0",
+          "Network_dataset_23.csv": "sha256:e89c54673961c2b260265cdd3f6c50355369f8a80e63c31999df04b0a757f213",
+          "Network_dataset_3.csv": "sha256:7c8710722f26679c5d795b60019975945a81730934c768083261e66e3b1ee366",
+          "Network_dataset_4.csv": "sha256:a20b2aed18fa474681f3614d35d4a23554272d6424cf6148596015440fb84a91",
+          "Network_dataset_5.csv": "sha256:2cfccfbc2816418b49ab8bf26bcd45f0a4796f634512f7e5dff9def7b601778e",
+          "Network_dataset_6.csv": "sha256:e8aa726d8551ffe59ea816bb1199455c0ebd53f44993a8bbec67ef0843bab229",
+          "Network_dataset_7.csv": "sha256:e5d3303520909b2e90e57199aa2159f8b2bef287b56502f453df2a6407ca39ab",
+          "Network_dataset_8.csv": "sha256:485c53e676016c730018ec51ef885efa584546f6930035c75876b5ba520814be",
+          "Network_dataset_9.csv": "sha256:ed86e18cd03c6b9e1963964e400a04c4b7684356f2ca7d3acca172c942c4dfba"
+        },
+        "total_rows_considered": 22339021,
+        "total_valid_rows": 22338152,
+        "selection_policy": "reservoir_sampling",
+        "seed": 42,
+        "source_class_counts": {
+          "0": 795511,
+          "1": 21542641
+        },
+        "selected_class_counts": {
+          "1": 48230,
+          "0": 1770
+        },
+        "exclusion_reasons": {
+          "invalid_or_missing_required_numerics": 869
+        },
+        "sample_n": 50000,
+        "nrows_per_file": null,
+        "max_files": null,
+        "chunksize": 50000,
+        "identity_policy": "raw_record_sha256_v1",
+        "grouping_policy": "session_start_else_tuple_else_raw_record_v1",
+        "limitation": "Without session fields, identical raw observations cannot be distinguished; tuple-only groups may include multiple sessions. No feature-vector deduplication.",
+        "selected_group_scopes": {
+          "tuple_and_session_start": 50000
+        }
+      },
+      "partition_class_counts": {
+        "train": {
+          "1": 34695,
+          "0": 1233
+        },
+        "validation": {
+          "1": 3876,
+          "0": 136
+        },
+        "test": {
+          "1": 9621,
+          "0": 341
+        }
+      },
+      "duplicate_rows_excluded": 98,
+      "unique_groups": 49134,
+      "actual_partition_rows": {
+        "train": 35928,
+        "validation": 4012,
+        "test": 9962
+      },
+      "note": "Configured data/partition gate passed; measure resources for the chosen fitting job."
+    },
+    "bot_iot": {
+      "status": "FAILED",
+      "domain": "bot_iot",
+      "sample_n": 50000,
+      "seed": 42,
+      "selected_class_counts": {
+        "1": 49996,
+        "0": 4
+      },
+      "sampling_metadata": {
+        "domain": "bot_iot",
+        "files_considered": [
+          "UNSW_2018_IoT_Botnet_Full5pc_1.csv",
+          "UNSW_2018_IoT_Botnet_Full5pc_2.csv",
+          "UNSW_2018_IoT_Botnet_Full5pc_3.csv",
+          "UNSW_2018_IoT_Botnet_Full5pc_4.csv"
+        ],
+        "source_file_hashes": {
+          "UNSW_2018_IoT_Botnet_Full5pc_1.csv": "sha256:3940b549851ac2ce0335f3075c8308b060ecfea8973b104060e5e30867c438e3",
+          "UNSW_2018_IoT_Botnet_Full5pc_2.csv": "sha256:1f87b8f1528a3357c9fb74d9d728d798f1996441805c668675cb82403c73d168",
+          "UNSW_2018_IoT_Botnet_Full5pc_3.csv": "sha256:3f05d6827ece70b38d4fd90a9ae3a94a549bc8884fd990be1326f263cc29a747",
+          "UNSW_2018_IoT_Botnet_Full5pc_4.csv": "sha256:ba7f6b36638246d0fde33a0ba31a0d243bfa700b1e71aebfae7e0346c076a8c9"
+        },
+        "total_rows_considered": 3668522,
+        "total_valid_rows": 3668522,
+        "selection_policy": "reservoir_sampling",
+        "seed": 42,
+        "source_class_counts": {
+          "0": 477,
+          "1": 3668045
+        },
+        "selected_class_counts": {
+          "1": 49996,
+          "0": 4
+        },
+        "exclusion_reasons": {},
+        "sample_n": 50000,
+        "nrows_per_file": null,
+        "max_files": null,
+        "chunksize": 50000,
+        "ip_bytes_policy": "exclude",
+        "identity_policy": "raw_record_sha256_v1",
+        "grouping_policy": "session_start_else_tuple_else_raw_record_v1",
+        "limitation": "Without session fields, identical raw observations cannot be distinguished; tuple-only groups may include multiple sessions. No feature-vector deduplication.",
+        "selected_group_scopes": {
+          "tuple_and_session_start": 50000
+        }
+      },
+      "error": "Insufficient independent groups for a stratified 10% partition: {'1': 9999, '0': 1}. Increase the declared sample or revise the grouping protocol."
+    },
+    "cic_ids2017": {
+      "status": "FAILED",
+      "domain": "cic_ids2017",
+      "sample_n": 50000,
+      "seed": 42,
+      "selected_class_counts": {
+        "0": 40156,
+        "1": 9844
+      },
+      "sampling_metadata": {
+        "domain": "cic_ids2017",
+        "files_considered": [
+          "Friday-WorkingHours-Afternoon-DDos.pcap_ISCX.csv",
+          "Friday-WorkingHours-Afternoon-PortScan.pcap_ISCX.csv",
+          "Friday-WorkingHours-Morning.pcap_ISCX.csv",
+          "Monday-WorkingHours.pcap_ISCX.csv",
+          "Thursday-WorkingHours-Afternoon-Infilteration.pcap_ISCX.csv",
+          "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
+          "Tuesday-WorkingHours.pcap_ISCX.csv",
+          "Wednesday-workingHours.pcap_ISCX.csv"
+        ],
+        "source_file_hashes": {
+          "Friday-WorkingHours-Afternoon-DDos.pcap_ISCX.csv": "sha256:6ff1580f5f81c0ae28a26f7631721018577f5f7c5e0feac28b795fcfe7b411ee",
+          "Friday-WorkingHours-Afternoon-PortScan.pcap_ISCX.csv": "sha256:ca1824c51bfbb7b3c72290a11be04366ba8815878c6a1cc5c44cb1cee269e99b",
+          "Friday-WorkingHours-Morning.pcap_ISCX.csv": "sha256:53a41c24d570ea83b7ac55b2e94df94e7a8216aeb80a2af0246b6bc8bb543000",
+          "Monday-WorkingHours.pcap_ISCX.csv": "sha256:852c4beb34eda186f32561fa79df7a0747e92e1a6535b01270820dd9ffe17f34",
+          "Thursday-WorkingHours-Afternoon-Infilteration.pcap_ISCX.csv": "sha256:6bcda3857c2504676034e3ea57762d38393cc734cb377a726bd5cb153961b1b5",
+          "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv": "sha256:d67066211fb1689c78406f1506f4c44704ecb92088353d5c96d96d6474eb819d",
+          "Tuesday-WorkingHours.pcap_ISCX.csv": "sha256:52b8692ae8c7d2ed04671fe2b98335693c0a92c7ab157d8c8b534d6523080851",
+          "Wednesday-workingHours.pcap_ISCX.csv": "sha256:893c27dc968bf7a8adef1689f90be55ca4a4dc3088fb63d6ff247ac56856df2a"
+        },
+        "total_rows_considered": 2830743,
+        "total_valid_rows": 2830628,
+        "selection_policy": "reservoir_sampling",
+        "seed": 42,
+        "source_class_counts": {
+          "0": 2272982,
+          "1": 557646
+        },
+        "selected_class_counts": {
+          "0": 40156,
+          "1": 9844
+        },
+        "exclusion_reasons": {
+          "invalid_or_missing_required_numerics": 115
+        },
+        "sample_n": 50000,
+        "nrows_per_file": null,
+        "max_files": null,
+        "chunksize": 50000,
+        "duration_unit": "seconds",
+        "identity_policy": "raw_record_sha256_v1",
+        "grouping_policy": "session_start_else_tuple_else_raw_record_v1",
+        "limitation": "Without session fields, identical raw observations cannot be distinguished; tuple-only groups may include multiple sessions. No feature-vector deduplication.",
+        "selected_group_scopes": {
+          "raw_record_only": 50000
+        }
+      },
+      "error": "Identical raw records have conflicting labels; resolve source annotations before training"
+    },
+    "omni": {
+      "status": "FAILED",
+      "domain": "omni",
+      "sample_n": 30000,
+      "seed": 42,
+      "selected_class_counts": {
+        "1": 64782,
+        "0": 25218
+      },
+      "sampling_metadata": {
+        "ton_iot": {
+          "domain": "ton_iot",
+          "files_considered": [
+            "Network_dataset_1.csv",
+            "Network_dataset_10.csv",
+            "Network_dataset_11.csv",
+            "Network_dataset_12.csv",
+            "Network_dataset_13.csv",
+            "Network_dataset_14.csv",
+            "Network_dataset_15.csv",
+            "Network_dataset_16.csv",
+            "Network_dataset_17.csv",
+            "Network_dataset_18.csv",
+            "Network_dataset_19.csv",
+            "Network_dataset_2.csv",
+            "Network_dataset_20.csv",
+            "Network_dataset_21.csv",
+            "Network_dataset_22.csv",
+            "Network_dataset_23.csv",
+            "Network_dataset_3.csv",
+            "Network_dataset_4.csv",
+            "Network_dataset_5.csv",
+            "Network_dataset_6.csv",
+            "Network_dataset_7.csv",
+            "Network_dataset_8.csv",
+            "Network_dataset_9.csv"
+          ],
+          "source_file_hashes": {
+            "Network_dataset_1.csv": "sha256:37ea5238fcd2a7a18574b8e37e0427086c6c34d03a22f690256fc925946c0448",
+            "Network_dataset_10.csv": "sha256:c33290654db525d0f926d4bc010d27f82c615e1ba87cff0c9e87b1cff673d2ad",
+            "Network_dataset_11.csv": "sha256:ffd77ddb051852facd348ec189cf1204a01c0cc840da312c1a440fd0d8c287cf",
+            "Network_dataset_12.csv": "sha256:80fd7d6782d4acdd9c528085d38823e1036b530c551d3b646bc7d0eeb5298512",
+            "Network_dataset_13.csv": "sha256:fc295ee26ebee93e3ab0b0e61ae7ab567fb86c1b67cbcd1d8025944c9e5ad24c",
+            "Network_dataset_14.csv": "sha256:8eb759212e6b36c29478b5e45102814438b48e7929477a5bb8e734390cdc3ab0",
+            "Network_dataset_15.csv": "sha256:f7dded78b7670900cfa9c56e4b3df1c6c6f8ec3d82262c1b184af7f9d87e9f43",
+            "Network_dataset_16.csv": "sha256:415376cfbd6a4592b717b5e756ca5c1548d4491121e01fb0bab79555d8665cae",
+            "Network_dataset_17.csv": "sha256:d933a39088804258386441d83e4dec29ad14b97378b2a216f9919b0f5180143a",
+            "Network_dataset_18.csv": "sha256:32d04d9cfefee40774e979c600ec322e2da6518bb6d8974999075007794c3934",
+            "Network_dataset_19.csv": "sha256:162203394dc41b3020bdc70b99e213f620fd66bacd333dbdf1cd5279adbd5f5d",
+            "Network_dataset_2.csv": "sha256:63b70bb96a95499b477b890674b74cc207ccb638b68ea4cc3a3dea9a448772c1",
+            "Network_dataset_20.csv": "sha256:ca793a8ff6860c2a8b8e8b4bc72271bbbfc011b0b6c523765658949e1513fd0f",
+            "Network_dataset_21.csv": "sha256:63fe9f2c91c48c0f30721eda03864675e1d87103a36cd61c19a3ac68d8ac077b",
+            "Network_dataset_22.csv": "sha256:a1f6009f2be53bc1fba90f044d07ff5a9c5cfe4912b56690d8f02fb75aa335c0",
+            "Network_dataset_23.csv": "sha256:e89c54673961c2b260265cdd3f6c50355369f8a80e63c31999df04b0a757f213",
+            "Network_dataset_3.csv": "sha256:7c8710722f26679c5d795b60019975945a81730934c768083261e66e3b1ee366",
+            "Network_dataset_4.csv": "sha256:a20b2aed18fa474681f3614d35d4a23554272d6424cf6148596015440fb84a91",
+            "Network_dataset_5.csv": "sha256:2cfccfbc2816418b49ab8bf26bcd45f0a4796f634512f7e5dff9def7b601778e",
+            "Network_dataset_6.csv": "sha256:e8aa726d8551ffe59ea816bb1199455c0ebd53f44993a8bbec67ef0843bab229",
+            "Network_dataset_7.csv": "sha256:e5d3303520909b2e90e57199aa2159f8b2bef287b56502f453df2a6407ca39ab",
+            "Network_dataset_8.csv": "sha256:485c53e676016c730018ec51ef885efa584546f6930035c75876b5ba520814be",
+            "Network_dataset_9.csv": "sha256:ed86e18cd03c6b9e1963964e400a04c4b7684356f2ca7d3acca172c942c4dfba"
+          },
+          "total_rows_considered": 22339021,
+          "total_valid_rows": 22338152,
+          "selection_policy": "reservoir_sampling",
+          "seed": 42,
+          "source_class_counts": {
+            "0": 795511,
+            "1": 21542641
+          },
+          "selected_class_counts": {
+            "1": 28894,
+            "0": 1106
+          },
+          "exclusion_reasons": {
+            "invalid_or_missing_required_numerics": 869
+          },
+          "sample_n": 30000,
+          "nrows_per_file": null,
+          "max_files": null,
+          "chunksize": 50000,
+          "identity_policy": "raw_record_sha256_v1",
+          "grouping_policy": "session_start_else_tuple_else_raw_record_v1",
+          "limitation": "Without session fields, identical raw observations cannot be distinguished; tuple-only groups may include multiple sessions. No feature-vector deduplication.",
+          "selected_group_scopes": {
+            "tuple_and_session_start": 30000
+          }
+        },
+        "bot_iot": {
+          "domain": "bot_iot",
+          "files_considered": [
+            "UNSW_2018_IoT_Botnet_Full5pc_1.csv",
+            "UNSW_2018_IoT_Botnet_Full5pc_2.csv",
+            "UNSW_2018_IoT_Botnet_Full5pc_3.csv",
+            "UNSW_2018_IoT_Botnet_Full5pc_4.csv"
+          ],
+          "source_file_hashes": {
+            "UNSW_2018_IoT_Botnet_Full5pc_1.csv": "sha256:3940b549851ac2ce0335f3075c8308b060ecfea8973b104060e5e30867c438e3",
+            "UNSW_2018_IoT_Botnet_Full5pc_2.csv": "sha256:1f87b8f1528a3357c9fb74d9d728d798f1996441805c668675cb82403c73d168",
+            "UNSW_2018_IoT_Botnet_Full5pc_3.csv": "sha256:3f05d6827ece70b38d4fd90a9ae3a94a549bc8884fd990be1326f263cc29a747",
+            "UNSW_2018_IoT_Botnet_Full5pc_4.csv": "sha256:ba7f6b36638246d0fde33a0ba31a0d243bfa700b1e71aebfae7e0346c076a8c9"
+          },
+          "total_rows_considered": 3668522,
+          "total_valid_rows": 3668522,
+          "selection_policy": "reservoir_sampling",
+          "seed": 42,
+          "source_class_counts": {
+            "0": 477,
+            "1": 3668045
+          },
+          "selected_class_counts": {
+            "1": 29995,
+            "0": 5
+          },
+          "exclusion_reasons": {},
+          "sample_n": 30000,
+          "nrows_per_file": null,
+          "max_files": null,
+          "chunksize": 50000,
+          "ip_bytes_policy": "exclude",
+          "identity_policy": "raw_record_sha256_v1",
+          "grouping_policy": "session_start_else_tuple_else_raw_record_v1",
+          "limitation": "Without session fields, identical raw observations cannot be distinguished; tuple-only groups may include multiple sessions. No feature-vector deduplication.",
+          "selected_group_scopes": {
+            "tuple_and_session_start": 30000
+          }
+        },
+        "cic_ids2017": {
+          "domain": "cic_ids2017",
+          "files_considered": [
+            "Friday-WorkingHours-Afternoon-DDos.pcap_ISCX.csv",
+            "Friday-WorkingHours-Afternoon-PortScan.pcap_ISCX.csv",
+            "Friday-WorkingHours-Morning.pcap_ISCX.csv",
+            "Monday-WorkingHours.pcap_ISCX.csv",
+            "Thursday-WorkingHours-Afternoon-Infilteration.pcap_ISCX.csv",
+            "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
+            "Tuesday-WorkingHours.pcap_ISCX.csv",
+            "Wednesday-workingHours.pcap_ISCX.csv"
+          ],
+          "source_file_hashes": {
+            "Friday-WorkingHours-Afternoon-DDos.pcap_ISCX.csv": "sha256:6ff1580f5f81c0ae28a26f7631721018577f5f7c5e0feac28b795fcfe7b411ee",
+            "Friday-WorkingHours-Afternoon-PortScan.pcap_ISCX.csv": "sha256:ca1824c51bfbb7b3c72290a11be04366ba8815878c6a1cc5c44cb1cee269e99b",
+            "Friday-WorkingHours-Morning.pcap_ISCX.csv": "sha256:53a41c24d570ea83b7ac55b2e94df94e7a8216aeb80a2af0246b6bc8bb543000",
+            "Monday-WorkingHours.pcap_ISCX.csv": "sha256:852c4beb34eda186f32561fa79df7a0747e92e1a6535b01270820dd9ffe17f34",
+            "Thursday-WorkingHours-Afternoon-Infilteration.pcap_ISCX.csv": "sha256:6bcda3857c2504676034e3ea57762d38393cc734cb377a726bd5cb153961b1b5",
+            "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv": "sha256:d67066211fb1689c78406f1506f4c44704ecb92088353d5c96d96d6474eb819d",
+            "Tuesday-WorkingHours.pcap_ISCX.csv": "sha256:52b8692ae8c7d2ed04671fe2b98335693c0a92c7ab157d8c8b534d6523080851",
+            "Wednesday-workingHours.pcap_ISCX.csv": "sha256:893c27dc968bf7a8adef1689f90be55ca4a4dc3088fb63d6ff247ac56856df2a"
+          },
+          "total_rows_considered": 2830743,
+          "total_valid_rows": 2830628,
+          "selection_policy": "reservoir_sampling",
+          "seed": 42,
+          "source_class_counts": {
+            "0": 2272982,
+            "1": 557646
+          },
+          "selected_class_counts": {
+            "0": 24107,
+            "1": 5893
+          },
+          "exclusion_reasons": {
+            "invalid_or_missing_required_numerics": 115
+          },
+          "sample_n": 30000,
+          "nrows_per_file": null,
+          "max_files": null,
+          "chunksize": 50000,
+          "duration_unit": "seconds",
+          "identity_policy": "raw_record_sha256_v1",
+          "grouping_policy": "session_start_else_tuple_else_raw_record_v1",
+          "limitation": "Without session fields, identical raw observations cannot be distinguished; tuple-only groups may include multiple sessions. No feature-vector deduplication.",
+          "selected_group_scopes": {
+            "raw_record_only": 30000
+          }
+        }
+      },
+      "error": "bot_iot validation partition lacks both classes: {'1': 2400}. Increase the predeclared domain sample; no automatic redraw."
+    }
+  },
+  "status": "FAILED",
+  "config": {
+    "target": "all",
+    "require_tf": true,
+    "data_root": "C:\\Users\\LENOVO\\SENTRi-X\\data\\raw",
+    "sample_n": 50000,
+    "sample_per_domain": 30000,
+    "test_fraction": 0.2,
+    "study_fraction": 0.2,
+    "val_fraction": 0.1,
+    "seed": 42,
+    "report_json": "outputs\\local-verification\\run_20261003_083357\\preflight-local.json"
+  }
+}
