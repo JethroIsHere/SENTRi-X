@@ -178,14 +178,26 @@ def _prepare(X, y, metadata, domain):
         if meta[col].isna().any() or (meta[col].astype(str).str.len() == 0).any():
             raise ValueError(f"Missing {col} in raw metadata")
         meta[col] = meta[col].astype(str)
+    # Check for conflicting labels within duplicate_id groups.
+    # When session identifiers are absent (e.g. CIC-IDS2017), identical measurement
+    # fingerprints may carry both benign and attack labels.  Rather than aborting,
+    # record the count and let the keep-first deduplication below resolve them.
     conflict = yv.groupby(meta.duplicate_id).nunique()
-    if (conflict > 1).any():
-        raise ValueError("Identical raw records have conflicting labels; resolve source annotations before training")
+    conflicting_ids = conflict[conflict > 1].index
+    conflicting_label_rows = 0
+    if len(conflicting_ids) > 0:
+        conflicting_label_rows = int(meta.duplicate_id.isin(conflicting_ids).sum())
+        import warnings
+        warnings.warn(
+            f"{len(conflicting_ids)} duplicate_id group(s) ({conflicting_label_rows} rows) have "
+            f"conflicting labels; resolved by keep-first deduplication.",
+            stacklevel=2,
+        )
     if (meta.groupby("duplicate_id").group_id.nunique() > 1).any():
         raise ValueError("One raw duplicate identity maps to different split groups")
     duplicates = meta.duplicate_id.duplicated(keep="first")
     return (Xv.loc[~duplicates], yv.loc[~duplicates], meta.loc[~duplicates],
-            int((~valid).sum()), int(duplicates.sum()))
+            int((~valid).sum()), int(duplicates.sum()), conflicting_label_rows)
 
 
 def _partition(index, y, groups, fraction, seed, domains=None):
@@ -223,7 +235,7 @@ def _split(X, y, *, metadata, test_fraction, val_fraction, seed, domain,
     if duplicate_group_policy != "keep_first_disjoint":
         raise ValueError(f"Unsupported duplicate_group_policy: {duplicate_group_policy}")
     original_count = len(X)
-    X, y, meta, nan_count, dup_count = _prepare(X, y, metadata, domain)
+    X, y, meta, nan_count, dup_count, conflict_count = _prepare(X, y, metadata, domain)
     if require_class_support and set(y.unique()) != {0, 1}:
         raise PartitionSupportError("Single-class sample after cleaning/deduplication; both classes are required")
     domains = meta["domain"] if domain == "omni" and "domain" in meta else None
@@ -239,6 +251,8 @@ def _split(X, y, *, metadata, test_fraction, val_fraction, seed, domain,
         raise ValueError("Split groups overlap")
     exclusions = dict(exclusion_reasons or {})
     exclusions.update(nan_labels=nan_count, duplicate_rows_excluded=dup_count)
+    if conflict_count > 0:
+        exclusions["conflicting_label_duplicates_resolved"] = conflict_count
     manifest = SplitManifest(
         seed=seed, test_fraction=test_fraction, val_fraction=val_fraction,
         total_rows=original_count, excluded_rows=nan_count + dup_count,

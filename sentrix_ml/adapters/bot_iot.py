@@ -29,7 +29,7 @@ from sentrix_ml.schema import (
 )
 from sentrix_ml.preprocessing import encode_dataframe
 from sentrix_ml.splits import clean_labels
-from sentrix_ml.sampler import stream_dataset_files, file_sha256
+from sentrix_ml.sampler import stream_dataset_files, file_sha256, StratifiedReservoirBuffer
 from sentrix_ml.provenance import raw_metadata_factory
 
 
@@ -240,6 +240,16 @@ def load_bot_iot(
 
         return clean_chunk, meta_fn, clean_y, exclusions
 
+    # Use stratified reservoir for raw-CSV sampling to guarantee the rare
+    # benign class (477 / 3.67M = 0.013%) enters the sample.  Without this,
+    # uniform Algorithm R draws only ~4-6 benign rows in a 50k sample,
+    # causing PartitionSupportError during stratified splitting.
+    buffer = None
+    if sample_n is not None and nrows_per_file is None:
+        buffer = StratifiedReservoirBuffer(
+            capacity=sample_n, minority_label=0, seed=seed,
+        )
+
     features_df, y_binary, metadata_df, stream_info = stream_dataset_files(
         all_files,
         clean_and_extract_fn=_clean_and_extract_bot_chunk,
@@ -248,10 +258,16 @@ def load_bot_iot(
         chunksize=chunksize,
         nrows_per_file=nrows_per_file,
         read_csv_kwargs={"dtype": str},
+        reservoir_buffer=buffer,
     )
 
     info.update(stream_info)
     info["source_type"] = "raw_csvs"
+    if buffer is not None:
+        info["selection_policy"] = "stratified_reservoir_sampling"
+        info["minority_label"] = 0
+        info["minority_records_collected"] = len(buffer.minority_records)
+        info["majority_records_sampled"] = len(buffer.majority_records)
     info["raw_rows"] = info["total_rows_considered"]
     info["cleaned_rows"] = info["total_valid_rows"]
     info["valid_label_rows"] = info["total_valid_rows"]

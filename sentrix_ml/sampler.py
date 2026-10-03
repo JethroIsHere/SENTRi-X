@@ -100,6 +100,159 @@ class ReservoirBuffer:
         return pd.DataFrame(self.reservoir)
 
 
+class StratifiedReservoirBuffer:
+    """Dual-reservoir buffer guaranteeing all minority-class records enter the sample.
+
+    Minority-class records (identified by ``minority_label``) are collected
+    exhaustively.  Majority-class records are sampled via Algorithm R into the
+    remaining capacity.  At ``get_result()`` time, majority records are trimmed
+    so that ``len(minority) + len(majority) <= capacity``.
+
+    This is designed for datasets like BoT-IoT where the minority class
+    (477 benign rows in 3.67M) would otherwise be lost in a uniform reservoir.
+    """
+
+    def __init__(self, capacity: int, minority_label: int = 0, seed: int = 42):
+        if not isinstance(capacity, int) or isinstance(capacity, bool) or capacity < 1:
+            raise ValueError("capacity must be a positive integer")
+        self.capacity = capacity
+        self.minority_label = minority_label
+        self.seed = seed
+        self.rng = np.random.default_rng(seed)
+
+        self.minority_records: list[dict] = []
+        self.majority_records: list[dict] = []
+        self.majority_seen: int = 0
+        self.total_seen: int = 0
+
+    def add_chunk(self, features: pd.DataFrame, y: pd.Series, meta: pd.DataFrame | Callable[[int], dict]) -> None:
+        m = len(features)
+        if m == 0:
+            return
+
+        is_fn = callable(meta)
+
+        def _get_row_meta(idx: int) -> dict:
+            if is_fn:
+                return meta(idx)
+            return {f"__meta_{col}__": meta.iloc[idx][col] for col in meta.columns}
+
+        # Split indices by class
+        y_vals = y.values
+        minority_indices = np.where(y_vals == self.minority_label)[0]
+        majority_indices = np.where(y_vals != self.minority_label)[0]
+
+        self.total_seen += m
+
+        # Collect ALL minority records (they are rare enough to fit in memory)
+        for i in minority_indices:
+            rec = features.iloc[i].to_dict()
+            rec["__y__"] = int(y.iloc[i])
+            rec.update(_get_row_meta(int(i)))
+            self.minority_records.append(rec)
+
+        # Algorithm R for majority class, using full capacity as upper bound
+        n_maj = len(majority_indices)
+        if n_maj == 0:
+            return
+
+        current_len = len(self.majority_records)
+
+        if current_len < self.capacity:
+            needed = self.capacity - current_len
+            take_n = min(needed, n_maj)
+            for j in range(take_n):
+                i = int(majority_indices[j])
+                rec = features.iloc[i].to_dict()
+                rec["__y__"] = int(y.iloc[i])
+                rec.update(_get_row_meta(i))
+                self.majority_records.append(rec)
+            self.majority_seen += take_n
+
+            if take_n >= n_maj:
+                return
+
+            remaining_indices = majority_indices[take_n:]
+            n_remaining = len(remaining_indices)
+        else:
+            remaining_indices = majority_indices
+            n_remaining = n_maj
+
+        # Vectorised Algorithm R for remaining majority records
+        total_seen_range = self.majority_seen + 1 + np.arange(n_remaining, dtype=np.int64)
+        u = self.rng.random(n_remaining)
+        r = np.floor(u * total_seen_range).astype(np.int64)
+        self.majority_seen += n_remaining
+
+        enter_mask = r < self.capacity
+        if not np.any(enter_mask):
+            return
+
+        enter_positions = np.where(enter_mask)[0]
+        for pos in enter_positions:
+            orig_idx = int(remaining_indices[pos])
+            slot = int(r[pos])
+            rec = features.iloc[orig_idx].to_dict()
+            rec["__y__"] = int(y.iloc[orig_idx])
+            rec.update(_get_row_meta(orig_idx))
+            self.majority_records[slot] = rec
+
+    def get_result(self) -> pd.DataFrame:
+        n_min = len(self.minority_records)
+        n_maj = len(self.majority_records)
+
+        if n_min == 0 and n_maj == 0:
+            return pd.DataFrame()
+
+        if n_maj == 0:
+            take_min = min(n_min, self.capacity)
+            if take_min < n_min:
+                rng = np.random.default_rng(self.seed + 1)
+                idx = rng.choice(n_min, take_min, replace=False)
+                return pd.DataFrame([self.minority_records[i] for i in sorted(idx)])
+            return pd.DataFrame(self.minority_records)
+
+        if n_min == 0:
+            take_maj = min(n_maj, self.capacity)
+            if take_maj < n_maj:
+                rng = np.random.default_rng(self.seed + 2)
+                idx = rng.choice(n_maj, take_maj, replace=False)
+                return pd.DataFrame([self.majority_records[i] for i in sorted(idx)])
+            return pd.DataFrame(self.majority_records)
+
+        # Both classes are present.
+        # Guarantee minority records enter the sample up to capacity // 2,
+        # preserving all minority records when rare while ensuring majority
+        # class support is never starved (e.g. in small or balanced samples).
+        max_min = max(1, self.capacity // 2)
+        take_min = min(n_min, max_min)
+
+        # Majority takes remaining capacity
+        take_maj = min(n_maj, self.capacity - take_min)
+
+        # If majority didn't use all allocated slots, grant extra to minority
+        if take_maj < self.capacity - take_min:
+            extra = (self.capacity - take_maj) - take_min
+            take_min = min(n_min, take_min + extra)
+
+        if take_min < n_min:
+            rng = np.random.default_rng(self.seed + 1)
+            idx = rng.choice(n_min, take_min, replace=False)
+            min_selected = [self.minority_records[i] for i in sorted(idx)]
+        else:
+            min_selected = self.minority_records
+
+        if take_maj < n_maj:
+            rng = np.random.default_rng(self.seed + 2)
+            idx = rng.choice(n_maj, take_maj, replace=False)
+            maj_selected = [self.majority_records[i] for i in sorted(idx)]
+        else:
+            maj_selected = self.majority_records
+
+        all_records = min_selected + maj_selected
+        return pd.DataFrame(all_records)
+
+
 def stream_dataset_files(
     all_files: list[str | Path],
     *,
@@ -109,8 +262,16 @@ def stream_dataset_files(
     chunksize: int = 50_000,
     nrows_per_file: int | None = None,
     read_csv_kwargs: dict | None = None,
+    reservoir_buffer: ReservoirBuffer | StratifiedReservoirBuffer | None = None,
 ) -> tuple[pd.DataFrame, pd.Series, pd.DataFrame, dict[str, Any]]:
-    """Stream tabular files with reservoir sampling and provenance tracking."""
+    """Stream tabular files with reservoir sampling and provenance tracking.
+
+    Args:
+        reservoir_buffer: Optional pre-constructed buffer. When provided, this
+            buffer is used instead of the default ``ReservoirBuffer``. Use
+            ``StratifiedReservoirBuffer`` for datasets with extreme class
+            imbalance (e.g. BoT-IoT).
+    """
     source_file_hashes: dict[str, str] = {}
     files_considered: list[str] = []
     source_class_counts: dict[str, int] = {}
@@ -123,7 +284,7 @@ def stream_dataset_files(
 
     use_reservoir = (sample_n is not None and nrows_per_file is None)
     if use_reservoir:
-        reservoir = ReservoirBuffer(capacity=sample_n, seed=seed)
+        reservoir = reservoir_buffer or ReservoirBuffer(capacity=sample_n, seed=seed)
     else:
         accumulated_chunks: list[pd.DataFrame] = []
 

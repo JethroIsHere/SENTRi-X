@@ -1,10 +1,21 @@
-"""SENTRi-X Dataset Readiness & Identity Audit Tool.
+"""SENTRi-X Dataset Readiness & Identity Audit Tool (v2).
 
 Audits BoT-IoT and CIC-IDS2017 datasets:
 - Traces BoT-IoT rare benign class distribution, inventory, and partition support failures.
-- Audits CIC-IDS2017 column inventory, missing session identifiers, and measurement collisions across the full 2.83M population using disk-backed SQLite indexing.
-- Reproduces exact preflight failures on seed-42 samples.
+- Audits CIC-IDS2017 column inventory, missing session identifiers, and measurement collisions
+  across the full 2.83M population using disk-backed SQLite indexing.
+- Reproduces exact preflight failures on seed-specified samples.
 - Validates audit logic against small synthetic edge-case fixtures.
+
+v2 corrections (from user review of cbcbd0b):
+- Removes hardcoded-reuse shortcut that substituted population totals and assumed zero mixed groups.
+- Uses two-pass BoT scan: pass 1 identifies all benign group_ids, pass 2 counts attack members.
+- Validates numeric fields before counting rows as valid.
+- Respects the --seed argument in sample reproduction.
+- Correctly explains study/exam partition allocation.
+- Correctly documents that the splitter handles mixed-label groups with separate row identities.
+- Proposes retaining ambiguous CIC records with measurement-fingerprint grouping, not deletion.
+- Reports RSS at completion without extrapolating unmeasured resource claims.
 """
 
 from __future__ import annotations
@@ -135,7 +146,42 @@ def run_verification_fixtures() -> dict[str, Any]:
     g1 = s_meta(1)["__meta_group_id__"]
     results["distinguishable_sessions_distinct_groups"] = (g0 != g1)
 
-    all_passed = all(results.values())
+    # Fixture 5: Splitter handles mixed-label groups with separate row identities
+    # The current _partition groups rows by group_id and stratifies by their combined
+    # label profile.  Groups containing both labels get profile "0|1" which is a valid
+    # stratum as long as there are >=2 such groups.  This fixture verifies that 200
+    # rows across 20 mixed-label groups (10 rows each, 5 benign + 5 attack) are
+    # preserved across disjoint partitions without error.
+    from sentrix_ml.splits import _prepare, _partition
+    n_groups = 20
+    rows_per_group = 10
+    n_rows = n_groups * rows_per_group
+    X_fix = pd.DataFrame(np.random.default_rng(99).standard_normal((n_rows, 3)), columns=["a", "b", "c"])
+    y_fix = pd.Series([0] * 5 + [1] * 5, dtype=int).tolist() * n_groups
+    y_fix = pd.Series(y_fix, dtype=int)
+    meta_fix = pd.DataFrame({
+        "source_flow_id": [f"fix:{i}" for i in range(n_rows)],
+        "duplicate_id": [f"dup:{i}" for i in range(n_rows)],  # all distinct
+        "group_id": [f"grp:{i // rows_per_group}" for i in range(n_rows)],
+    })
+    try:
+        Xp, yp, mp, nan_ct, dup_ct, conflict_ct = _prepare(X_fix, y_fix, meta_fix, "test_domain")
+        pool_idx, test_idx = _partition(Xp.index, yp, mp.group_id, 0.20, seed=42)
+        train_idx, val_idx = _partition(pool_idx, yp, mp.group_id, 0.10, seed=42)
+        all_assigned = set(train_idx) | set(val_idx) | set(test_idx)
+        no_overlap = (
+            len(set(train_idx) & set(val_idx)) == 0
+            and len(set(train_idx) & set(test_idx)) == 0
+            and len(set(val_idx) & set(test_idx)) == 0
+        )
+        results["mixed_label_group_splitting"] = (
+            len(all_assigned) == n_rows and no_overlap and dup_ct == 0
+        )
+    except Exception as e:
+        results["mixed_label_group_splitting"] = False
+        results["mixed_label_group_splitting_error"] = str(e)
+
+    all_passed = all(v for k, v in results.items() if not k.endswith("_error"))
     results["all_fixtures_passed"] = all_passed
     return results
 
@@ -145,7 +191,16 @@ def run_verification_fixtures() -> dict[str, Any]:
 # =====================================================================
 
 def audit_bot_iot(data_root: Path, output_dir: Path, seed: int = 42, chunksize: int = 50_000) -> dict[str, Any]:
-    """Perform comprehensive audit of BoT-IoT dataset."""
+    """Perform comprehensive audit of BoT-IoT dataset.
+
+    Two-pass design:
+      Pass 1: Scan all rows.  Collect every benign record and its group_id.
+              Also track per-row numeric validity.
+      Pass 2: Re-scan all rows.  For every row (benign or attack) whose group_id
+              appears in the benign group set, count it in mixed_groups.
+    This ensures attack records that appear in a file *before* any benign record
+    in the same group are still correctly counted.
+    """
     bot_dir = data_root / "bot_iot"
     files = sorted(glob.glob(str(bot_dir / "UNSW_2018_IoT_Botnet_Full5pc_*.csv")))
     if not files:
@@ -163,40 +218,114 @@ def audit_bot_iot(data_root: Path, output_dir: Path, seed: int = 42, chunksize: 
 
     total_rows = 0
     total_valid = 0
+    total_invalid = 0
     benign_rows_list = []
     file_stats = {}
-    benign_groups_set = set()
-    mixed_groups = {}  # group_id -> {"benign_count": int, "attack_count": int}
+    benign_groups_set = set()  # group_ids that contain at least one benign record
 
     tuple_cols = ["saddr", "sport", "daddr", "dport", "proto"]
     benign_inv_path = output_dir / "bot_iot_benign_inventory.csv"
 
-    if benign_inv_path.exists():
-        print(f"\n[BoT-IoT Audit] Reusing verified benign inventory from {benign_inv_path}...")
-        benign_df = pd.read_csv(benign_inv_path)
-        total_rows = 3668522
-        total_valid = 3668522
-        file_stats = {
-            "UNSW_2018_IoT_Botnet_Full5pc_1.csv": {"total_rows": 1000000, "benign_rows": 0, "attack_rows": 1000000},
-            "UNSW_2018_IoT_Botnet_Full5pc_2.csv": {"total_rows": 1000000, "benign_rows": 0, "attack_rows": 1000000},
-            "UNSW_2018_IoT_Botnet_Full5pc_3.csv": {"total_rows": 1000000, "benign_rows": 0, "attack_rows": 1000000},
-            "UNSW_2018_IoT_Botnet_Full5pc_4.csv": {"total_rows": 668522, "benign_rows": 477, "attack_rows": 668045},
+    # ---- PASS 1: Collect benign records and identify benign groups ----
+    print("\n[BoT-IoT Audit] PASS 1: Scanning all raw CSVs for benign records and numeric validity...")
+    for fpath in files:
+        fname = Path(fpath).name
+        fhash = file_hashes[fname]
+        f_total = 0
+        f_benign = 0
+        f_attack = 0
+        f_invalid = 0
+
+        row_offset = 0
+        for chunk in pd.read_csv(fpath, chunksize=chunksize, dtype=str, low_memory=False):
+            chunk_len = len(chunk)
+            f_total += chunk_len
+            chunk = chunk.reset_index(drop=True)
+
+            meta_factory = raw_metadata_factory(
+                chunk, domain="bot_iot", filename=fname, row_offset=row_offset,
+                tuple_columns=tuple_cols, time_column="stime"
+            )
+
+            # Labels
+            label_col = "attack" if "attack" in chunk.columns else ("label" if "label" in chunk.columns else None)
+            if label_col is None:
+                raise ValueError(f"Missing attack/label column in {fname}")
+
+            y_bin, _ = clean_labels(chunk[label_col], domain="bot_iot")
+
+            # Numeric validity check (matching production adapter logic)
+            mandatory_raw = ["dur", "spkts", "dpkts", "sbytes", "dbytes"]
+            numeric_valid = pd.Series(True, index=chunk.index)
+            for rc in mandatory_raw:
+                if rc in chunk.columns:
+                    val_num = pd.to_numeric(chunk[rc].replace("-", np.nan), errors="coerce")
+                    numeric_valid &= val_num.notna() & (val_num >= 0)
+
+            for pos in range(chunk_len):
+                yb = y_bin.iloc[pos]
+                if pd.isna(yb):
+                    continue
+                if not numeric_valid.iloc[pos]:
+                    f_invalid += 1
+                    continue
+
+                meta = meta_factory(pos)
+                gid = meta["__meta_group_id__"]
+
+                if yb == 0:
+                    f_benign += 1
+                    benign_groups_set.add(gid)
+                    rec = {
+                        "source_file": fname,
+                        "source_file_hash": fhash,
+                        "source_row_index": row_offset + pos,
+                        "pkSeqID": chunk["pkSeqID"].iloc[pos] if "pkSeqID" in chunk.columns else "",
+                        "saddr": chunk["saddr"].iloc[pos] if "saddr" in chunk.columns else "",
+                        "sport": chunk["sport"].iloc[pos] if "sport" in chunk.columns else "",
+                        "daddr": chunk["daddr"].iloc[pos] if "daddr" in chunk.columns else "",
+                        "dport": chunk["dport"].iloc[pos] if "dport" in chunk.columns else "",
+                        "proto": chunk["proto"].iloc[pos] if "proto" in chunk.columns else "",
+                        "stime": chunk["stime"].iloc[pos] if "stime" in chunk.columns else "",
+                        "original_label": chunk[label_col].iloc[pos],
+                        "category": chunk["category"].iloc[pos] if "category" in chunk.columns else "",
+                        "subcategory": chunk["subcategory"].iloc[pos] if "subcategory" in chunk.columns else "",
+                        "binary_label": 0,
+                        "duplicate_id": meta["__meta_duplicate_id__"],
+                        "group_id": gid,
+                        "group_scope": meta["__meta_group_scope__"],
+                    }
+                    benign_rows_list.append(rec)
+                else:
+                    f_attack += 1
+
+            row_offset += chunk_len
+
+        total_rows += f_total
+        total_valid += f_benign + f_attack
+        total_invalid += f_invalid
+        file_stats[fname] = {
+            "total_rows": f_total,
+            "benign_rows": f_benign,
+            "attack_rows": f_attack,
+            "invalid_numeric_rows": f_invalid,
         }
-        mixed_groups = {}
-    else:
-        # First pass: collect all benign records and their session groups
-        print("\n[BoT-IoT Audit] Scanning all raw CSVs for benign records and session groups...")
+        print(f"    - {fname}: total={f_total}, benign={f_benign}, attack={f_attack}, invalid_numeric={f_invalid}")
+
+    benign_df = pd.DataFrame(benign_rows_list)
+    benign_df.to_csv(benign_inv_path, index=False)
+    print(f"\n[BoT-IoT Audit] Exported {len(benign_df)} benign records to {benign_inv_path}")
+
+    # ---- PASS 2: Count mixed groups (attack rows in benign groups) ----
+    # Only needed if there are benign groups to check
+    mixed_groups = {}  # group_id -> {"benign": int, "attack": int}
+    if benign_groups_set:
+        print("\n[BoT-IoT Audit] PASS 2: Counting attack records in benign session groups...")
         for fpath in files:
             fname = Path(fpath).name
-            fhash = file_hashes[fname]
-            f_total = 0
-            f_benign = 0
-            f_attack = 0
-
             row_offset = 0
             for chunk in pd.read_csv(fpath, chunksize=chunksize, dtype=str, low_memory=False):
                 chunk_len = len(chunk)
-                f_total += chunk_len
                 chunk = chunk.reset_index(drop=True)
 
                 meta_factory = raw_metadata_factory(
@@ -204,87 +333,60 @@ def audit_bot_iot(data_root: Path, output_dir: Path, seed: int = 42, chunksize: 
                     tuple_columns=tuple_cols, time_column="stime"
                 )
 
-                # Labels
-                label_col = "attack" if "attack" in chunk.columns else ("label" if "label" in chunk.columns else None)
-                if label_col is None:
-                    raise ValueError(f"Missing attack/label column in {fname}")
-
+                label_col = "attack" if "attack" in chunk.columns else "label"
                 y_bin, _ = clean_labels(chunk[label_col], domain="bot_iot")
+
+                # Apply same numeric validity filter
+                mandatory_raw = ["dur", "spkts", "dpkts", "sbytes", "dbytes"]
+                numeric_valid = pd.Series(True, index=chunk.index)
+                for rc in mandatory_raw:
+                    if rc in chunk.columns:
+                        val_num = pd.to_numeric(chunk[rc].replace("-", np.nan), errors="coerce")
+                        numeric_valid &= val_num.notna() & (val_num >= 0)
 
                 for pos in range(chunk_len):
                     yb = y_bin.iloc[pos]
-                    if pd.isna(yb):
+                    if pd.isna(yb) or not numeric_valid.iloc[pos]:
                         continue
-                    total_valid += 1
+
                     meta = meta_factory(pos)
                     gid = meta["__meta_group_id__"]
 
-                    if yb == 0:
-                        f_benign += 1
-                        benign_groups_set.add(gid)
-                        rec = {
-                            "source_file": fname,
-                            "source_file_hash": fhash,
-                            "source_row_index": row_offset + pos,
-                            "pkSeqID": chunk["pkSeqID"].iloc[pos] if "pkSeqID" in chunk.columns else "",
-                            "saddr": chunk["saddr"].iloc[pos] if "saddr" in chunk.columns else "",
-                            "sport": chunk["sport"].iloc[pos] if "sport" in chunk.columns else "",
-                            "daddr": chunk["daddr"].iloc[pos] if "daddr" in chunk.columns else "",
-                            "dport": chunk["dport"].iloc[pos] if "dport" in chunk.columns else "",
-                            "proto": chunk["proto"].iloc[pos] if "proto" in chunk.columns else "",
-                            "stime": chunk["stime"].iloc[pos] if "stime" in chunk.columns else "",
-                            "original_label": chunk[label_col].iloc[pos],
-                            "category": chunk["category"].iloc[pos] if "category" in chunk.columns else "",
-                            "subcategory": chunk["subcategory"].iloc[pos] if "subcategory" in chunk.columns else "",
-                            "binary_label": 0,
-                            "duplicate_id": meta["__meta_duplicate_id__"],
-                            "group_id": gid,
-                            "group_scope": meta["__meta_group_scope__"],
-                        }
-                        benign_rows_list.append(rec)
+                    if gid in benign_groups_set:
                         if gid not in mixed_groups:
                             mixed_groups[gid] = {"benign": 0, "attack": 0}
-                        mixed_groups[gid]["benign"] += 1
-                    else:
-                        f_attack += 1
-                        if gid in benign_groups_set:
-                            if gid not in mixed_groups:
-                                mixed_groups[gid] = {"benign": 0, "attack": 0}
+                        if yb == 0:
+                            mixed_groups[gid]["benign"] += 1
+                        else:
                             mixed_groups[gid]["attack"] += 1
 
                 row_offset += chunk_len
 
-            total_rows += f_total
-            file_stats[fname] = {"total_rows": f_total, "benign_rows": f_benign, "attack_rows": f_attack}
-            print(f"    - {fname}: total={f_total}, benign={f_benign}, attack={f_attack}")
-
-        benign_df = pd.DataFrame(benign_rows_list)
-        benign_df.to_csv(benign_inv_path, index=False)
-        print(f"\n[BoT-IoT Audit] Exported {len(benign_df)} benign records to {benign_inv_path}")
+        print(f"    Groups with benign records checked: {len(mixed_groups)}")
 
     # Deduplication and group statistics for benign records
     unique_fingerprints = benign_df["duplicate_id"].nunique() if not benign_df.empty else 0
     unique_groups = benign_df["group_id"].nunique() if not benign_df.empty else 0
     dup_rows_count = len(benign_df) - unique_fingerprints
 
-    # Check for mixed groups
+    # Check for mixed groups (groups with both benign and attack)
     actual_mixed = {g: counts for g, counts in mixed_groups.items() if counts["benign"] > 0 and counts["attack"] > 0}
 
-    # Reproduce 50,000-row and 30,000-row samples
-    print("\n[BoT-IoT Audit] Reproducing seed-42 samples at 50k and 30k rows...")
-    X50, y50, info50 = load_bot_iot(bot_dir, sample_n=50_000, seed=42)
+    # Reproduce samples using the specified seed
+    print(f"\n[BoT-IoT Audit] Reproducing seed-{seed} samples at 50k and 30k rows...")
+    X50, y50, info50 = load_bot_iot(bot_dir, sample_n=50_000, seed=seed)
     meta50 = info50["metadata"]
     benign_50k_idx = y50[y50 == 0].index
     benign_50k_rows = meta50.loc[benign_50k_idx]
-    print(f"  * 50k sample yielded {len(benign_50k_idx)} benign rows out of {len(y50)}")
+    print(f"  * 50k sample (seed={seed}) yielded {len(benign_50k_idx)} benign rows out of {len(y50)}")
 
-    X30, y30, info30 = load_bot_iot(bot_dir, sample_n=30_000, seed=42)
+    X30, y30, info30 = load_bot_iot(bot_dir, sample_n=30_000, seed=seed)
     meta30 = info30["metadata"]
     benign_30k_idx = y30[y30 == 0].index
     benign_30k_rows = meta30.loc[benign_30k_idx]
-    print(f"  * 30k sample yielded {len(benign_30k_idx)} benign rows out of {len(y30)}")
+    print(f"  * 30k sample (seed={seed}) yielded {len(benign_30k_idx)} benign rows out of {len(y30)}")
 
-    # Trace 50k adaptation split
+    # Trace 50k adaptation split allocation
     meta50_clean = meta50.copy()
     duplicates50 = meta50_clean["duplicate_id"].duplicated(keep="first")
     meta50_disjoint = meta50_clean.loc[~duplicates50]
@@ -295,12 +397,25 @@ def audit_bot_iot(data_root: Path, output_dir: Path, seed: int = 42, chunksize: 
     profiles50 = frame50.groupby("group", sort=False).stratum.agg(lambda x: "|".join(sorted(set(x))))
     profile_counts50 = profiles50.value_counts().to_dict()
 
+    # Compute actual study/exam allocation
+    n_unique_groups = len(profiles50)
+    n_exam_groups = int(np.ceil(n_unique_groups * 0.80))
+    n_study_groups = n_unique_groups - n_exam_groups
+    benign_group_count_in_sample = int(profile_counts50.get("0", 0))
+
+    # Expected benign allocation in study pool (proportional)
+    if n_unique_groups > 0 and benign_group_count_in_sample > 0:
+        expected_benign_in_study = round(benign_group_count_in_sample * n_study_groups / n_unique_groups, 1)
+    else:
+        expected_benign_in_study = 0
+
     summary = {
         "files_considered": [Path(f).name for f in files],
         "file_hashes": file_hashes,
         "file_stats": file_stats,
-        "total_rows_considered": total_rows,
+        "total_rows_scanned": total_rows,
         "total_valid_rows": total_valid,
+        "total_invalid_numeric_rows": total_invalid,
         "total_benign_rows": len(benign_df),
         "total_attack_rows": total_valid - len(benign_df),
         "benign_prevalence": len(benign_df) / total_valid if total_valid else 0.0,
@@ -311,29 +426,34 @@ def audit_bot_iot(data_root: Path, output_dir: Path, seed: int = 42, chunksize: 
         "mixed_groups_detail": actual_mixed,
         "sample_50k_reproduction": {
             "sample_n": 50_000,
-            "seed": 42,
+            "seed": seed,
             "benign_count": len(benign_50k_idx),
             "attack_count": int((y50 == 1).sum()),
             "benign_rows_selected": benign_50k_rows[["source_file", "source_row_index", "duplicate_id", "group_id"]].to_dict(orient="records"),
             "unique_groups_in_sample": int(groups50.nunique()),
             "group_strata_profiles": profile_counts50,
+            "n_study_groups": n_study_groups,
+            "n_exam_groups": n_exam_groups,
+            "benign_groups_in_sample": benign_group_count_in_sample,
+            "expected_benign_in_study": expected_benign_in_study,
             "adaptation_failure_cause": (
-                f"When study_fraction=0.20 and val_fraction=0.10, the 10,000-row study pool has only "
-                f"{profile_counts50.get('0', 0)} benign independent group(s). Stratified train_test_split "
-                f"with fraction=0.10 requires min(counts) >= 2, causing PartitionSupportError: "
-                f"Insufficient independent groups for a stratified 10% partition."
+                f"The {n_unique_groups} unique groups are split 20% study ({n_study_groups} groups) / "
+                f"80% exam ({n_exam_groups} groups). With only {benign_group_count_in_sample} benign groups "
+                f"in the entire sample, approximately {expected_benign_in_study} benign groups land in "
+                f"the study pool. Stratified train_test_split with fraction=0.10 requires "
+                f"min(counts) >= 2 per stratum, causing PartitionSupportError."
             )
         },
         "sample_30k_reproduction": {
             "sample_n": 30_000,
-            "seed": 42,
+            "seed": seed,
             "benign_count": len(benign_30k_idx),
             "attack_count": int((y30 == 1).sum()),
             "benign_rows_selected": benign_30k_rows[["source_file", "source_row_index", "duplicate_id", "group_id"]].to_dict(orient="records"),
             "omni_failure_cause": (
                 f"With only {len(benign_30k_idx)} benign rows drawn across the 30k BoT slice in Omni, "
-                f"the 10% validation split (2,400 attack rows) receives 0 benign rows, failing "
-                f"the strict per-domain support check: bot_iot validation partition lacks both classes: {{'1': 2400}}."
+                f"the 10% validation split receives too few benign rows, failing "
+                f"the strict per-domain support check requiring both classes in every partition."
             )
         }
     }
@@ -406,7 +526,7 @@ def audit_cic_ids2017(data_root: Path, output_dir: Path, seed: int = 42, chunksi
     """)
     conn.commit()
 
-    print("\n[CIC-IDS2017 Audit] Streaming full 2.83M population into disk-backed SQLite index...")
+    print("\n[CIC-IDS2017 Audit] Streaming full population into disk-backed SQLite index...")
     total_considered = 0
     total_valid = 0
     excluded_numerics = 0
@@ -550,7 +670,6 @@ def audit_cic_ids2017(data_root: Path, output_dir: Path, seed: int = 42, chunksi
 
     intra_file_conflicts = 0
     inter_file_conflicts = 0
-    both_conflicts = 0
     for r in conflict_rows:
         file_count = r[4]
         if file_count == 1:
@@ -671,8 +790,8 @@ def audit_cic_ids2017(data_root: Path, output_dir: Path, seed: int = 42, chunksi
     print(f"  * Exported {examples_written} representative conflict group examples (with complete raw field values) to {examples_jsonl_path}")
 
     # Reproduce 50k sample failure
-    print("\n[CIC-IDS2017 Audit] Reproducing 50k seed-42 sample conflict...")
-    X50, y50, info50 = load_cic_ids2017(cic_dir, sample_n=50_000, seed=42)
+    print(f"\n[CIC-IDS2017 Audit] Reproducing 50k seed-{seed} sample conflict...")
+    X50, y50, info50 = load_cic_ids2017(cic_dir, sample_n=50_000, seed=seed)
     meta50 = info50["metadata"]
     conflicts_50k = y50.groupby(meta50["duplicate_id"]).nunique()
     conflicting_50k_fps = conflicts_50k[conflicts_50k > 1].index.tolist()
@@ -718,11 +837,11 @@ def audit_cic_ids2017(data_root: Path, output_dir: Path, seed: int = 42, chunksi
         },
         "sample_50k_reproduction": {
             "sample_n": 50_000,
-            "seed": 42,
+            "seed": seed,
             "conflicting_fingerprints_count": len(conflicting_50k_fps),
             "conflicts": sample_50k_detail,
             "preflight_failure_cause": (
-                f"In the seed-42 50k sample, {len(conflicting_50k_fps)} fingerprint(s) contained both benign (0) "
+                f"In the seed-{seed} 50k sample, {len(conflicting_50k_fps)} fingerprint(s) contained both benign (0) "
                 f"and attack (1) rows. The strict duplicate check `(yv.groupby(meta.duplicate_id).nunique() > 1)` "
                 f"immediately aborted execution: 'Identical raw records have conflicting labels; resolve source annotations before training'."
             )
@@ -752,9 +871,10 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
 
     print("=" * 75)
-    print("      SENTRi-X Dataset Readiness & Source-Row Identity Audit")
+    print("      SENTRi-X Dataset Readiness & Source-Row Identity Audit (v2)")
     print(f"      Run Directory: {output_dir}")
     print(f"      Timestamp: {datetime.now().isoformat()}")
+    print(f"      Seed: {args.seed}")
     print("=" * 75)
 
     # System resources
@@ -798,18 +918,21 @@ def main():
         print("\n[Step 1] Running verification fixtures against synthetic edge cases...")
         fixture_results = run_verification_fixtures()
         for k, v in fixture_results.items():
-            print(f"  * {k}: {'PASS' if v else 'FAIL'}")
+            if k.endswith("_error"):
+                print(f"  * {k}: {v}")
+            else:
+                print(f"  * {k}: {'PASS' if v else 'FAIL'}")
         if not fixture_results.get("all_fixtures_passed"):
             print("ERROR: Verification fixtures failed. Aborting audit.")
             sys.exit(1)
 
     # Audit BoT-IoT
     print("\n[Step 2] Auditing BoT-IoT dataset...")
-    bot_summary = audit_bot_iot(args.data_root, output_dir, seed=args.seed, chunksize=args.chunksize)
+    bot_summary = audit_bot_iot(data_root, output_dir, seed=args.seed, chunksize=args.chunksize)
 
     # Audit CIC-IDS2017
     print("\n[Step 3] Auditing CIC-IDS2017 dataset...")
-    cic_summary = audit_cic_ids2017(args.data_root, output_dir, seed=args.seed, chunksize=args.chunksize)
+    cic_summary = audit_cic_ids2017(data_root, output_dir, seed=args.seed, chunksize=args.chunksize)
 
     # Compare file hashes with previous preflight
     preflight_prev_path = Path(__file__).resolve().parent.parent / "outputs/local-verification/run_20261003_083357/preflight-local.json"
@@ -841,18 +964,19 @@ def main():
         except Exception as e:
             hash_comparison = {"status": "ERROR_READING_PREVIOUS", "error": str(e)}
 
-    # Peak memory
-    peak_rss_mb = round(proc.memory_info().rss / (1024**2), 2)
+    # RSS at completion (this is a point-in-time reading, not a peak measurement)
+    completion_rss_mb = round(proc.memory_info().rss / (1024**2), 2)
     elapsed_total = round(time.time() - t_start_total, 2)
 
     # Master audit summary
     audit_summary = {
         "timestamp": datetime.now().isoformat(),
         "elapsed_seconds": elapsed_total,
-        "peak_rss_mb": peak_rss_mb,
+        "completion_rss_mb": completion_rss_mb,
+        "rss_note": "Point-in-time RSS reading at audit completion, not a tracked peak.",
         "environment": env_info,
         "config": {
-            "data_root": str(args.data_root),
+            "data_root": str(data_root),
             "output_dir": str(output_dir),
             "seed": args.seed,
             "chunksize": args.chunksize,
@@ -866,7 +990,7 @@ def main():
     summary_path = output_dir / "audit_summary.json"
     summary_path.write_text(json.dumps(audit_summary, indent=2), encoding="utf-8")
     print(f"\n[Completion] Master audit summary written to {summary_path}")
-    print(f"Total Elapsed Time: {elapsed_total:.2f}s | Peak RSS: {peak_rss_mb:.2f} MB")
+    print(f"Total Elapsed Time: {elapsed_total:.2f}s | RSS at Completion: {completion_rss_mb:.2f} MB")
     print("=" * 75)
 
 

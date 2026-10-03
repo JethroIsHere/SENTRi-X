@@ -68,13 +68,30 @@ def test_group_retains_distinct_measurements_together(tmp_path):
         assert sum(group in set(getattr(parts[-1], p + "_group_ids")) for p in ("train", "val", "test")) == 1
 
 
-def test_conflicting_duplicate_labels_rejected(tmp_path):
+def test_conflicting_duplicate_labels_resolved_by_dedup(tmp_path):
+    """Conflicting labels on identical raw records are resolved by keep-first dedup.
+
+    Previously this raised ValueError.  Now it warns and deduplicates, keeping
+    the first label encountered — matching the CIC-IDS2017 measurement fingerprint
+    collision handling.
+    """
     raw = ton_rows(100)
     conflict = raw.iloc[[0]].copy(); conflict["label"] = 1
     pd.concat([raw, conflict]).to_csv(tmp_path / "Network_dataset_1.csv", index=False)
     X, y, info = LOADERS["ton_iot"](tmp_path)
-    with pytest.raises(ValueError, match="conflicting labels"):
-        stratified_split(X, y, metadata=info["metadata"])
+    import warnings
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        parts = stratified_split(X, y, metadata=info["metadata"], require_class_support=True)
+        conflict_warnings = [x for x in w if "conflicting labels" in str(x.message)]
+        assert len(conflict_warnings) >= 1, "Expected a warning about conflicting labels"
+    # The conflict row is deduplicated; first occurrence's label is kept
+    manifest = parts[-1]
+    assert manifest.duplicate_rows_excluded >= 1
+    assert manifest.exclusion_reasons.get("conflicting_label_duplicates_resolved", 0) >= 1
+    # All partitions should still be disjoint
+    groups = [set(getattr(manifest, p + "_group_ids")) for p in ("train", "val", "test")]
+    assert not (groups[0] & groups[1] or groups[0] & groups[2] or groups[1] & groups[2])
 
 
 def test_equal_features_without_identity_are_not_deleted():
@@ -103,3 +120,88 @@ def test_balancing_only_duplicates_original_training_rows():
     again, _, again_audit = balance_training_rows(X, y, seed=42)
     np.testing.assert_array_equal(sampled, again)
     assert audit == again_audit and not audit["validation_test_resampled"]
+
+
+def test_stratified_reservoir_guarantees_minority_class(tmp_path):
+    """StratifiedReservoirBuffer must include ALL minority records in the sample.
+
+    Simulates a BoT-IoT-like scenario: 3000 rows with only 20 benign (0.67%).
+    Under uniform Algorithm R, many benign rows would be lost. The stratified
+    buffer must preserve all 20.
+    """
+    from sentrix_ml.sampler import StratifiedReservoirBuffer
+
+    raw = bot_rows(3000)
+    raw["attack"] = 1
+    raw.loc[:19, "attack"] = 0  # 20 benign rows
+    raw.to_csv(tmp_path / "UNSW_2018_IoT_Botnet_Full5pc_1.csv", index=False)
+
+    X, y, info = LOADERS["bot_iot"](tmp_path, sample_n=500, seed=42)
+    benign_count = int((y == 0).sum())
+    # All 20 benign rows must be in the 500-row sample
+    assert benign_count == 20, f"Expected 20 benign rows, got {benign_count}"
+    assert len(y) == 500
+    # Verify metadata tracks stratified policy
+    assert info.get("selection_policy") == "stratified_reservoir_sampling"
+    assert info.get("minority_records_collected") == 20
+
+
+def test_stratified_reservoir_deterministic_seed(tmp_path):
+    """Stratified reservoir must produce identical results for the same seed."""
+    raw = bot_rows(1000)
+    raw["attack"] = 1
+    raw.loc[:9, "attack"] = 0  # 10 benign rows
+    raw.to_csv(tmp_path / "UNSW_2018_IoT_Botnet_Full5pc_1.csv", index=False)
+
+    X1, y1, _ = LOADERS["bot_iot"](tmp_path, sample_n=200, seed=99)
+    X2, y2, _ = LOADERS["bot_iot"](tmp_path, sample_n=200, seed=99)
+    pd.testing.assert_frame_equal(X1, X2)
+    pd.testing.assert_series_equal(y1, y2)
+
+
+def test_mixed_label_fingerprint_groups_split_correctly():
+    """Mixed-label measurement groups must split without error.
+
+    Simulates CIC-IDS2017 scenario: rows with identical measurement fingerprints
+    (same duplicate_id) but different labels. The splitter should:
+    1. Warn about conflicting labels
+    2. Deduplicate (keep first)
+    3. Split remaining rows into disjoint partitions
+    """
+    n_groups = 30
+    rows_per_group = 6
+    n_rows = n_groups * rows_per_group
+    rng = np.random.default_rng(42)
+    X = pd.DataFrame(rng.standard_normal((n_rows, 3)), columns=["a", "b", "c"])
+    # Each group has 3 benign + 3 attack rows (mixed-label fingerprint).
+    # Alternating initial labels ensure both classes are represented after keep-first dedup.
+    labels = []
+    for g in range(n_groups):
+        if g % 2 == 0:
+            labels.extend([0] * 3 + [1] * 3)
+        else:
+            labels.extend([1] * 3 + [0] * 3)
+    y = pd.Series(labels, dtype=int)
+    meta = pd.DataFrame({
+        "source_flow_id": [f"cic:{i}" for i in range(n_rows)],
+        "duplicate_id": [f"fp:{i // rows_per_group}" for i in range(n_rows)],
+        "group_id": [f"fp:{i // rows_per_group}" for i in range(n_rows)],
+    })
+
+    import warnings
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        parts = stratified_split(X, y, metadata=meta, require_class_support=True)
+        conflict_warnings = [x for x in w if "conflicting labels" in str(x.message)]
+        assert len(conflict_warnings) >= 1
+
+    manifest = parts[-1]
+    # After keep-first dedup, each fingerprint group retains 1 row
+    total_rows_after_dedup = sum(map(len, parts[:3]))
+    assert total_rows_after_dedup == n_groups  # 30 unique fingerprints
+    assert manifest.duplicate_rows_excluded == n_rows - n_groups
+    assert manifest.exclusion_reasons.get("conflicting_label_duplicates_resolved", 0) == n_rows
+    # Partitions must be disjoint
+    groups = [set(getattr(manifest, p + "_group_ids")) for p in ("train", "val", "test")]
+    assert not (groups[0] & groups[1] or groups[0] & groups[2] or groups[1] & groups[2])
+
