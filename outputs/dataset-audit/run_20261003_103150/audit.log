@@ -1,0 +1,78 @@
+===========================================================================
+      SENTRi-X Dataset Readiness & Source-Row Identity Audit
+      Run Directory: outputs\dataset-audit\run_20261003_103150
+      Timestamp: 2026-10-03T13:13:19.606081
+===========================================================================
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1791004400.610191   13488 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1791004409.659989   13488 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+
+[System Environment]
+  * Python: 3.11.0 (C:\Users\LENOVO\SENTRi-X\venv\Scripts\python.exe)
+  * Git Commit: 6addbb8d9f75b9a2d7049da18d2d524f6000d115
+  * RAM: Total=13.83 GB | Available=1.91 GB
+  * Disk Free: 27.04 GB
+
+[Step 1] Running verification fixtures against synthetic edge cases...
+  * row_position_continuity: PASS
+  * fingerprint_consistency_with_production: PASS
+  * identical_measurements_same_fingerprint: PASS
+  * distinguishable_sessions_distinct_groups: PASS
+  * all_fixtures_passed: PASS
+
+[Step 2] Auditing BoT-IoT dataset...
+
+[BoT-IoT Audit] Found 4 source files in C:\Users\LENOVO\SENTRi-X\data\raw\bot_iot
+  * UNSW_2018_IoT_Botnet_Full5pc_1.csv: sha256:3940b549851ac2ce0335f3075c8308b060ecfea8973b104060e5e30867c438e3
+  * UNSW_2018_IoT_Botnet_Full5pc_2.csv: sha256:1f87b8f1528a3357c9fb74d9d728d798f1996441805c668675cb82403c73d168
+  * UNSW_2018_IoT_Botnet_Full5pc_3.csv: sha256:3f05d6827ece70b38d4fd90a9ae3a94a549bc8884fd990be1326f263cc29a747
+  * UNSW_2018_IoT_Botnet_Full5pc_4.csv: sha256:ba7f6b36638246d0fde33a0ba31a0d243bfa700b1e71aebfae7e0346c076a8c9
+
+[BoT-IoT Audit] Reusing verified benign inventory from outputs\dataset-audit\run_20261003_103150\bot_iot_benign_inventory.csv...
+
+[BoT-IoT Audit] Reproducing seed-42 samples at 50k and 30k rows...
+  * 50k sample yielded 4 benign rows out of 50000
+  * 30k sample yielded 5 benign rows out of 30000
+
+[Step 3] Auditing CIC-IDS2017 dataset...
+
+[CIC-IDS2017 Audit] Found 8 source files in C:\Users\LENOVO\SENTRi-X\data\raw\cic_ids2017
+  * Friday-WorkingHours-Afternoon-DDos.pcap_ISCX.csv: 79 cols | Dport: True | SIP/DIP/Sport/TS/Proto: ALL FALSE
+  * Friday-WorkingHours-Afternoon-PortScan.pcap_ISCX.csv: 79 cols | Dport: True | SIP/DIP/Sport/TS/Proto: ALL FALSE
+  * Friday-WorkingHours-Morning.pcap_ISCX.csv: 79 cols | Dport: True | SIP/DIP/Sport/TS/Proto: ALL FALSE
+  * Monday-WorkingHours.pcap_ISCX.csv: 79 cols | Dport: True | SIP/DIP/Sport/TS/Proto: ALL FALSE
+  * Thursday-WorkingHours-Afternoon-Infilteration.pcap_ISCX.csv: 79 cols | Dport: True | SIP/DIP/Sport/TS/Proto: ALL FALSE
+  * Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv: 79 cols | Dport: True | SIP/DIP/Sport/TS/Proto: ALL FALSE
+  * Tuesday-WorkingHours.pcap_ISCX.csv: 79 cols | Dport: True | SIP/DIP/Sport/TS/Proto: ALL FALSE
+  * Wednesday-workingHours.pcap_ISCX.csv: 79 cols | Dport: True | SIP/DIP/Sport/TS/Proto: ALL FALSE
+
+[CIC-IDS2017 Audit] Exported column inventory to outputs\dataset-audit\run_20261003_103150\cic_column_inventory.json
+
+[CIC-IDS2017 Audit] Streaming full 2.83M population into disk-backed SQLite index...
+    - Friday-WorkingHours-Afternoon-DDos.pcap_ISCX.csv: considered=225745, valid=225743
+    - Friday-WorkingHours-Afternoon-PortScan.pcap_ISCX.csv: considered=286467, valid=286431
+    - Friday-WorkingHours-Morning.pcap_ISCX.csv: considered=191033, valid=191024
+    - Monday-WorkingHours.pcap_ISCX.csv: considered=529918, valid=529903
+    - Thursday-WorkingHours-Afternoon-Infilteration.pcap_ISCX.csv: considered=288602, valid=288598
+    - Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv: considered=170366, valid=170355
+    - Tuesday-WorkingHours.pcap_ISCX.csv: considered=445909, valid=445892
+    - Wednesday-workingHours.pcap_ISCX.csv: considered=692703, valid=692682
+
+[CIC-IDS2017 Audit] Ingested 2,830,628 valid rows into SQLite in 788.6s. Creating index...
+  * Index created.
+
+[CIC-IDS2017 Audit] Executing collision and conflict queries...
+
+[CIC-IDS2017 Audit] Exported 698 conflict groups to outputs\dataset-audit\run_20261003_103150\cic_conflict_groups.csv
+
+[CIC-IDS2017 Audit] Extracting raw field examples for representative conflict groups...
+  * Exported 50 representative conflict group examples (with complete raw field values) to outputs\dataset-audit\run_20261003_103150\cic_conflict_examples.jsonl
+
+[CIC-IDS2017 Audit] Reproducing 50k seed-42 sample conflict...
+
+[Hash Verification] Checked 12 raw files against preflight report: ALL_MATCH
+
+[Completion] Master audit summary written to outputs\dataset-audit\run_20261003_103150\audit_summary.json
+Total Elapsed Time: 2357.62s | Peak RSS: 543.20 MB
+===========================================================================

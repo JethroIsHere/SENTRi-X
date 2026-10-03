@@ -1,0 +1,261 @@
+{
+  "timestamp": "2026-10-03T13:52:37.222953",
+  "elapsed_seconds": 2357.62,
+  "peak_rss_mb": 543.2,
+  "environment": {
+    "python_executable": "C:\\Users\\LENOVO\\SENTRi-X\\venv\\Scripts\\python.exe",
+    "python_version": "3.11.0",
+    "git_commit": "6addbb8d9f75b9a2d7049da18d2d524f6000d115",
+    "ram_total_gb": 13.83,
+    "ram_available_gb": 1.91,
+    "disk_free_gb": 27.04,
+    "packages": {
+      "numpy": "2.4.3",
+      "pandas": "3.0.1",
+      "psutil": "7.2.2",
+      "scikit-learn": "1.8.0",
+      "tensorflow": "2.21.0"
+    }
+  },
+  "config": {
+    "data_root": "C:\\Users\\LENOVO\\SENTRi-X\\data\\raw",
+    "output_dir": "outputs\\dataset-audit\\run_20261003_103150",
+    "seed": 42,
+    "chunksize": 50000
+  },
+  "hash_verification_vs_previous_preflight": {
+    "status": "ALL_MATCH",
+    "matched_count": 12,
+    "mismatched_count": 0,
+    "diffs": {}
+  },
+  "verification_fixtures": {
+    "row_position_continuity": true,
+    "fingerprint_consistency_with_production": true,
+    "identical_measurements_same_fingerprint": true,
+    "distinguishable_sessions_distinct_groups": true,
+    "all_fixtures_passed": true
+  },
+  "bot_iot_audit": {
+    "files_considered": [
+      "UNSW_2018_IoT_Botnet_Full5pc_1.csv",
+      "UNSW_2018_IoT_Botnet_Full5pc_2.csv",
+      "UNSW_2018_IoT_Botnet_Full5pc_3.csv",
+      "UNSW_2018_IoT_Botnet_Full5pc_4.csv"
+    ],
+    "file_hashes": {
+      "UNSW_2018_IoT_Botnet_Full5pc_1.csv": "sha256:3940b549851ac2ce0335f3075c8308b060ecfea8973b104060e5e30867c438e3",
+      "UNSW_2018_IoT_Botnet_Full5pc_2.csv": "sha256:1f87b8f1528a3357c9fb74d9d728d798f1996441805c668675cb82403c73d168",
+      "UNSW_2018_IoT_Botnet_Full5pc_3.csv": "sha256:3f05d6827ece70b38d4fd90a9ae3a94a549bc8884fd990be1326f263cc29a747",
+      "UNSW_2018_IoT_Botnet_Full5pc_4.csv": "sha256:ba7f6b36638246d0fde33a0ba31a0d243bfa700b1e71aebfae7e0346c076a8c9"
+    },
+    "file_stats": {
+      "UNSW_2018_IoT_Botnet_Full5pc_1.csv": {
+        "total_rows": 1000000,
+        "benign_rows": 0,
+        "attack_rows": 1000000
+      },
+      "UNSW_2018_IoT_Botnet_Full5pc_2.csv": {
+        "total_rows": 1000000,
+        "benign_rows": 0,
+        "attack_rows": 1000000
+      },
+      "UNSW_2018_IoT_Botnet_Full5pc_3.csv": {
+        "total_rows": 1000000,
+        "benign_rows": 0,
+        "attack_rows": 1000000
+      },
+      "UNSW_2018_IoT_Botnet_Full5pc_4.csv": {
+        "total_rows": 668522,
+        "benign_rows": 477,
+        "attack_rows": 668045
+      }
+    },
+    "total_rows_considered": 3668522,
+    "total_valid_rows": 3668522,
+    "total_benign_rows": 477,
+    "total_attack_rows": 3668045,
+    "benign_prevalence": 0.0001300251163820198,
+    "unique_benign_fingerprints": 477,
+    "unique_benign_groups": 477,
+    "duplicate_benign_rows_under_policy": 0,
+    "mixed_label_groups_count": 0,
+    "mixed_groups_detail": {},
+    "sample_50k_reproduction": {
+      "sample_n": 50000,
+      "seed": 42,
+      "benign_count": 4,
+      "attack_count": 49996,
+      "benign_rows_selected": [
+        {
+          "source_file": "UNSW_2018_IoT_Botnet_Full5pc_4.csv",
+          "source_row_index": 577236,
+          "duplicate_id": "bot_iot:raw:e9a47464e2c7da2f25953f743000d164114d33a417709937d6c34de1377c8552",
+          "group_id": "bot_iot:session:c0c0bee8b6d761ba73f910b20a8405c5b5b714c9b3b2b4ad4cc8b82447988acf"
+        },
+        {
+          "source_file": "UNSW_2018_IoT_Botnet_Full5pc_4.csv",
+          "source_row_index": 577341,
+          "duplicate_id": "bot_iot:raw:9058954cb94708ee1c8195ba8a19010e88c2f75244c415f9a3084423eac3130d",
+          "group_id": "bot_iot:session:723ff7dc3696a6c43bab107907bfc013fbfbe5c20c4bba72525cb634b1085b59"
+        },
+        {
+          "source_file": "UNSW_2018_IoT_Botnet_Full5pc_4.csv",
+          "source_row_index": 576895,
+          "duplicate_id": "bot_iot:raw:4b1d80ace622d53308600e1fd77a1696a642208f7f5219f56458dc2b9b59a685",
+          "group_id": "bot_iot:session:acd41c844516ed8f4d4a54f19292891d76d635712314907f8c7448e1eecb1de5"
+        },
+        {
+          "source_file": "UNSW_2018_IoT_Botnet_Full5pc_4.csv",
+          "source_row_index": 577246,
+          "duplicate_id": "bot_iot:raw:f01a536a9bfa378f660fb2753cccb5792bc6ba1df3d0c65e4b5e31930bd53486",
+          "group_id": "bot_iot:session:584b780e5dbc103b9ad9abcacb440bef15c93ad3e1d374c40352c6c54e90dc93"
+        }
+      ],
+      "unique_groups_in_sample": 50000,
+      "group_strata_profiles": {
+        "1": 49996,
+        "0": 4
+      },
+      "adaptation_failure_cause": "When study_fraction=0.20 and val_fraction=0.10, the 10,000-row study pool has only 4 benign independent group(s). Stratified train_test_split with fraction=0.10 requires min(counts) >= 2, causing PartitionSupportError: Insufficient independent groups for a stratified 10% partition."
+    },
+    "sample_30k_reproduction": {
+      "sample_n": 30000,
+      "seed": 42,
+      "benign_count": 5,
+      "attack_count": 29995,
+      "benign_rows_selected": [
+        {
+          "source_file": "UNSW_2018_IoT_Botnet_Full5pc_4.csv",
+          "source_row_index": 577114,
+          "duplicate_id": "bot_iot:raw:a13ebbc07eab15863378ef1e39cda3c010686ad49f7d15f0728dc621d0b0d66c",
+          "group_id": "bot_iot:session:141a451fd3bccd29e8209c43192d7faf1bb8be2d7b725f1f84019b62b4b4c749"
+        },
+        {
+          "source_file": "UNSW_2018_IoT_Botnet_Full5pc_4.csv",
+          "source_row_index": 577001,
+          "duplicate_id": "bot_iot:raw:a9510f93b4b38d2c5135d5617356c5b3b42ee656002d302a6b0d3022236250c8",
+          "group_id": "bot_iot:session:0ef98d9e885938cd1ab6b22ffa9d9f56b46c1a9eba9ba517460400b451ea054d"
+        },
+        {
+          "source_file": "UNSW_2018_IoT_Botnet_Full5pc_4.csv",
+          "source_row_index": 577316,
+          "duplicate_id": "bot_iot:raw:a672e114a70916ec6122f3b8ed0870ed771e1829c3f81386fd987c542d91f00f",
+          "group_id": "bot_iot:session:0f8d7407e48e44f4e2014d0e67924257b784e2236398a35d8f61417247d3a417"
+        },
+        {
+          "source_file": "UNSW_2018_IoT_Botnet_Full5pc_4.csv",
+          "source_row_index": 577120,
+          "duplicate_id": "bot_iot:raw:22dcdbfb52ad42f6911238c074306ea11da3401694b18662723c5a88c1bc78fa",
+          "group_id": "bot_iot:session:4dc5ce579b8d2e02c91d2a5d32d54ffa159160624bb44b186ac06993f7574da2"
+        },
+        {
+          "source_file": "UNSW_2018_IoT_Botnet_Full5pc_4.csv",
+          "source_row_index": 576906,
+          "duplicate_id": "bot_iot:raw:7d967bab998ce674c884277bf77f3c8ac4f8a96aa6bdb9ffe9e3acf4ef7b2f64",
+          "group_id": "bot_iot:session:c5aa5786cc86d53d4efba994c0c78f2967b4137dd06f1a66c520ed68019c064e"
+        }
+      ],
+      "omni_failure_cause": "With only 5 benign rows drawn across the 30k BoT slice in Omni, the 10% validation split (2,400 attack rows) receives 0 benign rows, failing the strict per-domain support check: bot_iot validation partition lacks both classes: {'1': 2400}."
+    }
+  },
+  "cic_ids2017_audit": {
+    "files_considered": [
+      "Friday-WorkingHours-Afternoon-DDos.pcap_ISCX.csv",
+      "Friday-WorkingHours-Afternoon-PortScan.pcap_ISCX.csv",
+      "Friday-WorkingHours-Morning.pcap_ISCX.csv",
+      "Monday-WorkingHours.pcap_ISCX.csv",
+      "Thursday-WorkingHours-Afternoon-Infilteration.pcap_ISCX.csv",
+      "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
+      "Tuesday-WorkingHours.pcap_ISCX.csv",
+      "Wednesday-workingHours.pcap_ISCX.csv"
+    ],
+    "file_hashes": {
+      "Friday-WorkingHours-Afternoon-DDos.pcap_ISCX.csv": "sha256:6ff1580f5f81c0ae28a26f7631721018577f5f7c5e0feac28b795fcfe7b411ee",
+      "Friday-WorkingHours-Afternoon-PortScan.pcap_ISCX.csv": "sha256:ca1824c51bfbb7b3c72290a11be04366ba8815878c6a1cc5c44cb1cee269e99b",
+      "Friday-WorkingHours-Morning.pcap_ISCX.csv": "sha256:53a41c24d570ea83b7ac55b2e94df94e7a8216aeb80a2af0246b6bc8bb543000",
+      "Monday-WorkingHours.pcap_ISCX.csv": "sha256:852c4beb34eda186f32561fa79df7a0747e92e1a6535b01270820dd9ffe17f34",
+      "Thursday-WorkingHours-Afternoon-Infilteration.pcap_ISCX.csv": "sha256:6bcda3857c2504676034e3ea57762d38393cc734cb377a726bd5cb153961b1b5",
+      "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv": "sha256:d67066211fb1689c78406f1506f4c44704ecb92088353d5c96d96d6474eb819d",
+      "Tuesday-WorkingHours.pcap_ISCX.csv": "sha256:52b8692ae8c7d2ed04671fe2b98335693c0a92c7ab157d8c8b534d6523080851",
+      "Wednesday-workingHours.pcap_ISCX.csv": "sha256:893c27dc968bf7a8adef1689f90be55ca4a4dc3088fb63d6ff247ac56856df2a"
+    },
+    "file_row_counts": {
+      "Friday-WorkingHours-Afternoon-DDos.pcap_ISCX.csv": {
+        "total_rows": 225745,
+        "valid_rows": 225743
+      },
+      "Friday-WorkingHours-Afternoon-PortScan.pcap_ISCX.csv": {
+        "total_rows": 286467,
+        "valid_rows": 286431
+      },
+      "Friday-WorkingHours-Morning.pcap_ISCX.csv": {
+        "total_rows": 191033,
+        "valid_rows": 191024
+      },
+      "Monday-WorkingHours.pcap_ISCX.csv": {
+        "total_rows": 529918,
+        "valid_rows": 529903
+      },
+      "Thursday-WorkingHours-Afternoon-Infilteration.pcap_ISCX.csv": {
+        "total_rows": 288602,
+        "valid_rows": 288598
+      },
+      "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv": {
+        "total_rows": 170366,
+        "valid_rows": 170355
+      },
+      "Tuesday-WorkingHours.pcap_ISCX.csv": {
+        "total_rows": 445909,
+        "valid_rows": 445892
+      },
+      "Wednesday-workingHours.pcap_ISCX.csv": {
+        "total_rows": 692703,
+        "valid_rows": 692682
+      }
+    },
+    "total_rows_considered": 2830743,
+    "total_valid_rows": 2830628,
+    "excluded_invalid_numerics": 115,
+    "fingerprint_statistics": {
+      "unique_fingerprints": 2521557,
+      "singleton_fingerprints": 2426084,
+      "repeated_fingerprints": 95473,
+      "same_label_repeated_groups": 94775,
+      "same_label_removable_duplicates": 302749,
+      "binary_conflict_groups": 698,
+      "binary_conflict_rows": 7020,
+      "binary_conflict_benign_rows": 736,
+      "binary_conflict_attack_rows": 6284,
+      "intra_file_conflict_groups": 34,
+      "inter_file_conflict_groups": 664,
+      "attack_name_divergence_groups": 0
+    },
+    "sample_50k_reproduction": {
+      "sample_n": 50000,
+      "seed": 42,
+      "conflicting_fingerprints_count": 1,
+      "conflicts": [
+        {
+          "fingerprint": "cic_ids2017:raw:5907da5b606535acd206afd775d19a704e93eac417c7b6f8e6feca2a8491d160",
+          "occurrences_in_sample": 2,
+          "rows": [
+            {
+              "sample_index": 21350,
+              "source_file": "Friday-WorkingHours-Afternoon-PortScan.pcap_ISCX.csv",
+              "source_row_index": 244014,
+              "binary_label": 1
+            },
+            {
+              "sample_index": 33097,
+              "source_file": "Thursday-WorkingHours-Afternoon-Infilteration.pcap_ISCX.csv",
+              "source_row_index": 50967,
+              "binary_label": 0
+            }
+          ]
+        }
+      ],
+      "preflight_failure_cause": "In the seed-42 50k sample, 1 fingerprint(s) contained both benign (0) and attack (1) rows. The strict duplicate check `(yv.groupby(meta.duplicate_id).nunique() > 1)` immediately aborted execution: 'Identical raw records have conflicting labels; resolve source annotations before training'."
+    }
+  }
+}
