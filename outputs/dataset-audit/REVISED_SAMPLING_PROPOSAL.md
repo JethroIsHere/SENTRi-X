@@ -1,114 +1,26 @@
-# SENTRi-X: Revised Sampling, Identity & Partitioning Proposal (v2)
+# SENTRi-X sampling and identity proposal (v3)
 
-**Supersedes**: `outputs/dataset-audit/run_20261003_103150/SAMPLING_AND_IDENTITY_PROPOSAL.md`  
-**Date**: 3 October 2026  
-**Target Milestone**: Prompt 2 (Research Retraining & Cross-Domain Evaluation)  
+Reviewed against commit `557a68c` on 3 October 2026. **The shared protocol below remains proposed work. The audit repair does not implement it.**
 
----
+This replaces the v2 proposal, which contradicted itself by promising to retain all ambiguous CIC records and then recommending keep-first deletion. Equal measured fields do not establish which source label is correct, and selecting the first record is not an ambiguity-resolution method.
 
-## 1. Context
+The complete implementation specification is maintained in [SAMPLING_AND_IDENTITY_PROPOSAL.md](run_20261003_103150/SAMPLING_AND_IDENTITY_PROPOSAL.md). The latest-push findings and executed checks are in [REVISED_AUDIT_REPORT.md](REVISED_AUDIT_REPORT.md).
 
-Prompt 1 corrections resolved software regressions, duplicate leakage, and offline/backend prediction parity (86/86 tests passing). Running preflight against the actual raw datasets identified two data blockers:
+## Required behavior
 
-1. **BoT-IoT**: Only 477 benign rows in 3.67M total (0.013%). Uniform reservoir sampling at K=50,000 draws ~4–6 benign rows, making stratified validation partitioning impossible.
-2. **CIC-IDS2017**: Raw CSVs lack Source IP, Destination IP, Source Port, Protocol, and Timestamp. 698 measurement fingerprint groups (7,020 rows) carry both BENIGN and attack labels. The pipeline's strict duplicate check rejects these as conflicting annotations.
+1. **CIC identity and grouping:** retain eligible source observations and original labels; identify them by domain, file hash and original row position. Use measurement fingerprints as conservative partition groups where physical identity is unavailable. Keep same-label repeats and mixed-label groups together rather than choosing one representative label.
+2. **BoT sampling:** freeze source-group assignments before within-partition sampling under the recommended design. Use bounded class-aware fitting samples. Evaluate full heldout partitions in batches or a declared within-partition probability sample with recorded inclusion probabilities and weights. Do not hard-code 477.
+3. **Allocation and support:** preserve whole groups and enforce original class/domain support with a deterministic documented allocation rule. Report infeasible configurations. Two mixed groups in the source do not by themselves guarantee that both subsequent allocations are feasible.
+4. **Evaluation:** report unweighted enriched-sample metrics separately from source-heldout-population estimates. Carry valid design weights through all reported metric variants, confusion totals and prediction evidence. Declare the validation/early-stopping/threshold criterion before fitting; keep exam results out of selection.
+5. **Shared integration:** apply the policy consistently in provenance, adapters, sampling, splits, Omni, preflight, training/notebooks, evaluation, packaging and backend metric labels. Version manifests and reject incompatible packages explicitly.
 
----
+The current dual-reservoir implementation is an intermediate class-sampling change, not the complete protocol. It stores all benign rows before trimming and the current evaluator does not implement population weighting. The current keep-first conflict handling is also not the recommended CIC behavior.
 
-## 2. BoT-IoT: Dual-Reservoir Class-Guaranteed Ingestion
+## Next execution sequence
 
-### Mechanism
-Instead of a single uniform reservoir where minority records are lost in a 99.987% attack flood, the BoT-IoT adapter maintains two deterministic, bounded reservoirs:
+1. Run audit v3 in a fresh directory on the laptop using [AUDIT_CORRECTIONS.md](../../AUDIT_CORRECTIONS.md). Preserve raw-data files and collect the new JSON and log.
+2. Implement and verify the shared protocol, including bounded minority overflow, retained CIC multiplicity, rare mixed groups, disjointness and evaluation-weight arithmetic.
+3. Rerun the full software suite and actual-data preflight for the exact declared training configuration. Commit the fresh evidence, including source hashes, class counts and measured resources.
+4. Once those checks and the protocol are reviewed, proceed to sequential Prompt 2 candidate training and evaluation. Pi feature parity, physical attack/Snort comparisons and expert evaluation remain later milestones.
 
-1. **Benign Reservoir**: Capacity K_ben = 477 (preserves all available valid benign records).
-2. **Attack Reservoir**: Capacity K_att = K - K_ben (e.g. 49,523 rows for K=50,000), sampled uniformly via Algorithm R across all attack rows.
-
-### Partition Allocation
-All 477 benign groups and K_att attack groups are partitioned before model training:
-
-| Partition | Benign Groups | Attack Groups | Purpose |
-|:----------|:-------------|:-------------|:--------|
-| Study (20%) | ~95 | ~9,905 | Train + Validation pool |
-| → Training (90% of Study) | ~85 | ~8,915 | Model fitting |
-| → Validation (10% of Study) | ~10 | ~990 | Early stopping / hyperparameters |
-| Exam (80%) | ~382 | ~39,618 | Final evaluation holdout |
-
-Every partition receives ≥10 benign groups, well above the `min(counts) >= 2` requirement.
-
-### Evaluation Reporting
-The test holdout prevalence (~0.955% benign) is enriched relative to the raw source prevalence (0.013%). Metrics must be reported in two ways:
-
-1. **Enriched Empirical Metrics**: Raw accuracy, precision, recall, and F1 on the test holdout as-is.
-2. **Source-Dataset-Calibrated Metrics**: Precision and F1 recalculated using importance weights to reflect the 0.013% benign prevalence of the *source dataset*.
-
-> **Note**: These weights calibrate to the BoT-IoT dataset's observed prevalence. They do not establish the benign prevalence of any live IoT network deployment.
-
-### What This Does NOT Do
-- Does not extrapolate resource requirements beyond what is measured.
-- Does not claim BoT-IoT prevalence represents any particular live network.
-- Does not change the existing `ReservoirBuffer` API; it extends it with `StratifiedReservoirBuffer`.
-
----
-
-## 3. CIC-IDS2017: Measurement-Fingerprint Grouping (Retain All Records)
-
-### Rationale
-The user review established that:
-- The exported evidence correctly classifies the 7,020 conflicting rows as `UNRESOLVED_AMBIGUITY`.
-- The current splitter (`_partition`) successfully handles mixed-label groups when row identities are separate. A verification fixture confirmed this with 20 mixed-label groups (200 rows) across disjoint partitions.
-- Deleting all 7,020 rows could bias evaluation by systematically removing specific flow patterns.
-
-### Revised Protocol
-Instead of quarantining (deleting) the 7,020 ambiguous records, the CIC-IDS2017 adapter:
-
-1. **Retains all records** with their original source labels.
-2. **Groups rows by measurement fingerprint** (`duplicate_id`). Rows with identical measurements share the same `duplicate_id` but have distinct source identities (`source_flow_id = cic_ids2017:{file}:{hash}:row:{index}`).
-3. **The splitter assigns whole fingerprint groups** to a single partition via `_partition`'s group-stratified splitting. This prevents the same measurement pattern from appearing in both train and test.
-4. **Mixed-label fingerprint groups** (containing both benign and attack rows) receive profile `"0|1"`. As long as there are ≥2 such groups (there are 698), sklearn's stratified split succeeds.
-5. **The existing deduplication** (`keep_first_disjoint`) removes exact-duplicate rows within each fingerprint group, keeping one representative per fingerprint. For mixed-label groups, the first row encountered is kept.
-
-### What Changes in the CIC Adapter
-- **No records are deleted**. The 7,020 rows remain in the candidate pool.
-- **No new quarantine logic** is needed. The existing `_prepare` function already handles deduplication.
-- **The conflict check in `_prepare`** (line 181-183 of `splits.py`) must be relaxed for CIC-IDS2017: when rows share a `duplicate_id` but have different labels, this is expected ambiguity, not a data error. The deduplication step (`keep="first"`) resolves it by keeping one representative.
-
-### Implementation Detail
-In `_prepare`, the current conflict check:
-```python
-conflict = yv.groupby(meta.duplicate_id).nunique()
-if (conflict > 1).any():
-    raise ValueError("Identical raw records have conflicting labels; ...")
-```
-
-Should be modified to:
-```python
-conflict = yv.groupby(meta.duplicate_id).nunique()
-conflicting_ids = conflict[conflict > 1].index
-if len(conflicting_ids) > 0:
-    # Log the count but don't abort — deduplication (keep="first") resolves this
-    n_conflicting = int(meta.duplicate_id.isin(conflicting_ids).sum())
-    # Record in exclusion metadata rather than raising
-```
-
-The `keep="first"` deduplication that follows immediately after already resolves the conflict: only one row per `duplicate_id` survives, so each fingerprint maps to exactly one label in the final training data.
-
----
-
-## 4. Implementation Summary
-
-| Component | Change | Rationale |
-|:----------|:-------|:----------|
-| `sentrix_ml/sampler.py` | Add `StratifiedReservoirBuffer` | Dual-reservoir for BoT-IoT minority guarantee |
-| `sentrix_ml/adapters/bot_iot.py` | Use `StratifiedReservoirBuffer` | All 477 benign records enter sample |
-| `sentrix_ml/splits.py` `_prepare` | Relax conflict check to log + deduplicate | CIC mixed-label fingerprints are expected |
-| `sentrix_ml/adapters/cic_ids2017.py` | No deletion of ambiguous rows | Retain all 7,020 records with grouping |
-| `tools/audit_dataset_readiness.py` | Two-pass BoT scan, seed forwarding, numeric validation | Correct audit accounting |
-| `tests/` | Add mixed-label group splitting fixture | Verify splitter handles the CIC scenario |
-
----
-
-## 5. Decision Required
-
-1. **Approve BoT-IoT dual-reservoir** with source-dataset-calibrated evaluation metrics.
-2. **Approve CIC-IDS2017 retain-and-group** with relaxed conflict check and `keep="first"` deduplication.
-3. **Then proceed** to implement, test, rerun preflight, and unblock Prompt 2.
+An audit exit code of zero or a class-support READY result alone does not clear these research requirements.
