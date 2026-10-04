@@ -63,4 +63,7 @@ SENTRi-X*.html
 
 # ML pipeline package and test suite (explicitly tracked)
 !sentrix_ml/
-!tests/
+!tests/
+!models/**/prediction_evidence.csv
+!outputs/**
+
