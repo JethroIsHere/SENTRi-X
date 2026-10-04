@@ -157,7 +157,10 @@ class EvaluationResult:
     def save(self, path: str | Path) -> None:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
+        # newline="\n": artifact bytes must be identical on every platform so
+        # recorded SHA256 hashes validate on any checkout (Windows text mode
+        # would otherwise emit CRLF and break hashes after git normalization).
+        with open(path, "w", encoding="utf-8", newline="\n") as f:
             json.dump(self.to_dict(), f, indent=2)
 
     @staticmethod
@@ -334,7 +337,9 @@ def save_prediction_evidence(
                                             inclusion_probabilities, sampling_weights))
 
     with open(path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
+        # lineterminator="\n": the csv module defaults to \r\n even with
+        # newline=""; artifact bytes must be platform-independent for hashes.
+        writer = csv.writer(f, lineterminator="\n")
         if has_extras:
             header = [
                 "sample_id", "domain", "source_file", "source_row_index", "group_id",

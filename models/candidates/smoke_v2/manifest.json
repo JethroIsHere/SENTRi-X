@@ -56,5 +56,6 @@
   "xai_background_hash": null,
   "created_at": "2026-09-30T00:46:57.510698+00:00",
   "source_revision": "",
-  "notes": "Automated smoke validation package"
+  "notes": "Automated smoke validation package",
+  "split_manifest_hash": "sha256:f10651b666d149327a8574454f9eb0aad55cf521749c391fd3ab8d5da3808f4a"
 }

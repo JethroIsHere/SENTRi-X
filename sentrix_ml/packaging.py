@@ -97,7 +97,9 @@ class ModelManifest:
     def save(self, path: str | Path) -> None:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
+        # newline="\n": keep artifact bytes platform-independent so recorded
+        # SHA256 hashes validate on any checkout.
+        with open(path, "w", encoding="utf-8", newline="\n") as f:
             json.dump(asdict(self), f, indent=2)
 
     @staticmethod

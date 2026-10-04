@@ -87,7 +87,9 @@ class SplitManifest:
         for k in ("source_file_hashes",):
             data[k] = {str(k_sub): str(v_sub) for k_sub, v_sub in data[k].items()}
 
-        with open(path, "w", encoding="utf-8") as f:
+        # newline="\n": keep artifact bytes platform-independent so recorded
+        # SHA256 hashes validate on any checkout.
+        with open(path, "w", encoding="utf-8", newline="\n") as f:
             json.dump(data, f, indent=2)
 
     @staticmethod

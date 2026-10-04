@@ -10,9 +10,9 @@
   "cnn_hash": "sha256:6adc12a1900148267e0d32649c7b4090cd8c1bfea269d0cf8062ddfd395f5679",
   "preprocessor_hash": "sha256:fc80c1eb5dbc7e9d601bcf4532fcc55d15067569e1e84c4e66bda2f30e25a913",
   "split_manifest_file": "split_manifest.json",
-  "split_manifest_hash": "sha256:03a633bcb4a90297f39286076ac168ef89121f2399e151a9f67a3d3907e03aa4",
+  "split_manifest_hash": "sha256:6f9f4e56d1a66621f875364a1676065e0f2b9fefa87e533d866e192a0fc0268f",
   "evidence_file": "prediction_evidence.csv",
-  "evidence_hash": "sha256:3b2b47196d059053cf0c34b55d284f455aed7c9d4a55e21c7429036b227e088f",
+  "evidence_hash": "sha256:5f677fafd5d74de0151dcae07c262658706918cbe8b500fcd52845a4fef8f953",
   "modes": {
     "rf": {
       "accuracy": 0.9889160974352365,

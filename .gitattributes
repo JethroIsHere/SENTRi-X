@@ -1,0 +1,10 @@
+# Byte-identical artifacts: model packages record SHA256 hashes of their exact
+# file bytes. Git must never normalize line endings (or otherwise touch the
+# bytes) of these files, or validate_package() will fail on a fresh clone.
+# (Incident 2026-10-04: Windows CRLF writes were hashed on the training laptop,
+# then normalized to LF on commit, breaking every recorded text-artifact hash.)
+models/candidates/** -text
+outputs/** -text
+*.h5 -text
+*.joblib -text
+*.pkl -text
