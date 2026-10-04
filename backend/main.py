@@ -91,9 +91,19 @@ PACKAGE_ALIASES = {
 
 
 def resolve_package_dir(target: str) -> str:
-    """Map a logical model name to its committed candidate package directory."""
+    """Map a logical model name to its candidate package directory.
+
+    Prefers an explicitly activated package at models/candidates/<target>
+    (written by the activation/rollback workflow); falls back to the
+    versioned committed package (models/candidates/<target>_v2) for fresh
+    clones where no manual activation exists.
+    """
+    base = os.path.join(os.path.dirname(__file__), "..", "models", "candidates")
+    direct = os.path.join(base, target)
+    if os.path.exists(os.path.join(direct, "manifest.json")):
+        return direct
     actual = PACKAGE_ALIASES.get(target, target)
-    return os.path.join(os.path.dirname(__file__), "..", "models", "candidates", actual)
+    return os.path.join(base, actual)
 
 engine = ActiveEngine()
 engine_lock = RLock()
@@ -104,6 +114,7 @@ explainability = {
     "shap_values": None,
     "X_sample": None,
     "ripper_rules": None,
+    "ripper_fidelity": None,
     "lime_explainer": None,
     "lime_feature_names": None,
     "shap_explainer": None,
@@ -154,12 +165,14 @@ def initialize_lime_explainer():
 def generate_xai_background(n_samples: int = 2000) -> pd.DataFrame | None:
     """Generate synthetic background data from the fitted scaler's statistics.
 
-    Samples each feature from Normal(mean, scale) using the active package's
-    StandardScaler, clipped to valid ranges (non-negative for counts/bytes,
-    Bernoulli for one-hot flags). Used for LIME background and RIPPER
-    surrogate training when no stored background data exists.
-    Returns a DataFrame in RAW feature space (pre-scaler), or None if the
-    scaler/RF model is unavailable.
+    Samples numeric features from Normal(mean, scale), clipped to valid
+    ranges. One-hot groups are sampled as VALID mutually-exclusive choices
+    (a flow is TCP xor UDP xor other; exactly one conn_state or none) using
+    the scaler means as category probabilities -- independent Bernoulli
+    sampling produced impossible flows (TCP+UDP, multiple states).
+    Used for LIME background and RIPPER surrogate training when no stored
+    background data exists. Returns a DataFrame in RAW feature space
+    (pre-scaler), or None if the scaler/RF model is unavailable.
     """
     if engine.scaler is None or engine.rf_model is None:
         return None
@@ -176,12 +189,39 @@ def generate_xai_background(n_samples: int = 2000) -> pd.DataFrame | None:
         binary_feats = set(PROTO_FEATURE_NAMES) | set(CONN_STATE_FEATURE_NAMES)
         for i, feat in enumerate(cols):
             if feat in binary_feats:
-                p = float(np.clip(means[i], 0.0, 1.0))
-                data[feat] = rng.binomial(1, p, size=n_samples).astype(float)
-            else:
-                vals = rng.normal(means[i], scales[i], size=n_samples)
-                data[feat] = np.clip(vals, 0.0, None)
-        return pd.DataFrame(data, columns=cols)
+                continue  # handled as mutually-exclusive groups below
+            vals = rng.normal(means[i], scales[i], size=n_samples)
+            data[feat] = np.clip(vals, 0.0, None)
+
+        # Protocol: exactly one of TCP / UDP / other (neither flag set)
+        p_tcp = float(np.clip(means[cols.index("proto_tcp")], 0.0, 1.0))
+        p_udp = float(np.clip(means[cols.index("proto_udp")], 0.0, 1.0))
+        p_other = max(0.0, 1.0 - p_tcp - p_udp)
+        tot = p_tcp + p_udp + p_other or 1.0
+        proto = rng.choice(
+            ["tcp", "udp", "other"], size=n_samples,
+            p=[p_tcp / tot, p_udp / tot, p_other / tot],
+        )
+        data["proto_tcp"] = (proto == "tcp").astype(float)
+        data["proto_udp"] = (proto == "udp").astype(float)
+
+        # Connection state: exactly one of the 12 states, or none
+        cs_probs = np.array(
+            [float(np.clip(means[cols.index(f)], 0.0, 1.0)) for f in CONN_STATE_FEATURE_NAMES]
+        )
+        p_none = max(0.0, 1.0 - cs_probs.sum())
+        probs = np.append(cs_probs, p_none)
+        probs = probs / (probs.sum() or 1.0)
+        cs_choice = rng.choice(len(probs), size=n_samples, p=probs)
+        for j, feat in enumerate(CONN_STATE_FEATURE_NAMES):
+            data[feat] = (cs_choice == j).astype(float)
+        # (cs_choice == 12 means "none" -- all flags stay 0)
+
+        df = pd.DataFrame(data, columns=cols)
+        # Sanity: no row may have both proto flags or >1 conn_state
+        assert ((df["proto_tcp"] + df["proto_udp"]) <= 1).all()
+        assert (df[list(CONN_STATE_FEATURE_NAMES)].sum(axis=1) <= 1).all()
+        return df
     except Exception as e:
         print(f"Failed to generate XAI background data: {e}")
         return None
@@ -201,6 +241,7 @@ def initialize_xai_artifacts():
     explainability["X_sample"] = None
     explainability["shap_values"] = None
     explainability["ripper_rules"] = None
+    explainability["ripper_fidelity"] = None
     explainability["lime_explainer"] = None
     explainability["lime_feature_names"] = None
     explainability["shap_explainer"] = None
@@ -236,7 +277,6 @@ def initialize_xai_artifacts():
         import wittgenstein as lw
         X_scaled = engine.scaler.transform(bg.to_numpy(dtype=float))
         y_bg = engine.rf_model.predict(X_scaled)
-        # Balance classes for rule learning; cap size for speed
         clf = lw.RIPPER()
         clf.fit(bg, y_bg)
         rules_text = str(clf.ruleset_) if hasattr(clf, "ruleset_") else ""
@@ -245,9 +285,17 @@ def initialize_xai_artifacts():
             rules_text = "\n".join(str(r) for r in getattr(clf, "ruleset_", []))
         explainability["ripper_rules"] = rules_text or "No rules learned."
         n_rules = len(getattr(clf, "ruleset_", []))
-        print(f"RIPPER surrogate trained: {n_rules} rules.")
+        # Fidelity: agreement between RIPPER surrogate and RF on background
+        try:
+            y_rip = clf.predict(bg)
+            fidelity = float(np.mean(np.asarray(y_rip).ravel() == np.asarray(y_bg).ravel()))
+        except Exception:
+            fidelity = float("nan")
+        explainability["ripper_fidelity"] = fidelity
+        print(f"RIPPER surrogate trained: {n_rules} rules, fidelity vs RF: {fidelity:.3f}.")
     except Exception as e:
         explainability["ripper_rules"] = None
+        explainability["ripper_fidelity"] = None
         print(f"XAI init: RIPPER setup failed (install 'wittgenstein'): {e}")
 
 
@@ -266,13 +314,22 @@ def compute_shap_explanation(inference_df: pd.DataFrame) -> dict:
             row = row.apply(pd.to_numeric, errors="coerce").fillna(0.0)
             scaled = engine.scaler.transform(row.to_numpy(dtype=float)) if engine.scaler else row.to_numpy(dtype=float)
             sv = explainer.shap_values(scaled)
-            # shap returns list per class for RF classifier
+            # Select attack-class values BEFORE ranking. Newer shap returns
+            # a single (samples, features, classes) array; older returns a
+            # list of (samples, features) per class.
             if isinstance(sv, list):
-                arr = sv[ATTACK_CLASS_INDEX] if ATTACK_CLASS_INDEX < len(sv) else sv[-1]
+                arr = np.asarray(sv[ATTACK_CLASS_INDEX] if ATTACK_CLASS_INDEX < len(sv) else sv[-1])
             else:
-                arr = sv
-            vec = np.asarray(arr).reshape(-1)
+                arr = np.asarray(sv)
+                if arr.ndim == 3:
+                    # (samples, features, classes) -> attack class slice
+                    if arr.shape[2] <= ATTACK_CLASS_INDEX:
+                        raise ValueError(f"SHAP classes dim {arr.shape[2]} < attack index")
+                    arr = arr[:, :, ATTACK_CLASS_INDEX]
+            vec = arr.reshape(-1)
             names = list(EXPECTED_FEATURES)
+            if vec.shape[0] != len(names):
+                raise ValueError(f"SHAP vector length {vec.shape[0]} != {len(names)} features")
             top = np.argsort(np.abs(vec))[-5:][::-1]
             return {
                 "values": [{"f": names[i], "v": round(float(vec[i]), 4)} for i in top],
@@ -677,8 +734,10 @@ def get_model_metrics():
 @app.get('/api/explainability/ripper')
 def get_ripper_rules():
     rules = explainability.get('ripper_rules') or ''
+    fidelity = explainability.get('ripper_fidelity')
     scope = 'runtime_ripper_surrogate' if rules else 'unavailable'
     return {'rules': rules, 'scope': scope,
+            'fidelity_vs_rf': fidelity,
             'evaluated_on_live_flow': False,
             'note': 'RIPPER (wittgenstein) surrogate trained on RF-labeled synthetic background at package activation.' if rules else 'RIPPER rules not available; train at package activation (install wittgenstein).'}
 
