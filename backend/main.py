@@ -115,6 +115,7 @@ explainability = {
     "X_sample": None,
     "ripper_rules": None,
     "ripper_fidelity": None,
+    "ripper_fidelity_note": None,
     "lime_explainer": None,
     "lime_feature_names": None,
     "shap_explainer": None,
@@ -242,6 +243,7 @@ def initialize_xai_artifacts():
     explainability["shap_values"] = None
     explainability["ripper_rules"] = None
     explainability["ripper_fidelity"] = None
+    explainability["ripper_fidelity_note"] = None
     explainability["lime_explainer"] = None
     explainability["lime_feature_names"] = None
     explainability["shap_explainer"] = None
@@ -272,30 +274,63 @@ def initialize_xai_artifacts():
         explainability["shap_explainer"] = None
         print(f"XAI init: SHAP setup failed (install 'shap'): {e}")
 
-    # 4. RIPPER surrogate rules (wittgenstein) trained on RF-labeled background
+    # 4. RIPPER surrogate rules (wittgenstein) trained on RF-labeled background.
+    #
+    # LIMITATION (documented for expert review): the background rows are
+    # SYNTHETIC, sampled from the fitted scaler's per-feature statistics --
+    # not representative training rows. The committed packages do not include
+    # a training sample. Future package versions should bundle a held-out
+    # training sample for faithful surrogate training and evaluation.
+    # Within that constraint, fidelity is measured honestly: RIPPER trains on
+    # one split and is evaluated on a SEPARATE held-out split, so the score
+    # reflects generalization to unseen synthetic rows, not training-set
+    # memorization.
     try:
         import wittgenstein as lw
-        X_scaled = engine.scaler.transform(bg.to_numpy(dtype=float))
-        y_bg = engine.rf_model.predict(X_scaled)
+        # Split: 75% for RIPPER training, 25% held-out for fidelity
+        n_bg = len(bg)
+        n_train = int(n_bg * 0.75)
+        bg_train = bg.iloc[:n_train].reset_index(drop=True)
+        bg_heldout = bg.iloc[n_train:].reset_index(drop=True)
+
+        X_train_scaled = engine.scaler.transform(bg_train.to_numpy(dtype=float))
+        y_train = engine.rf_model.predict(X_train_scaled)
         clf = lw.RIPPER()
-        clf.fit(bg, y_bg)
+        clf.fit(bg_train, y_train)
         rules_text = str(clf.ruleset_) if hasattr(clf, "ruleset_") else ""
         if not rules_text:
             # Fallback: render rules manually
             rules_text = "\n".join(str(r) for r in getattr(clf, "ruleset_", []))
         explainability["ripper_rules"] = rules_text or "No rules learned."
         n_rules = len(getattr(clf, "ruleset_", []))
-        # Fidelity: agreement between RIPPER surrogate and RF on background
+
+        # Fidelity on HELD-OUT rows (not training rows)
+        fidelity = None
+        fidelity_note = ""
         try:
-            y_rip = clf.predict(bg)
-            fidelity = float(np.mean(np.asarray(y_rip).ravel() == np.asarray(y_bg).ravel()))
-        except Exception:
-            fidelity = float("nan")
+            X_held_scaled = engine.scaler.transform(bg_heldout.to_numpy(dtype=float))
+            y_held_rf = engine.rf_model.predict(X_held_scaled)
+            y_held_rip = clf.predict(bg_heldout)
+            fidelity = float(np.mean(
+                np.asarray(y_held_rip).ravel() == np.asarray(y_held_rf).ravel()
+            ))
+            fidelity_note = (
+                f"Agreement on {len(bg_heldout)} held-out synthetic rows "
+                f"(separate from {len(bg_train)} training rows)."
+            )
+        except Exception as e:
+            # JSON null, not NaN: NaN is invalid in standard JSON.
+            fidelity = None
+            fidelity_note = f"Fidelity measurement failed: {e}"
+            print(f"RIPPER fidelity measurement failed: {e}")
         explainability["ripper_fidelity"] = fidelity
-        print(f"RIPPER surrogate trained: {n_rules} rules, fidelity vs RF: {fidelity:.3f}.")
+        explainability["ripper_fidelity_note"] = fidelity_note
+        fid_str = f"{fidelity:.3f}" if fidelity is not None else "unavailable"
+        print(f"RIPPER surrogate trained: {n_rules} rules, held-out fidelity vs RF: {fid_str}.")
     except Exception as e:
         explainability["ripper_rules"] = None
         explainability["ripper_fidelity"] = None
+        explainability["ripper_fidelity_note"] = f"RIPPER training failed: {e}"
         print(f"XAI init: RIPPER setup failed (install 'wittgenstein'): {e}")
 
 
@@ -735,9 +770,13 @@ def get_model_metrics():
 def get_ripper_rules():
     rules = explainability.get('ripper_rules') or ''
     fidelity = explainability.get('ripper_fidelity')
+    fidelity_note = explainability.get('ripper_fidelity_note') or ''
     scope = 'runtime_ripper_surrogate' if rules else 'unavailable'
+    # fidelity is None (JSON null) when measurement failed; never NaN.
     return {'rules': rules, 'scope': scope,
             'fidelity_vs_rf': fidelity,
+            'fidelity_note': fidelity_note,
+            'background': 'synthetic_from_scaler_stats',
             'evaluated_on_live_flow': False,
             'note': 'RIPPER (wittgenstein) surrogate trained on RF-labeled synthetic background at package activation.' if rules else 'RIPPER rules not available; train at package activation (install wittgenstein).'}
 
