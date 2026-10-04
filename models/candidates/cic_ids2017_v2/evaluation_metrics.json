@@ -1,0 +1,67 @@
+{
+  "model_domain": "cic_ids2017",
+  "run_type": "full",
+  "dataset": "cic_ids2017",
+  "evaluation_split": "adaptation_exam_holdout",
+  "sample_count": 38795,
+  "class_0_count": 31631,
+  "class_1_count": 7164,
+  "rf_hash": "sha256:2bf0afa1ad180d877ef86c58238797ba68089b10cfee21f13935193b8a453338",
+  "cnn_hash": "sha256:6adc12a1900148267e0d32649c7b4090cd8c1bfea269d0cf8062ddfd395f5679",
+  "preprocessor_hash": "sha256:fc80c1eb5dbc7e9d601bcf4532fcc55d15067569e1e84c4e66bda2f30e25a913",
+  "split_manifest_file": "split_manifest.json",
+  "split_manifest_hash": "sha256:03a633bcb4a90297f39286076ac168ef89121f2399e151a9f67a3d3907e03aa4",
+  "evidence_file": "prediction_evidence.csv",
+  "evidence_hash": "sha256:3b2b47196d059053cf0c34b55d284f455aed7c9d4a55e21c7429036b227e088f",
+  "modes": {
+    "rf": {
+      "accuracy": 0.9889160974352365,
+      "precision": 0.9694645844952593,
+      "recall": 0.9705471803461754,
+      "f1": 0.9700055803571429,
+      "roc_auc": 0.9943843939998999,
+      "specificity": 0.9930764123802599,
+      "false_positive_rate": 0.006923587619740128,
+      "confusion_matrix": {
+        "tn": 31412,
+        "fp": 219,
+        "fn": 211,
+        "tp": 6953
+      }
+    },
+    "cnn": {
+      "accuracy": 0.9185977574429695,
+      "precision": 0.9229307432432432,
+      "recall": 0.6101340033500837,
+      "f1": 0.7346218487394958,
+      "roc_auc": 0.9550111153140289,
+      "specificity": 0.9884606873004331,
+      "false_positive_rate": 0.011539312699566881,
+      "confusion_matrix": {
+        "tn": 31266,
+        "fp": 365,
+        "fn": 2793,
+        "tp": 4371
+      }
+    },
+    "hybrid": {
+      "accuracy": 0.9883232375306096,
+      "precision": 0.9790149892933618,
+      "recall": 0.957286432160804,
+      "f1": 0.9680287952572517,
+      "roc_auc": 0.9929748896760577,
+      "specificity": 0.9953526603648319,
+      "false_positive_rate": 0.004647339635168031,
+      "confusion_matrix": {
+        "tn": 31484,
+        "fp": 147,
+        "fn": 306,
+        "tp": 6858
+      }
+    }
+  },
+  "weighted_modes": {},
+  "has_sampling_weights": false,
+  "population_weights": {},
+  "per_domain": {}
+}
