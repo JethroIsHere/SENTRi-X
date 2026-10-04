@@ -1,8 +1,8 @@
 # SENTRi-X: Cross-Domain Hybrid Intrusion Detection System
 
-> Current pipeline status: see [PROMPT_1_VERIFICATION_REPORT.md](PROMPT_1_VERIFICATION_REPORT.md) for the corrected training protocol, tests, and local preflight command. The historical accuracy figures below have not been re-established with this pipeline. The current backend uses live hardware ingestion; the old simulation instructions below do not apply.
+> Current pipeline status: the canonical `sentrix_ml/` training protocol (see [PROMPT_1_VERIFICATION_REPORT.md](PROMPT_1_VERIFICATION_REPORT.md)) has been validated on **synthetic fixtures only** — all smoke-run metrics are synthetic and the test suite passes against fixtures. The historical accuracy figures below have **not** been re-established with this pipeline; research metrics from a full real-data retrain are still pending. The current backend uses live hardware ingestion; the old simulation instructions below do not apply.
 
-SENTRi-X is an adaptive, Explainable AI (XAI)-powered Intrusion Detection System. It leverages a Hybrid Ensemble Engine—fusing the high-speed tabular precision of Random Forests with the spatial feature extraction of Convolutional Neural Networks (CNNs). 
+SENTRi-X is an adaptive, Explainable AI (XAI)-powered Intrusion Detection System. It leverages a Hybrid Ensemble Engine—fusing the high-speed tabular precision of Random Forests with the spatial feature extraction of Convolutional Neural Networks (CNNs).
 
 Designed to protect heterogeneous network architectures, SENTRi-X natively defends modern IoT environments and utilizes Transfer Learning to adapt its defense mechanisms to legacy botnets and large-scale Enterprise IT networks.
 
@@ -39,13 +39,13 @@ The repository is structured sequentially to follow the exact research methodolo
 * `09_Transfer_Learning_CIC_IDS2017.ipynb` - The final transfer learning evaluation on the CIC-IDS2017 dataset (98.14% accuracy).
 
 ### Phase 4: The Omni Global Pipeline
-* `10_Omni_Model_Training.ipynb` - Combines 150,000 samples across all three datasets to forge `rf_model_omni.joblib` and `cnn_model_omni.h5`, feeding the dashboard's overarching "Omni Defense Mode."
+* `10_Omni_Model_Training.ipynb` - Combines 150,000 samples across all three datasets to forge `rf_model_omni.joblib` and `cnn_model_omni.h5`, feeding the dashboard's overarching \"Omni Defense Mode.\"
 
 ---
 
 ## 💻 Running the Interactive Dashboard
 
-SENTRi-X features a full-stack React and FastAPI dashboard to simulate live traffic inference. Because the engine processes heavy TensorFlow dependencies, **you must start the backend from within the virtual environment.**
+SENTRi-X features a full-stack React and FastAPI dashboard for live traffic inference. Because the engine processes heavy TensorFlow dependencies, **you must start the backend from within the virtual environment.**
 
 ### 1. Start the FastAPI Backend (Terminal 1)
 Open a terminal and activate the virtual environment so the Python engine can load the models correctly:
@@ -93,36 +93,27 @@ cd ~/SENTRi-X/frontend
 PATH="$HOME/.nvm/versions/node/v20.20.2/bin:$PATH" npm run dev
 ```
 
-Navigate to `http://localhost:5173` (or `http://localhost:4173` if 5173 is in use) in your browser. The dashboard will automatically connect to the backend, populate the XAI rules, and begin streaming live, concatenated global IoT/Enterprise traffic.
+Navigate to `http://localhost:5173` (or `http://localhost:4173` if 5173 is in use) in your browser. The dashboard connects to the backend and visualizes live-ingested traffic once a sensor starts pushing flows.
 
-### 3. Triggering Simulated Attacks (Terminal 3)
-To simulate a cyber attack on the dashboard, you can use the Red Team injection script. Ensure the backend is running, then open a **third** terminal:
+### 3. Live Traffic Ingestion
 
-**Windows:**
+> ⚠️ The Red Team injection script (`launch_attack.py`) is **disabled**: the backend's `/api/inject-attack` endpoint returns **HTTP 403** ("Attack injection is disabled. SENTRi-X operates exclusively in live hardware capture mode"), and the background simulation loop is turned off (`data_source = "live_hardware"`).
+
+SENTRi-X ingests live flow features pushed by an external sensor/device. From a third terminal, push flow records (28-feature schema) to the backend:
+
 ```bash
-# Navigate to project root
-cd SENTRi-X
+# Register the sensor device (heartbeat; 10s liveness timeout)
+curl -X POST http://localhost:8000/api/heartbeat \
+  -H "Content-Type: application/json" \
+  -d '{"device_id": "pi-sensor-1"}'
 
-# Use the virtual environment Python
-venv\Scripts\activate
-
-# Launch an attack
-python launch_attack.py --type "DDoS" --intensity 10
+# Push a flow feature record for inference
+curl -X POST http://localhost:8000/api/ingest-flow \
+  -H "Content-Type: application/json" \
+  -d '{"duration": 0.12, "src_bytes": 512, "dst_bytes": 1024, ...}'
 ```
 
-**Linux/WSL:**
-```bash
-# Navigate to project root
-cd ~/SENTRi-X
-
-# Use the virtual environment Python
-source venv/bin/activate
-
-# Launch an attack
-python launch_attack.py --type "DDoS" --intensity 10
-```
-
-*Supported types include: "DDoS", "Web Attack (SQLi)", etc. The dashboard will instantly visualize the anomaly and the XAI module will explain the mitigation.*
+An alert is recorded when a flow is classified as Attack with confidence above the alert threshold (default 0.87). The dashboard visualizes the anomaly as flows arrive.
 
 ---
 
@@ -130,18 +121,18 @@ python launch_attack.py --type "DDoS" --intensity 10
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/yourusername/sentri-x.git
-   cd sentri-x
+   git clone https://github.com/JethroIsHere/SENTRi-X.git
+   cd SENTRi-X
    ```
 
 2. **Create a virtual environment:**
-   
+
    **Windows:**
    ```bash
    python -m venv venv
    venv\Scripts\activate
    ```
-   
+
    **Linux/WSL:**
    ```bash
    python3 -m venv venv
@@ -154,14 +145,14 @@ python launch_attack.py --type "DDoS" --intensity 10
     ```
 
 4. **Build the frontend (for deployment):**
-   
+
    **Windows:**
    ```bash
    cd frontend
    npm install
    npm run build
    ```
-   
+
    **Linux/WSL:**
    ```bash
    cd frontend
@@ -170,4 +161,3 @@ python launch_attack.py --type "DDoS" --intensity 10
    ```
 
 *Note: The raw PCAP/CSV datasets (ToN-IoT, BoT-IoT, CIC-IDS2017) are excluded from this repository due to size constraints. To reproduce the training notebooks, download the respective datasets and place them in a local `data/raw/` directory.*
-
