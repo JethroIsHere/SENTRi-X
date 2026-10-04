@@ -1,0 +1,93 @@
+{
+  "package_version": "2.0.0",
+  "schema_version": "28f-v2",
+  "domain": "ton_iot",
+  "ordered_features": [
+    "duration",
+    "src_bytes",
+    "dst_bytes",
+    "missed_bytes",
+    "src_pkts",
+    "src_ip_bytes",
+    "dst_pkts",
+    "dst_ip_bytes",
+    "dns_qclass",
+    "dns_qtype",
+    "dns_rcode",
+    "http_request_body_len",
+    "http_response_body_len",
+    "http_status_code",
+    "proto_tcp",
+    "proto_udp",
+    "conn_state_REJ",
+    "conn_state_RSTO",
+    "conn_state_RSTOS0",
+    "conn_state_RSTR",
+    "conn_state_RSTRH",
+    "conn_state_S0",
+    "conn_state_S1",
+    "conn_state_S2",
+    "conn_state_S3",
+    "conn_state_SF",
+    "conn_state_SH",
+    "conn_state_SHR"
+  ],
+  "cnn_input_shape": [
+    28,
+    1
+  ],
+  "class_mapping": {
+    "0": "Benign",
+    "1": "Attack"
+  },
+  "preprocessor_file": "pipeline.joblib",
+  "preprocessor_hash": "sha256:f847d83305b3dc1a8e7813d51c858216e90d1abbbbdce8ac48e6ab70f4ff952f",
+  "preprocessing_policy": "standard_scaler_on_train",
+  "rf_file": "rf_model.joblib",
+  "rf_hash": "sha256:8d1c48000ff37687a2dca952db1a6f5ffcd3c49175867b6886eba5d1ca5153ac",
+  "cnn_file": "cnn_model.h5",
+  "cnn_hash": "sha256:847ac2b2cc3b4370209acbabfe36e6bd89be42d3a32662febb825232bdee0bff",
+  "is_mock": false,
+  "training_config": {
+    "data_dir": "data/raw/ton_iot",
+    "max_files": null,
+    "sample_n": 50000,
+    "test_fraction": 0.2,
+    "val_fraction": 0.1,
+    "rf_estimators": 100,
+    "rf_depth": null,
+    "cnn_epochs": 10,
+    "batch_size": 256,
+    "output_dir": "models/candidates/ton_iot_v2",
+    "run_type": "full",
+    "seed": 42,
+    "balancing": {
+      "method": "random_oversampling_training_only_v1",
+      "seed": 42,
+      "original_class_counts": {
+        "0": 1233,
+        "1": 34695
+      },
+      "resampled_class_counts": {
+        "0": 34695,
+        "1": 34695
+      },
+      "selected_training_positions_sha256": "38bb258faa301c61b353f457eb6738f4719045a2a36e33ef71aa1c59cdd35d52",
+      "validation_test_resampled": false,
+      "preprocessing_fit": "original_training_rows_before_resampling"
+    }
+  },
+  "evaluation_run_type": "full",
+  "evaluation_file": "evaluation_metrics.json",
+  "evaluation_hash": "sha256:a57c5a88672745bafff83aac5fd3390e2c40dc6ea68597c89bc2539ef17c695c",
+  "split_manifest_file": "split_manifest.json",
+  "split_manifest_hash": "sha256:d0b6e0fda4ac59330c781b4b66b3ed83c1ec42c931b70b12edf6fd5a656430bb",
+  "evidence_file": "prediction_evidence.csv",
+  "evidence_hash": "sha256:cdd19acc580ac740cebd337aca413bfc63c7c87f1952d5cdfc41214f4ed837be",
+  "xai_background_file": null,
+  "xai_background_hash": null,
+  "created_at": "2026-10-04T04:59:48.200908+00:00",
+  "source_revision": "901b071ed8a6912ef9937d04a0bf9bd265438ba9",
+  "source_candidate_manifest_hash": null,
+  "notes": "Source ToN-IoT candidate trained with seed 42"
+}
