@@ -144,7 +144,9 @@ def test_split_trace_measures_actual_study_pool_before_failure():
     result = audit.trace_split(X, y, meta, domain="bot_iot", seed=42, test_fraction=.8)
     assert result["pool_class_counts"] == {"1": 9999, "0": 1}
     assert result["test_class_counts"] == {"1": 39997, "0": 3}
-    assert result["failed_stage"] == "train_validation_split"
+    assert result["failed_stage"] == "class_support"
+    assert result["train_class_counts"]["0"] == 1
+    assert result["validation_class_counts"].get("0", 0) == 0
     assert result["status"] == "FAILED"
 
 
@@ -158,14 +160,19 @@ def test_mixed_label_group_profiles_are_not_inherently_invalid():
     assert result["validation_class_counts"] == {"0": 8, "1": 8}
 
 
-def test_rare_mixed_profile_failure_is_not_hidden():
+def test_rare_mixed_profile_is_retained_without_hiding_label_ambiguity():
     y = pd.Series([0, 1] * 100)
     X = pd.DataFrame({"duration": np.arange(200)})
     meta = pd.DataFrame({"source_flow_id": [f"r:{i}" for i in y.index],
                          "group_id": ["mixed", "mixed"] + [f"g:{i}" for i in range(2, 200)]})
     result = audit.trace_split(X, y, meta, domain="cic_ids2017", seed=42, test_fraction=.2)
-    assert result["status"] == "FAILED"
-    assert result["failed_stage"] == "pool_test_split"
+    assert result["status"] == "READY"
+    assert result["rows_after_preparation"] == 200
+    assert result["duplicates_excluded"] == 0
+    assert result["conflicting_label_rows_before_preparation"] == 2
+    assert result["label_integrity_status"] == "UNRESOLVED_LABEL_CONFLICTS"
+    for part in ("train", "validation", "test"):
+        assert set(result[f"{part}_class_counts"]) == {"0", "1"}
 
 
 def test_cic_sql_counts_overlapping_file_conflicts_and_attack_only_groups():
@@ -205,7 +212,7 @@ def test_cic_exports_both_classes_and_strict_json_without_altering_data(tmp_path
     assert result["fingerprint_statistics"]["binary_conflict_rows"] == 7
     assert result["sample_reproduction"]["seed"] == 17
     trace = result["sample_reproduction"]["split_trace"]
-    assert trace["failed_stage"] == "pool_test_split"
+    assert trace["failed_stage"] == "train_validation_split"
     assert trace["conflicting_label_rows_before_preparation"] == 7
     assert trace["label_integrity_status"] == "UNRESOLVED_LABEL_CONFLICTS"
     text = (tmp_path / "out/cic_conflict_examples.jsonl").read_text()

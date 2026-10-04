@@ -351,8 +351,8 @@ def save_prediction_evidence(
             for i in range(n):
                 row = [
                     ids[i], doms[i], s_files[i], s_rows[i], s_groups[i],
-                    y_true[i], round(float(s_probs[i]), 8), round(float(s_weights[i]), 6),
-                    round(float(p_rf[i]), 6), round(float(p_cnn[i]), 6), round(float(p_hybrid[i]), 6),
+                    y_true[i], float(s_probs[i]), float(s_weights[i]),
+                    float(p_rf[i]), float(p_cnn[i]), float(p_hybrid[i]),
                     pred_rf[i], pred_cnn[i], pred_hybrid[i],
                 ]
                 writer.writerow(row)
@@ -366,7 +366,7 @@ def save_prediction_evidence(
             for i in range(n):
                 row = [
                     ids[i], doms[i], y_true[i],
-                    round(float(p_rf[i]), 6), round(float(p_cnn[i]), 6), round(float(p_hybrid[i]), 6),
+                    float(p_rf[i]), float(p_cnn[i]), float(p_hybrid[i]),
                     pred_rf[i], pred_cnn[i], pred_hybrid[i],
                 ]
                 writer.writerow(row)
