@@ -1,0 +1,67 @@
+{
+  "model_domain": "bot_iot",
+  "run_type": "full",
+  "dataset": "bot_iot",
+  "evaluation_split": "adaptation_exam_holdout",
+  "sample_count": 40000,
+  "class_0_count": 382,
+  "class_1_count": 39618,
+  "rf_hash": "sha256:a76d6b52391c79578417355894288458ed1e7d95c7787eba8758bd0765f678ee",
+  "cnn_hash": "sha256:a7a5353ba6be0e9735bca617e467afee1e310bdb4b968633df93542ba3029aa6",
+  "preprocessor_hash": "sha256:a93829499c3d2595991720fd3201bfdbf36f41bba1d304f6c7f03cbfb90ba537",
+  "split_manifest_file": "split_manifest.json",
+  "split_manifest_hash": "sha256:68b032d1ffcc3e00f865d003ae9ff6d4c69c9342a77bbb8833a5ced142d6d08b",
+  "evidence_file": "prediction_evidence.csv",
+  "evidence_hash": "sha256:0cc10027512b4dabca6c1521406601b6c73fecddb344284c29483727f5ffcd37",
+  "modes": {
+    "rf": {
+      "accuracy": 0.99615,
+      "precision": 0.9998733343466586,
+      "recall": 0.9962390832449897,
+      "f1": 0.9980529004197644,
+      "roc_auc": 0.999644114381347,
+      "specificity": 0.9869109947643979,
+      "false_positive_rate": 0.013089005235602094,
+      "confusion_matrix": {
+        "tn": 377,
+        "fp": 5,
+        "fn": 149,
+        "tp": 39469
+      }
+    },
+    "cnn": {
+      "accuracy": 0.99135,
+      "precision": 0.9999490783175476,
+      "recall": 0.991317078095815,
+      "f1": 0.9956143686465384,
+      "roc_auc": 0.9937580265884749,
+      "specificity": 0.9947643979057592,
+      "false_positive_rate": 0.005235602094240838,
+      "confusion_matrix": {
+        "tn": 380,
+        "fp": 2,
+        "fn": 344,
+        "tp": 39274
+      }
+    },
+    "hybrid": {
+      "accuracy": 0.995475,
+      "precision": 0.9999492913465683,
+      "recall": 0.9954818516835782,
+      "f1": 0.997710570586524,
+      "roc_auc": 0.9995235916616251,
+      "specificity": 0.9947643979057592,
+      "false_positive_rate": 0.005235602094240838,
+      "confusion_matrix": {
+        "tn": 380,
+        "fp": 2,
+        "fn": 179,
+        "tp": 39439
+      }
+    }
+  },
+  "weighted_modes": {},
+  "has_sampling_weights": false,
+  "population_weights": {},
+  "per_domain": {}
+}
