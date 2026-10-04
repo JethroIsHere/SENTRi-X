@@ -66,4 +66,5 @@ SENTRi-X*.html
 !tests/
 !models/**/prediction_evidence.csv
 !outputs/**
+outputs/**/*.db
 
