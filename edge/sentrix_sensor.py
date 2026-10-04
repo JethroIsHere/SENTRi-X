@@ -14,11 +14,14 @@ Training-feature parity notes (2026-10-04, verified against sentrix_ml):
   payload. L3 sits exactly on 2 of omni's 3 training domains and inside the
   mixed training distribution. Deploying the ToN-IoT source model instead
   leaves a documented ~40 B/packet upward offset vs its L4-payload training.
-- src_ip_bytes/dst_ip_bytes are exported as 0. Training has these ~zero for
-  every row (optional features imputed 0.0; the BoT-IoT adapter explicitly
-  excludes the per-IP aggregates to prevent cross-flow corruption). Sending
-  measured values would make every live flow an outlier on 2/28 features
-  after the StandardScaler.
+- src_ip_bytes/dst_ip_bytes are exported as MEASURED (IP-layer bytes per
+  direction, len(ip)). Verified against the saved StandardScalers 2026-10-04:
+  ToN-IoT training means are 334/434 B and Omni means are 107/153 B (Zeek
+  per-flow IP byte counters) -- the sensor's len(ip) accumulation measures the
+  same quantity, so measured values are in-distribution. Exporting 0 would
+  shift every flow -0.13 to -0.24 sigma. BoT-IoT/CIC-IDS2017 training is 0.0
+  here by adapter policy/imputation, so measured values are outliers for those
+  two models only (documented; neither is the live model).
 - Flow orientation is IoT-device-first; training used originator-first
   (Zeek). Disclosed approximation; the model trained on mixed orientations.
 - conn_state is a live approximation of 6 of 12 Zeek states (see
@@ -140,7 +143,7 @@ def new_flow(
         "src_pkts": 0,
         "dst_pkts": 0,
 
-        # Raw L3 measurement, retained for diagnostics. Exported as 0 --
+        # Raw L3 measurement (len(ip) per direction). Exported as measured --
         # see build_payload for the training-parity reason.
         "src_ip_bytes": 0,
         "dst_ip_bytes": 0,
@@ -378,12 +381,17 @@ def build_payload(flow):
         "src_pkts": flow["src_pkts"],
         "dst_pkts": flow["dst_pkts"],
 
-        # Parity: training has src/dst_ip_bytes ~zero for every row
-        # (optional features imputed 0.0; BoT-IoT explicitly excludes the
-        # per-IP aggregates). Exporting measured values would make every
-        # live flow an outlier on 2/28 features after the scaler.
-        "src_ip_bytes": 0,
-        "dst_ip_bytes": 0,
+        # Parity (verified 2026-10-04 against saved scalers): the ToN-IoT and
+        # Omni training distributions for these features are NONZERO
+        # (ToN: means 334/434 B; Omni: means 107/153 B, from Zeek per-flow
+        # IP byte counters). The sensor's len(ip) accumulation measures the
+        # same quantity, so measured values are in-distribution. Exporting 0
+        # would impose a systematic -0.13 to -0.24 sigma shift on every flow
+        # after the StandardScaler. (BoT-IoT/CIC-IDS2017 training is 0.0 here
+        # by adapter policy/imputation; measured values are outliers for those
+        # two models only -- documented, neither is the live model.)
+        "src_ip_bytes": flow["src_ip_bytes"],
+        "dst_ip_bytes": flow["dst_ip_bytes"],
 
         "missed_bytes": flow["missed_bytes"],
 

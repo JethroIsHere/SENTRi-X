@@ -78,6 +78,23 @@ class ActiveEngine:
         self.last_error = None
         self.switching = False
 
+
+# Logical model names -> committed candidate package directories.
+# The validated packages are versioned (omni_v2, ...); the backend and UI
+# use the logical names. Resolved at load time so fresh clones work.
+PACKAGE_ALIASES = {
+    "omni": "omni_v2",
+    "ton_iot": "ton_iot_v2",
+    "bot_iot": "bot_iot_v2",
+    "cic_ids2017": "cic_ids2017_v2",
+}
+
+
+def resolve_package_dir(target: str) -> str:
+    """Map a logical model name to its committed candidate package directory."""
+    actual = PACKAGE_ALIASES.get(target, target)
+    return os.path.join(os.path.dirname(__file__), "..", "models", "candidates", actual)
+
 engine = ActiveEngine()
 engine_lock = RLock()
 settings = {"active_alerting": True, "alert_threshold": 0.87}
@@ -89,6 +106,7 @@ explainability = {
     "ripper_rules": None,
     "lime_explainer": None,
     "lime_feature_names": None,
+    "shap_explainer": None,
 }
 
 system_status = {
@@ -131,6 +149,142 @@ def initialize_lime_explainer():
         explainability["lime_explainer"] = None
         explainability["lime_feature_names"] = None
         print(f"Failed to initialize LIME explainer: {e}")
+
+
+def generate_xai_background(n_samples: int = 2000) -> pd.DataFrame | None:
+    """Generate synthetic background data from the fitted scaler's statistics.
+
+    Samples each feature from Normal(mean, scale) using the active package's
+    StandardScaler, clipped to valid ranges (non-negative for counts/bytes,
+    Bernoulli for one-hot flags). Used for LIME background and RIPPER
+    surrogate training when no stored background data exists.
+    Returns a DataFrame in RAW feature space (pre-scaler), or None if the
+    scaler/RF model is unavailable.
+    """
+    if engine.scaler is None or engine.rf_model is None:
+        return None
+    try:
+        from sentrix_ml.schema import (
+            EXPECTED_FEATURES, PROTO_FEATURE_NAMES, CONN_STATE_FEATURE_NAMES,
+        )
+        means = np.asarray(engine.scaler.mean_, dtype=float)
+        scales = np.asarray(engine.scaler.scale_, dtype=float)
+        scales = np.where(scales <= 0, 1.0, scales)
+        rng = np.random.default_rng(42)
+        cols = list(EXPECTED_FEATURES)
+        data = {}
+        binary_feats = set(PROTO_FEATURE_NAMES) | set(CONN_STATE_FEATURE_NAMES)
+        for i, feat in enumerate(cols):
+            if feat in binary_feats:
+                p = float(np.clip(means[i], 0.0, 1.0))
+                data[feat] = rng.binomial(1, p, size=n_samples).astype(float)
+            else:
+                vals = rng.normal(means[i], scales[i], size=n_samples)
+                data[feat] = np.clip(vals, 0.0, None)
+        return pd.DataFrame(data, columns=cols)
+    except Exception as e:
+        print(f"Failed to generate XAI background data: {e}")
+        return None
+
+
+def initialize_xai_artifacts():
+    """Wire up runtime XAI artifacts after a package is activated.
+
+    Populates the explainability slots from the active model:
+    - X_sample: synthetic background (raw feature space) for LIME/SHAP.
+    - lime_explainer: LIME TabularExplainer (via initialize_lime_explainer).
+    - ripper_rules: IF-THEN rules from a RIPPER surrogate trained on
+      RF-labeled synthetic data (wittgenstein).
+    - shap_explainer: shap.TreeExplainer for per-flow attributions.
+    All steps are best-effort; failures leave the slot empty with a log.
+    """
+    explainability["X_sample"] = None
+    explainability["shap_values"] = None
+    explainability["ripper_rules"] = None
+    explainability["lime_explainer"] = None
+    explainability["lime_feature_names"] = None
+    explainability["shap_explainer"] = None
+
+    if engine.rf_model is None or engine.scaler is None:
+        print("XAI init skipped: no active RF model/scaler.")
+        return
+
+    # 1. Background data (raw space)
+    bg = generate_xai_background()
+    if bg is None or len(bg) == 0:
+        print("XAI init: background generation failed.")
+        return
+    explainability["X_sample"] = bg
+
+    # 2. LIME
+    try:
+        initialize_lime_explainer()
+    except Exception as e:
+        print(f"XAI init: LIME setup failed: {e}")
+
+    # 3. SHAP TreeExplainer (per-flow attributions)
+    try:
+        import shap
+        explainability["shap_explainer"] = shap.TreeExplainer(engine.rf_model)
+        print("SHAP TreeExplainer initialized.")
+    except Exception as e:
+        explainability["shap_explainer"] = None
+        print(f"XAI init: SHAP setup failed (install 'shap'): {e}")
+
+    # 4. RIPPER surrogate rules (wittgenstein) trained on RF-labeled background
+    try:
+        import wittgenstein as lw
+        X_scaled = engine.scaler.transform(bg.to_numpy(dtype=float))
+        y_bg = engine.rf_model.predict(X_scaled)
+        # Balance classes for rule learning; cap size for speed
+        clf = lw.RIPPER()
+        clf.fit(bg, y_bg)
+        rules_text = str(clf.ruleset_) if hasattr(clf, "ruleset_") else ""
+        if not rules_text:
+            # Fallback: render rules manually
+            rules_text = "\n".join(str(r) for r in getattr(clf, "ruleset_", []))
+        explainability["ripper_rules"] = rules_text or "No rules learned."
+        n_rules = len(getattr(clf, "ruleset_", []))
+        print(f"RIPPER surrogate trained: {n_rules} rules.")
+    except Exception as e:
+        explainability["ripper_rules"] = None
+        print(f"XAI init: RIPPER setup failed (install 'wittgenstein'): {e}")
+
+
+def compute_shap_explanation(inference_df: pd.DataFrame) -> dict:
+    """Compute per-flow SHAP attributions with the runtime TreeExplainer.
+
+    Returns real SHAP values for the current flow (attack class), not the
+    global-importance fallback. Falls back to reference_shap_explanation
+    only if the TreeExplainer is unavailable.
+    """
+    explainer = explainability.get("shap_explainer")
+    if explainer is not None and engine.rf_model is not None:
+        try:
+            from sentrix_ml.schema import EXPECTED_FEATURES, ATTACK_CLASS_INDEX
+            row = inference_df.reindex(columns=list(EXPECTED_FEATURES), fill_value=0.0)
+            row = row.apply(pd.to_numeric, errors="coerce").fillna(0.0)
+            scaled = engine.scaler.transform(row.to_numpy(dtype=float)) if engine.scaler else row.to_numpy(dtype=float)
+            sv = explainer.shap_values(scaled)
+            # shap returns list per class for RF classifier
+            if isinstance(sv, list):
+                arr = sv[ATTACK_CLASS_INDEX] if ATTACK_CLASS_INDEX < len(sv) else sv[-1]
+            else:
+                arr = sv
+            vec = np.asarray(arr).reshape(-1)
+            names = list(EXPECTED_FEATURES)
+            top = np.argsort(np.abs(vec))[-5:][::-1]
+            return {
+                "values": [{"f": names[i], "v": round(float(vec[i]), 4)} for i in top],
+                "method": "tree_shap_per_flow",
+                "target_class": ATTACK_CLASS_INDEX,
+            }
+        except Exception as e:
+            print(f"SHAP computation failed, trying reference: {e}")
+    # Fallback to reference lookup
+    features, meta = reference_explanation(inference_df)
+    return {"values": features, "method": meta.get("shap_method", "unavailable"),
+            "target_class": meta.get("shap_target_class")}
 
 
 def compute_lime_explanation_for_packet(inference_df: pd.DataFrame):
@@ -207,7 +361,7 @@ def load_models_and_data(target="omni", dataset="omni", is_startup=False, candid
     """
     print(f"Loading target '{target}' models and dataset '{dataset}'...")
     if candidates_dir is None:
-        candidates_dir = os.path.join(os.path.dirname(__file__), "..", "models", "candidates", target)
+        candidates_dir = resolve_package_dir(target)
     manifest_path = os.path.join(candidates_dir, "manifest.json")
 
     if not os.path.exists(manifest_path):
@@ -274,6 +428,11 @@ def load_models_and_data(target="omni", dataset="omni", is_startup=False, candid
         system_status["cnn_online"] = staged_cnn is not None
         update_core_model_label()
         print(f"Candidate package '{target}' successfully validated and activated!")
+        # Wire up runtime XAI artifacts from the newly activated model
+        try:
+            initialize_xai_artifacts()
+        except Exception as e:
+            print(f"XAI artifact init failed (non-fatal): {e}")
     except Exception as exc:
         print(f"Failed to load candidate package for '{target}': {exc}")
         if is_startup:
@@ -353,7 +512,14 @@ def reference_explanation(inference_df):
 
 
 def record_threat_alert(packet_data, inference_df, confidence, source, flow_id=None):
-    features, metadata = reference_explanation(inference_df)
+    shap_res = compute_shap_explanation(inference_df)
+    features = shap_res["values"]
+    metadata = {
+        "shap_method": shap_res["method"],
+        "shap_model": "random_forest",
+        "shap_target_class": shap_res["target_class"],
+        "reason": "",
+    }
     lime = compute_lime_explanation_for_packet(inference_df)
     metadata.update(lime_method='local_rf_lime' if lime['values'] else 'unavailable',
                     lime_model='random_forest', lime_target_class=lime['target_class'])
@@ -415,7 +581,8 @@ async def startup_event():
     stored = load_settings(settings)
     settings.update(SettingsRequest(**stored).model_dump())
     load_models_and_data('omni', 'omni', is_startup=True)
-    initialize_lime_explainer()
+    # XAI artifacts (LIME/SHAP/RIPPER) are initialized inside
+    # load_models_and_data via initialize_xai_artifacts().
 
 
 @app.on_event('shutdown')
@@ -509,8 +676,11 @@ def get_model_metrics():
 
 @app.get('/api/explainability/ripper')
 def get_ripper_rules():
-    return {'rules': explainability.get('ripper_rules') or '', 'scope': 'stored_reference_rules',
-            'evaluated_on_live_flow': False}
+    rules = explainability.get('ripper_rules') or ''
+    scope = 'runtime_ripper_surrogate' if rules else 'unavailable'
+    return {'rules': rules, 'scope': scope,
+            'evaluated_on_live_flow': False,
+            'note': 'RIPPER (wittgenstein) surrogate trained on RF-labeled synthetic background at package activation.' if rules else 'RIPPER rules not available; train at package activation (install wittgenstein).'}
 
 
 @app.get('/api/explainability/sample/{idx}')

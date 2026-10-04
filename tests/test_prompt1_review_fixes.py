@@ -613,11 +613,13 @@ def test_item3_backend_loader_rejects_unfitted_pipeline():
             backend_main.load_models_and_data(target="ton_iot", dataset="ton_iot", candidates_dir=str(cand_dir))
 
 
-def test_item3_failed_switch_rollback_via_api():
+def test_item3_failed_switch_rollback_via_api(monkeypatch):
     """Verify failed model switch rolls back state cleanly via FastAPI test client."""
     from fastapi.testclient import TestClient
     from backend import main as backend_main
     from backend import database as backend_db
+
+    monkeypatch.setitem(backend_main.PACKAGE_ALIASES, "cic_ids2017", "nonexistent_target")
 
     with tempfile.TemporaryDirectory() as tmpdir:
         test_db = str(Path(tmpdir) / "test_switch.db")

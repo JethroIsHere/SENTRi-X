@@ -16,7 +16,7 @@ must sit on the same scale as the training data. Verified 2026-10-04:
 | Payload field | Sensor measures | Training measured | Status |
 |---|---|---|---|
 | `src/dst_bytes` | IP-layer bytes (`len(ip)`) | L3 (BoT-IoT, CIC-IDS2017) / L4 payload (ToN-IoT) | ✅ matches 2/3 omni domains; documented ~40 B/pkt offset vs ToN-IoT source model |
-| `src/dst_ip_bytes` | exported as `0` | ~zero everywhere (optional→0.0; BoT-IoT explicitly excluded) | ✅ parity by zeroing |
+| `src/dst_ip_bytes` | IP-layer bytes (`len(ip)`) | ToN-IoT 334/434 B, Omni 107/153 B means (Zeek per-flow IP counters); BoT-IoT/CIC 0.0 by policy | ✅ measured = same quantity as training |
 | `duration` | seconds (monotonic) | seconds | ✅ |
 | `src/dst_pkts` | packet counts | packet counts | ✅ |
 | `proto_tcp/proto_udp` | one-hots | one-hots | ✅ |
