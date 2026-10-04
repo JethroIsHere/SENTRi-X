@@ -2,7 +2,7 @@
 
 All splits:
 * Are performed BEFORE any preprocessing (scaling, SMOTE).
-* Keep first exact raw duplicate and preserve distinct observations in a session group.
+* Apply the declared record-retention policy and keep session groups together.
 * Guarantee zero duplicate group leakage across train, val, and test partitions.
 * Preserve sample identifiers and raw source flow IDs for end-to-end traceability.
 * Record seed, counts, class prevalence, file hashes, and exclusion reasons.
@@ -157,6 +157,8 @@ def validate_partition_support(y_train, y_val, y_test, *, domains=None, indices=
 
 
 def _prepare(X, y, metadata, domain, *, conflict_policy: str = "retain_and_group"):
+    if conflict_policy not in ("keep_first", "retain_and_group"):
+        raise ValueError(f"Unsupported conflict_policy: {conflict_policy}")
     if isinstance(X, np.ndarray):
         X = pd.DataFrame(X)
     if isinstance(y, np.ndarray):
@@ -223,7 +225,9 @@ def _partition(index, y, groups, fraction, seed, domains=None):
 
     For singleton groups this is ordinary row-stratified splitting. With repeated
     groups the requested fraction applies to group counts; actual row fractions
-    are saved because group sizes may differ. No scoring or retry selects a split.
+    are saved because group sizes may differ. Singleton label/domain profiles
+    are allocated by one seeded shuffle; common profiles remain stratified.
+    No scoring or retry selects a split. The caller checks actual class support.
     """
     if not 0 < fraction < 1:
         raise ValueError("Partition fractions must lie strictly between 0 and 1")
@@ -237,13 +241,29 @@ def _partition(index, y, groups, fraction, seed, domains=None):
     n_train = len(profiles) - n_test
     if len(profiles) < 2:
         raise PartitionSupportError("Only one independent session/group remains; cannot create disjoint partitions")
-    if counts.min() < 2 or min(n_test, n_train) < len(counts):
+    common = profiles[profiles.map(counts) >= 2]
+    rare = profiles[profiles.map(counts) == 1]
+    n_common_profiles = common.nunique()
+    # Keep every common profile on both sides, where the requested sizes allow.
+    rare_test_min = max(0, n_test - (len(common) - n_common_profiles))
+    rare_test_max = min(len(rare), n_test - n_common_profiles)
+    if rare_test_min > rare_test_max:
         raise PartitionSupportError(
-            f"Insufficient independent groups for a stratified {fraction:.0%} partition: "
-            f"{counts.to_dict()}. Increase the declared sample or revise the grouping protocol."
+            f"The declared profile-stratified allocator cannot form a {fraction:.0%} partition: "
+            f"{counts.to_dict()}. This is an allocator constraint, not proof that all group "
+            "allocations are impossible. Revise the declared protocol before a new run."
         )
-    train_groups, test_groups = train_test_split(profiles.index.to_numpy(), test_size=fraction,
-                                               random_state=seed, stratify=profiles.to_numpy())
+    rare_test_count = int(np.clip(round(len(rare) * fraction), rare_test_min, rare_test_max))
+    rare_groups = np.random.default_rng(seed).permutation(rare.index.to_numpy())
+    if len(common):
+        train_groups, test_groups = train_test_split(
+            common.index.to_numpy(), test_size=n_test - rare_test_count,
+            random_state=seed, stratify=common.to_numpy(),
+        )
+    else:
+        train_groups, test_groups = np.array([], dtype=object), np.array([], dtype=object)
+    train_groups = np.concatenate([train_groups, rare_groups[rare_test_count:]])
+    test_groups = np.concatenate([test_groups, rare_groups[:rare_test_count]])
     return index[groups.loc[index].isin(train_groups)], index[groups.loc[index].isin(test_groups)]
 
 
@@ -251,11 +271,17 @@ def _split(X, y, *, metadata, test_fraction, val_fraction, seed, domain,
            source_file_hashes, duplicate_group_policy, exclusion_reasons,
            sampling_metadata, require_class_support, split_type,
            conflict_policy: str | None = None):
-    if duplicate_group_policy not in ("keep_first_disjoint", "retain_and_group_disjoint"):
+    policies = {"keep_first": "keep_first_disjoint", "retain_and_group": "retain_and_group_disjoint"}
+    if conflict_policy is not None and conflict_policy not in policies:
+        raise ValueError(f"Unsupported conflict_policy: {conflict_policy}")
+    if duplicate_group_policy is None:
+        duplicate_group_policy = policies[conflict_policy or "keep_first"]
+    if duplicate_group_policy not in policies.values():
         raise ValueError(f"Unsupported duplicate_group_policy: {duplicate_group_policy}")
-
     if conflict_policy is None:
         conflict_policy = "keep_first" if duplicate_group_policy == "keep_first_disjoint" else "retain_and_group"
+    elif policies[conflict_policy] != duplicate_group_policy:
+        raise ValueError("Contradictory duplicate_group_policy and conflict_policy")
 
     original_count = len(X)
     X, y, meta, nan_count, dup_count, conflict_count = _prepare(
@@ -297,8 +323,9 @@ def _split(X, y, *, metadata, test_fraction, val_fraction, seed, domain,
         conflict_policy=conflict_policy,
         identity_policy="raw_record_sha256_v2" if metadata is not None and "duplicate_id" in metadata else "source_identity_only",
         grouping_policy="session_start_else_tuple_else_raw_record_v2",
-        notes="Retain all distinct observations and original labels in each split group. "
-              "Fractions target groups; row/class counts below are authoritative. No feature-vector deduplication.",
+        notes=f"Record policy: {conflict_policy}. Whole groups are stratified by label/domain profile; "
+              "singleton profiles use one seeded shuffle. Fractions target groups; row/class counts "
+              "below are authoritative. No feature-vector deduplication or seed search.",
     )
     records_columns = [c for c in ("domain", "source_file", "source_file_hash", "source_row_index",
                                    "source_flow_id", "duplicate_id", "group_id", "group_scope",
@@ -315,7 +342,7 @@ def _split(X, y, *, metadata, test_fraction, val_fraction, seed, domain,
 
 def stratified_split(X, y, *, metadata=None, test_fraction=0.20, val_fraction=0.10,
                      seed=42, domain="", source_file_hashes=None,
-                     duplicate_group_policy="keep_first_disjoint", exclusion_reasons=None,
+                     duplicate_group_policy=None, exclusion_reasons=None,
                      sampling_metadata=None, require_class_support=False,
                      conflict_policy: str | None = None):
     return _split(X, y, metadata=metadata, test_fraction=test_fraction, val_fraction=val_fraction,
@@ -327,7 +354,7 @@ def stratified_split(X, y, *, metadata=None, test_fraction=0.20, val_fraction=0.
 
 def adaptation_split(X, y, *, metadata=None, study_fraction=0.20, val_fraction_of_study=0.10,
                      seed=42, domain="", source_file_hashes=None,
-                     duplicate_group_policy="keep_first_disjoint", exclusion_reasons=None,
+                     duplicate_group_policy=None, exclusion_reasons=None,
                      sampling_metadata=None, require_class_support=False,
                      conflict_policy: str | None = None):
     return _split(X, y, metadata=metadata, test_fraction=1.0-study_fraction, val_fraction=val_fraction_of_study,

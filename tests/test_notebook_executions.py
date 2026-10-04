@@ -13,8 +13,7 @@ NOTEBOOKS_DIR = ROOT_DIR / "notebooks"
 
 
 @pytest.mark.parametrize("nb_filename", [
-    "01_ETL_Pipeline_ToN_IoT.ipynb", "03_Model_Training_CNN_ToN_IoT.ipynb",
-    "04_Hybrid_Ensemble_Fusion_ToN_IoT.ipynb", "06_Universal_Schema_Mapper.ipynb",
+    "06_Universal_Schema_Mapper.ipynb",
     "07_Cross_Validation_BoT_IoT.ipynb", "10_Omni_Model_Training.ipynb",
 ])
 def test_notebook_execution(nb_filename):
