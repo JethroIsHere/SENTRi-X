@@ -1,0 +1,92 @@
+{
+  "package_version": "2.0.0",
+  "schema_version": "28f-v2",
+  "domain": "omni",
+  "ordered_features": [
+    "duration",
+    "src_bytes",
+    "dst_bytes",
+    "missed_bytes",
+    "src_pkts",
+    "src_ip_bytes",
+    "dst_pkts",
+    "dst_ip_bytes",
+    "dns_qclass",
+    "dns_qtype",
+    "dns_rcode",
+    "http_request_body_len",
+    "http_response_body_len",
+    "http_status_code",
+    "proto_tcp",
+    "proto_udp",
+    "conn_state_REJ",
+    "conn_state_RSTO",
+    "conn_state_RSTOS0",
+    "conn_state_RSTR",
+    "conn_state_RSTRH",
+    "conn_state_S0",
+    "conn_state_S1",
+    "conn_state_S2",
+    "conn_state_S3",
+    "conn_state_SF",
+    "conn_state_SH",
+    "conn_state_SHR"
+  ],
+  "cnn_input_shape": [
+    28,
+    1
+  ],
+  "class_mapping": {
+    "0": "Benign",
+    "1": "Attack"
+  },
+  "preprocessor_file": "pipeline.joblib",
+  "preprocessor_hash": "sha256:9feaef54e68b755353c4fb6506c4cdcef90a9464944a46d3b6ff645d38671559",
+  "preprocessing_policy": "standard_scaler_on_train",
+  "rf_file": "rf_model.joblib",
+  "rf_hash": "sha256:bf0cdf4b54a4886b459b7b46bc62092fd9d5d4a43dce9e74e2dc1409888cd313",
+  "cnn_file": "cnn_model.h5",
+  "cnn_hash": "sha256:725b48d741d154a44489b3e5cdbe0ba0cd8d00a52219898bb89cfc70f37c2967",
+  "is_mock": false,
+  "training_config": {
+    "data_root": "data/raw",
+    "sample_per_domain": 30000,
+    "test_fraction": 0.2,
+    "val_fraction": 0.1,
+    "rf_estimators": 100,
+    "rf_depth": null,
+    "cnn_epochs": 10,
+    "batch_size": 256,
+    "output_dir": "models/candidates/omni_v2",
+    "run_type": "full",
+    "seed": 42,
+    "balancing": {
+      "method": "random_oversampling_training_only_v1",
+      "seed": 42,
+      "original_class_counts": {
+        "0": 18265,
+        "1": 45919
+      },
+      "resampled_class_counts": {
+        "0": 45919,
+        "1": 45919
+      },
+      "selected_training_positions_sha256": "5aca4f1480969d584323efb17d6ae47fc0c84c144a71ed6416770144a744c748",
+      "validation_test_resampled": false,
+      "preprocessing_fit": "original_training_rows_before_resampling"
+    }
+  },
+  "evaluation_run_type": "full",
+  "evaluation_file": "evaluation_metrics.json",
+  "evaluation_hash": "sha256:7c4512a698f8e75df1f332cea9b744d03dde4c98a121310f861d8f81bf030344",
+  "split_manifest_file": "split_manifest.json",
+  "split_manifest_hash": "sha256:5c0fde8a0fbc846d979768497ca6f7c158c26a86a879897f3f1e1b1982e543cf",
+  "evidence_file": "prediction_evidence.csv",
+  "evidence_hash": "sha256:737fcc744a79365a010b0d62720f87fa99dec2e55bac1696a58c94c8db217fca",
+  "xai_background_file": null,
+  "xai_background_hash": null,
+  "created_at": "2026-10-04T06:15:24.114431+00:00",
+  "source_revision": "69427cce69dd8cff0298ddec5f9dca9e5e55128e",
+  "source_candidate_manifest_hash": null,
+  "notes": "Omni multi-domain candidate trained with seed 42"
+}
