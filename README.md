@@ -113,7 +113,7 @@ curl -X POST http://localhost:8000/api/ingest-flow \
   -d '{"duration": 0.12, "src_bytes": 512, "dst_bytes": 1024, ...}'
 ```
 
-An alert is recorded when a flow is classified as Attack with confidence above the alert threshold (default 0.87). The dashboard visualizes the anomaly as flows arrive.
+An alert is recorded when a flow is classified as Attack with confidence above the alert threshold (default 0.50, the F1-optimal point on held-out data). The dashboard visualizes the anomaly as flows arrive.
 
 ---
 

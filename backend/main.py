@@ -108,7 +108,11 @@ def resolve_package_dir(target: str) -> str:
 
 engine = ActiveEngine()
 engine_lock = RLock()
-settings = {"active_alerting": True, "alert_threshold": 0.87}
+# Default alert threshold set to the F1-optimal operating point from the
+# threshold sweep on 17,842 held-out Omni flows (2026-10-06):
+# thr=0.50 -> precision 0.9985, recall 0.9618, F1 0.9798 (best F1).
+# Adjustable per deployment via PUT /api/settings (range 0.50-0.99).
+settings = {"active_alerting": True, "alert_threshold": 0.50}
 
 # Explainability artifacts container
 explainability = {
