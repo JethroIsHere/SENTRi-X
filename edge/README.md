@@ -27,5 +27,7 @@ must sit on the same scale as the training data. Verified 2026-10-04:
 
 ## Site-specific values
 
-`BACKEND_URL`, `HEARTBEAT_URL`, `INTERFACE`, and the `IOT_DEVICES` MAC table
-are deployment-specific. Review before publishing beyond the project repo.
+`BACKEND_URL`, `HEARTBEAT_URL`, and `INTERFACE` are deployment-specific.
+Review before publishing beyond the project repo. IoT device MACs are
+managed through the web dashboard (`/api/monitored-devices`) and stored in
+the backend database — they are no longer hardcoded in the sensor file.

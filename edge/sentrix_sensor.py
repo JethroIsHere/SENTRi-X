@@ -39,18 +39,51 @@ from scapy.all import sniff, IP, TCP, UDP, DNS, DNSQR, Ether
 
 
 INTERFACE = "eth0"
-# Site-specific: LAN backend URL and IoT device MACs below. Review before
-# publishing this file beyond the project repo.
+# Site-specific: LAN backend URL below. Review before publishing this file
+# beyond the project repo. IoT device MACs are managed via the web dashboard
+# (/api/monitored-devices), not hardcoded here.
 BACKEND_URL = "http://192.168.254.156:8000/api/ingest-flow"
 HEARTBEAT_URL = "http://192.168.254.156:8000/api/heartbeat"
 HEARTBEAT_INTERVAL = 3
 SENSOR_ID = "rpi3b-edge-01"
 
-# Verified IoT devices
-IOT_DEVICES = {
-    "20:f1:b2:68:cc:63": "smart_bulb",
-    "e4:ae:e4:fb:91:a0": "temp_humidity_sensor",
-}
+# Monitored IoT devices — managed via the web dashboard (/api/monitored-devices),
+# NOT hardcoded here. The sensor fetches the allowlist from the backend at
+# startup and refreshes it on every heartbeat. An empty list means nothing is
+# monitored (fail-closed). Thread-safe via _devices_lock.
+MONITORED_DEVICES: dict[str, str] = {}
+_devices_lock = threading.Lock()
+
+
+def get_device_name(mac: str) -> str | None:
+    with _devices_lock:
+        return MONITORED_DEVICES.get(mac)
+
+
+def update_monitored_devices(devices: list[dict]) -> None:
+    """Replace the allowlist from backend data: [{mac, name}, ...]."""
+    with _devices_lock:
+        MONITORED_DEVICES.clear()
+        for d in devices:
+            mac = str(d.get("mac", "")).strip().lower()
+            name = str(d.get("name", "")).strip()
+            if mac and name:
+                MONITORED_DEVICES[mac] = name
+
+
+def fetch_monitored_devices() -> None:
+    """One-shot fetch of the allowlist (used at startup)."""
+    try:
+        resp = requests.get(
+            BACKEND_URL.replace("/api/ingest-flow", "/api/monitored-devices"),
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        update_monitored_devices(data.get("devices", []))
+        print(f"[DEVICES] Loaded {len(MONITORED_DEVICES)} monitored device(s) from dashboard", flush=True)
+    except Exception as e:
+        print(f"[DEVICES] Could not fetch allowlist at startup: {e} (retrying via heartbeat)", flush=True)
 
 FLOW_IDLE_TIMEOUT = 5.0
 FLOW_MAX_AGE = 30.0
@@ -262,8 +295,9 @@ def process_packet(packet):
     eth_src = packet[Ether].src.lower()
     eth_dst = packet[Ether].dst.lower()
 
-    src_is_iot = eth_src in IOT_DEVICES
-    dst_is_iot = eth_dst in IOT_DEVICES
+    with _devices_lock:
+        src_is_iot = eth_src in MONITORED_DEVICES
+        dst_is_iot = eth_dst in MONITORED_DEVICES
 
     if not src_is_iot and not dst_is_iot:
         return
@@ -275,7 +309,7 @@ def process_packet(packet):
         device_mac = eth_dst
         outbound = False
 
-    device_name = IOT_DEVICES[device_mac]
+    device_name = get_device_name(device_mac) or "unknown"
 
     ip = packet[IP]
 
@@ -520,11 +554,16 @@ def heartbeat_worker():
     with requests.Session() as session:
         while not stop_event.is_set():
             try:
-                post_json(
+                result = post_json(
                     session, HEARTBEAT_URL, {"sensor_id": SENSOR_ID},
                     HEARTBEAT_POST_TIMEOUT, "ok",
                 )
                 count("heartbeats_accepted")
+                # Refresh the dashboard-managed allowlist (additions/removals
+                # take effect for Python-side filtering; BPF needs restart).
+                monitored = result.get("monitored_devices")
+                if isinstance(monitored, list):
+                    update_monitored_devices(monitored)
                 if not connected:
                     print("[HEARTBEAT] Backend acknowledged sensor connection", flush=True)
                 connected = True
@@ -544,13 +583,24 @@ def main():
     print("SENTRi-X Raspberry Pi Edge Sensor")
     print(f"Capture interface : {INTERFACE}")
     print(f"Backend           : {BACKEND_URL}")
-    print("Monitoring:")
-    for mac, name in IOT_DEVICES.items():
-        print(f"  {name}: {mac}")
 
-    # Capture ONLY verified IoT MAC addresses.
+    # Fetch the dashboard-managed allowlist before building the capture filter.
+    fetch_monitored_devices()
+    with _devices_lock:
+        startup_macs = list(MONITORED_DEVICES.items())
+    print("Monitoring (from dashboard):")
+    for mac, name in startup_macs:
+        print(f"  {name}: {mac}")
+    if not startup_macs:
+        print("  (none — add devices via the dashboard; sensor will pick them up)")
+
+    # Capture ONLY allowlisted MAC addresses at startup.
     # Prevents SENTRi-X from ingesting its own Wi-Fi/API traffic.
-    bpf_filter = " or ".join(f"ether host {mac}" for mac in IOT_DEVICES)
+    # NOTE: the BPF filter is fixed at startup. Devices added via the
+    # dashboard afterwards are enforced by the Python-side allowlist check
+    # in process_packet(), but their traffic won't reach the sensor until
+    # restart (kernel-level filter). Removals take effect immediately.
+    bpf_filter = " or ".join(f"ether host {mac}" for mac, _ in startup_macs) if startup_macs else "ether host 00:00:00:00:00:00"
     workers = []
 
     def start_workers():

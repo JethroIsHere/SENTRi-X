@@ -42,6 +42,10 @@ def init_db():
             model_type TEXT DEFAULT 'omni', execution_mode TEXT DEFAULT 'hybrid',
             shap_values TEXT, lime_values TEXT, raw_payload TEXT);
         CREATE TABLE IF NOT EXISTS App_Settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS Monitored_Devices (
+            mac TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
         ''')
         additions = {
             'Network_Flows': {
@@ -128,6 +132,39 @@ def get_recent_flows(limit=100, source='live_hardware'):
     with closing(get_db_connection()) as conn, conn:
         return [dict(row) for row in conn.execute(
             f'SELECT * FROM Network_Flows {where} ORDER BY id DESC LIMIT ?', [*params, limit])]
+
+
+def get_monitored_devices():
+    """Return the dashboard-managed list of monitored device MACs."""
+    with closing(get_db_connection()) as conn, conn:
+        rows = conn.execute(
+            'SELECT mac, name, added_at FROM Monitored_Devices ORDER BY added_at').fetchall()
+        return [dict(row) for row in rows]
+
+
+def add_monitored_device(mac: str, name: str):
+    """Add or update a monitored device. MAC is normalized to lowercase."""
+    mac = mac.strip().lower()
+    name = name.strip()
+    if not mac or not name:
+        raise ValueError("MAC and name are required")
+    # Basic MAC validation: six hex octets
+    parts = mac.split(":")
+    if len(parts) != 6 or not all(len(p) == 2 and all(c in "0123456789abcdef" for c in p) for p in parts):
+        raise ValueError(f"Invalid MAC address format: {mac}")
+    with closing(get_db_connection()) as conn, conn:
+        conn.execute(
+            'INSERT INTO Monitored_Devices (mac, name) VALUES (?, ?) '
+            'ON CONFLICT(mac) DO UPDATE SET name=excluded.name',
+            (mac, name))
+
+
+def remove_monitored_device(mac: str) -> bool:
+    """Remove a monitored device. Returns True if a row was deleted."""
+    mac = mac.strip().lower()
+    with closing(get_db_connection()) as conn, conn:
+        cur = conn.execute('DELETE FROM Monitored_Devices WHERE mac = ?', (mac,))
+        return cur.rowcount > 0
 
 
 def get_device_summaries():

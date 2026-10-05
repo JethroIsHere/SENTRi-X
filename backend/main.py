@@ -33,7 +33,8 @@ from database import (
     get_all_alerts,
     clear_all_alerts,
     get_database_stats, get_recent_flows, get_device_summaries, get_alert_counts,
-    load_settings, save_settings, utc_now
+    load_settings, save_settings, utc_now,
+    get_monitored_devices, add_monitored_device, remove_monitored_device
 )
 
 from sentrix_ml.schema import EXPECTED_FEATURES, NUM_FEATURES
@@ -739,6 +740,33 @@ def get_devices():
     return {'devices': get_device_summaries()}
 
 
+class MonitoredDeviceRequest(BaseModel):
+    mac: str
+    name: str
+
+
+@app.get('/api/monitored-devices')
+def list_monitored_devices():
+    """Dashboard-managed allowlist of device MACs the Pi sensor monitors."""
+    return {'devices': get_monitored_devices()}
+
+
+@app.post('/api/monitored-devices')
+def create_monitored_device(request: MonitoredDeviceRequest):
+    try:
+        add_monitored_device(request.mac, request.name)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {'status': 'ok', 'devices': get_monitored_devices()}
+
+
+@app.delete('/api/monitored-devices/{mac}')
+def delete_monitored_device(mac: str):
+    if not remove_monitored_device(mac):
+        raise HTTPException(404, 'Device not found')
+    return {'status': 'ok', 'devices': get_monitored_devices()}
+
+
 @app.get('/api/database/stats')
 def get_db_stats():
     return get_database_stats()
@@ -885,8 +913,15 @@ def switch_engine(request: SwitchRequest):
 @app.post('/api/heartbeat')
 def hardware_heartbeat(heartbeat: Optional[dict] = None):
     engine.last_hardware_ping = time.time()
+    # The Pi sensor refreshes its monitored-MAC allowlist from this response,
+    # so devices added/removed in the dashboard take effect without editing
+    # the sensor file or restarting it.
+    try:
+        monitored = get_monitored_devices()
+    except Exception:
+        monitored = []
     return {'status': 'ok', 'sensor_id': (heartbeat or {}).get('sensor_id', 'rpi3b-edge-01'),
-            'hardware_live': True}
+            'hardware_live': True, 'monitored_devices': monitored}
 
 
 @app.post('/api/ingest-flow')
