@@ -35,7 +35,7 @@ import queue
 import signal
 import requests
 
-from scapy.all import sniff, IP, TCP, UDP, DNS, DNSQR, Ether
+from scapy.all import sniff, IP, TCP, UDP, DNS, DNSQR, Ether, Raw
 
 
 INTERFACE = "eth0"
