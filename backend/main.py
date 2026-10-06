@@ -34,7 +34,11 @@ from database import (
     clear_all_alerts,
     get_database_stats, get_recent_flows, get_device_summaries, get_alert_counts,
     load_settings, save_settings, utc_now,
-    get_monitored_devices, add_monitored_device, remove_monitored_device
+    get_monitored_devices, add_monitored_device, remove_monitored_device,
+    get_whitelisted_destinations, add_whitelisted_destination,
+    remove_whitelisted_destination, is_destination_whitelisted,
+    get_whitelisted_domains, add_whitelisted_domain,
+    remove_whitelisted_domain, is_domain_whitelisted
 )
 
 from sentrix_ml.schema import EXPECTED_FEATURES, NUM_FEATURES
@@ -668,8 +672,16 @@ def hardware_live():
     return engine.last_hardware_ping > 0 and time.time() - engine.last_hardware_ping < HARDWARE_LIVE_TIMEOUT
 
 
-def alert_allowed(prediction, confidence):
-    return settings['active_alerting'] and prediction == 1 and confidence > settings['alert_threshold']
+def alert_allowed(prediction, confidence, dst_ip=None, sni=None):
+    if not (settings['active_alerting'] and prediction == 1 and confidence > settings['alert_threshold']):
+        return False
+    # Suppress alerts for whitelisted destination IPs (known IoT cloud endpoints)
+    if dst_ip and is_destination_whitelisted(dst_ip):
+        return False
+    # Suppress alerts for whitelisted domains (SNI-based, e.g. *.tuyaeu.com)
+    if sni and is_domain_whitelisted(sni):
+        return False
+    return True
 
 
 @app.on_event('startup')
@@ -769,6 +781,62 @@ def delete_monitored_device(mac: str):
     if not remove_monitored_device(mac):
         raise HTTPException(404, 'Device not found')
     return {'status': 'ok', 'devices': get_monitored_devices()}
+
+
+class WhitelistRequest(BaseModel):
+    ip: str
+    label: str
+    reason: str = ''
+
+
+@app.get('/api/whitelisted-destinations')
+def list_whitelisted_destinations():
+    """Destination IPs whose flows are classified but never trigger alerts."""
+    return {'destinations': get_whitelisted_destinations()}
+
+
+@app.post('/api/whitelisted-destinations')
+def create_whitelisted_destination(request: WhitelistRequest):
+    try:
+        add_whitelisted_destination(request.ip, request.label, request.reason)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {'status': 'ok', 'destinations': get_whitelisted_destinations()}
+
+
+@app.delete('/api/whitelisted-destinations/{ip}')
+def delete_whitelisted_destination(ip: str):
+    if not remove_whitelisted_destination(ip):
+        raise HTTPException(404, 'Destination not found')
+    return {'status': 'ok', 'destinations': get_whitelisted_destinations()}
+
+
+class DomainWhitelistRequest(BaseModel):
+    domain: str
+    label: str
+    reason: str = ''
+
+
+@app.get('/api/whitelisted-domains')
+def list_whitelisted_domains():
+    """Domains (SNI) whose flows are classified but never trigger alerts."""
+    return {'domains': get_whitelisted_domains()}
+
+
+@app.post('/api/whitelisted-domains')
+def create_whitelisted_domain(request: DomainWhitelistRequest):
+    try:
+        add_whitelisted_domain(request.domain, request.label, request.reason)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {'status': 'ok', 'domains': get_whitelisted_domains()}
+
+
+@app.delete('/api/whitelisted-domains/{domain}')
+def delete_whitelisted_domain(domain: str):
+    if not remove_whitelisted_domain(domain):
+        raise HTTPException(404, 'Domain not found')
+    return {'status': 'ok', 'domains': get_whitelisted_domains()}
 
 
 @app.get('/api/database/stats')
@@ -946,7 +1014,7 @@ def ingest_live_flow(flow: dict):
             failure = str(exc)
             engine.last_error = failure
             system_status['inference_errors'] += 1
-        is_alert = failure is None and alert_allowed(prediction, confidence)
+        is_alert = failure is None and alert_allowed(prediction, confidence, dst_ip=str(flow.get('dst_ip', '')), sni=flow.get('sni'))
         try:
             flow_id = insert_network_flow(
                 src_ip=str(flow['src_ip']), dst_ip=str(flow['dst_ip']), proto=str(flow.get('proto', 'unknown')),
@@ -956,7 +1024,8 @@ def ingest_live_flow(flow: dict):
                 model_used=engine.current_model, execution_mode=engine.execution_mode, confidence=confidence,
                 sensor_id=str(flow.get('sensor_id', 'rpi3b-edge-01')), device_name=flow.get('device_name'),
                 device_mac=flow.get('device_mac'), src_port=flow.get('src_port'), dst_port=flow.get('dst_port'),
-                prediction=prediction, p_rf=p_rf, p_cnn=p_cnn, data_source='live_hardware', inference_error=failure)
+                prediction=prediction, p_rf=p_rf, p_cnn=p_cnn, data_source='live_hardware', inference_error=failure,
+                sni=flow.get('sni'))
             if is_alert:
                 record_threat_alert(flow, frame, confidence, 'live_hardware', flow_id)
         except Exception as exc:

@@ -203,6 +203,10 @@ def new_flow(
         "dns_qtype": 0,
         "dns_rcode": 0,
 
+        # SNI extracted from TLS ClientHello (outbound only). Used for
+        # domain-based alert whitelisting; not a model feature.
+        "sni": None,
+
         "http_request_body_len": 0,
         "http_response_body_len": 0,
         "http_status_code": 0,
@@ -286,6 +290,47 @@ def parse_dns(flow, packet):
 
     except Exception:
         pass
+
+
+def extract_sni(payload: bytes) -> str | None:
+    """Extract Server Name Indication (SNI) from a raw TLS ClientHello payload.
+
+    Lightweight byte parser -- no TLS library needed. Only handles the
+    initial ClientHello; returns None for anything else.
+    """
+    try:
+        # TLS Handshake (22), ClientHello (1)
+        if len(payload) < 43 or payload[0] != 22 or payload[5] != 1:
+            return None
+
+        session_id_len = payload[43]
+        offset = 44 + session_id_len
+
+        cipher_suites_len = int.from_bytes(payload[offset:offset+2], 'big')
+        offset += 2 + cipher_suites_len
+
+        comp_methods_len = payload[offset]
+        offset += 1 + comp_methods_len
+
+        # Extensions length
+        ext_len = int.from_bytes(payload[offset:offset+2], 'big')
+        offset += 2
+        end = min(offset + ext_len, len(payload))
+
+        while offset + 4 <= end:
+            ext_type = int.from_bytes(payload[offset:offset+2], 'big')
+            ext_size = int.from_bytes(payload[offset+2:offset+4], 'big')
+            if ext_type == 0 and ext_size >= 5 and offset + 4 + ext_size <= end:
+                # SNI extension (type 0)
+                name_type = payload[offset+6]
+                if name_type == 0:  # host_name
+                    name_len = int.from_bytes(payload[offset+7:offset+9], 'big')
+                    if offset + 9 + name_len <= end:
+                        return payload[offset+9:offset+9+name_len].decode('utf-8', 'ignore')
+            offset += 4 + ext_size
+    except Exception:
+        pass
+    return None
 
 
 def process_packet(packet):
@@ -384,6 +429,14 @@ def process_packet(packet):
         update_tcp_state(flow, packet, outbound)
         parse_dns(flow, packet)
 
+        # SNI extraction: outbound TLS ClientHello only, first packet wins.
+        # Restricted to common TLS ports to avoid parsing non-TLS payloads.
+        if TCP in packet and outbound and flow.get("sni") is None:
+            if packet_dst_port in (443, 8883, 20443) and Raw in packet:
+                sni = extract_sni(bytes(packet[Raw]))
+                if sni:
+                    flow["sni"] = sni
+
 
 def build_payload(flow):
     finalize_connection_state(flow)
@@ -439,6 +492,9 @@ def build_payload(flow):
         "http_request_body_len": 0,
         "http_response_body_len": 0,
         "http_status_code": 0,
+
+        # SNI is metadata for domain whitelisting, not a model feature.
+        "sni": flow.get("sni"),
 
         "conn_state_REJ": flow["conn_state_REJ"],
         "conn_state_RSTO": flow["conn_state_RSTO"],

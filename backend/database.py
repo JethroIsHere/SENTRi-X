@@ -46,13 +46,24 @@ def init_db():
             mac TEXT PRIMARY KEY,
             name TEXT NOT NULL,
             added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
+        CREATE TABLE IF NOT EXISTS Whitelisted_Destinations (
+            ip TEXT PRIMARY KEY,
+            label TEXT NOT NULL,
+            reason TEXT NOT NULL DEFAULT '',
+            added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
+        CREATE TABLE IF NOT EXISTS Whitelisted_Domains (
+            domain TEXT PRIMARY KEY,
+            label TEXT NOT NULL,
+            reason TEXT NOT NULL DEFAULT '',
+            added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
         ''')
         additions = {
             'Network_Flows': {
                 'device_name': 'TEXT', 'device_mac': 'TEXT', 'src_port': 'INTEGER',
                 'dst_port': 'INTEGER', 'prediction': 'INTEGER', 'p_rf': 'REAL',
                 'p_cnn': 'REAL', 'execution_mode': 'TEXT',
-                'data_source': "TEXT NOT NULL DEFAULT 'unknown'", 'inference_error': 'TEXT'},
+                'data_source': "TEXT NOT NULL DEFAULT 'unknown'", 'inference_error': 'TEXT',
+                'sni': 'TEXT'},
             'Alert_Logs': {
                 'data_source': "TEXT NOT NULL DEFAULT 'unknown'", 'sensor_id': 'TEXT',
                 'device_name': 'TEXT', 'device_mac': 'TEXT', 'flow_id': 'INTEGER',
@@ -78,7 +89,7 @@ def insert_network_flow(src_ip, dst_ip, proto='TCP', duration=0, src_bytes=0,
                src_pkts=src_pkts, dst_pkts=dst_pkts, is_anomaly=is_anomaly,
                model_used=model_used, confidence=confidence)
     for key in ('device_name', 'device_mac', 'src_port', 'dst_port', 'prediction', 'p_rf',
-                'p_cnn', 'execution_mode', 'data_source', 'inference_error'):
+                'p_cnn', 'execution_mode', 'data_source', 'inference_error', 'sni'):
         row[key] = metadata.get(key, 'unknown' if key == 'data_source' else None)
     if row['device_mac']:
         row['device_mac'] = str(row['device_mac']).lower()
@@ -222,3 +233,94 @@ def get_database_stats():
         breakdown = dict(conn.execute('SELECT attack_type, COUNT(*) FROM Alert_Logs GROUP BY attack_type'))
     return dict(db_size_kb=round(os.path.getsize(DB_PATH)/1024, 2), total_flows_logged=flows,
                 total_alerts_logged=alerts, attack_breakdown=breakdown, alert_counts=get_alert_counts())
+
+
+# ── Whitelisted destination IPs (suppress false-positive alerts) ──────────
+
+
+def get_whitelisted_destinations():
+    """Return the dashboard-managed list of whitelisted destination IPs."""
+    with closing(get_db_connection()) as conn, conn:
+        rows = conn.execute(
+            'SELECT ip, label, reason, added_at FROM Whitelisted_Destinations ORDER BY added_at'
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def add_whitelisted_destination(ip: str, label: str, reason: str = ''):
+    """Whitelist a destination IP. Alerts to this IP will be suppressed."""
+    ip = ip.strip()
+    label = label.strip()
+    reason = reason.strip()
+    if not ip or not label:
+        raise ValueError("IP and label are required")
+    with closing(get_db_connection()) as conn, conn:
+        conn.execute(
+            'INSERT INTO Whitelisted_Destinations (ip, label, reason) VALUES (?, ?, ?) '
+            'ON CONFLICT(ip) DO UPDATE SET label=excluded.label, reason=excluded.reason',
+            (ip, label, reason))
+
+
+def remove_whitelisted_destination(ip: str) -> bool:
+    """Remove a whitelisted destination. Returns True if a row was deleted."""
+    ip = ip.strip()
+    with closing(get_db_connection()) as conn, conn:
+        cur = conn.execute('DELETE FROM Whitelisted_Destinations WHERE ip = ?', (ip,))
+        return cur.rowcount > 0
+
+
+def is_destination_whitelisted(ip: str) -> bool:
+    """Fast check whether a destination IP is in the whitelist."""
+    with closing(get_db_connection()) as conn, conn:
+        row = conn.execute(
+            'SELECT 1 FROM Whitelisted_Destinations WHERE ip = ?', (ip.strip(),)
+        ).fetchone()
+        return row is not None
+
+
+# ── Whitelisted domains (SNI-based false-positive suppression) ────────────
+
+
+def get_whitelisted_domains():
+    """Return the dashboard-managed list of whitelisted domains."""
+    with closing(get_db_connection()) as conn, conn:
+        rows = conn.execute(
+            'SELECT domain, label, reason, added_at FROM Whitelisted_Domains ORDER BY added_at'
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def add_whitelisted_domain(domain: str, label: str, reason: str = ''):
+    """Whitelist a domain. Alerts for flows with matching SNI will be suppressed."""
+    domain = domain.strip().lower()
+    label = label.strip()
+    reason = reason.strip()
+    if not domain or not label:
+        raise ValueError("Domain and label are required")
+    with closing(get_db_connection()) as conn, conn:
+        conn.execute(
+            'INSERT INTO Whitelisted_Domains (domain, label, reason) VALUES (?, ?, ?) '
+            'ON CONFLICT(domain) DO UPDATE SET label=excluded.label, reason=excluded.reason',
+            (domain, label, reason))
+
+
+def remove_whitelisted_domain(domain: str) -> bool:
+    """Remove a whitelisted domain. Returns True if a row was deleted."""
+    with closing(get_db_connection()) as conn, conn:
+        cur = conn.execute('DELETE FROM Whitelisted_Domains WHERE domain = ?',
+                           (domain.strip().lower(),))
+        return cur.rowcount > 0
+
+
+def is_domain_whitelisted(sni: str) -> bool:
+    """Check whether an SNI matches the domain whitelist (exact or wildcard)."""
+    if not sni:
+        return False
+    sni = sni.strip().lower()
+    with closing(get_db_connection()) as conn, conn:
+        domains = [r[0] for r in conn.execute('SELECT domain FROM Whitelisted_Domains').fetchall()]
+    for d in domains:
+        if sni == d or (d.startswith('*.') and sni.endswith(d[2:])):
+            return True
+    return False
+

@@ -5,6 +5,8 @@ import type { Settings } from '../../lib/api'
 import { panelClass, RequestState } from '../../components/LiveTelemetry'
 
 interface MonitoredDevice { mac: string; name: string; added_at: string }
+interface WhitelistedDest { ip: string; label: string; reason: string; added_at: string }
+interface WhitelistedDomain { domain: string; label: string; reason: string; added_at: string }
 
 function MonitoredDevices({ online }: { online: boolean }) {
   const [devices, setDevices] = useState<MonitoredDevice[]>([])
@@ -67,6 +69,142 @@ function MonitoredDevices({ online }: { online: boolean }) {
   </div>
 }
 
+function WhitelistedDestinations({ online }: { online: boolean }) {
+  const [dests, setDests] = useState<WhitelistedDest[]>([])
+  const [ip, setIp] = useState('')
+  const [label, setLabel] = useState('')
+  const [reason, setReason] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  async function load() {
+    if (!online) return
+    try {
+      const res = await api<{ destinations: WhitelistedDest[] }>('/api/whitelisted-destinations')
+      setDests(res.destinations)
+    } catch (e) { setError(e instanceof Error ? e.message : 'Could not load whitelist') }
+  }
+  useEffect(() => { void load() }, [online])
+
+  async function add() {
+    if (!ip.trim() || !label.trim()) { setError('IP and label are required'); return }
+    setBusy(true); setError(null)
+    try {
+      const res = await api<{ destinations: WhitelistedDest[] }>('/api/whitelisted-destinations', {
+        method: 'POST', body: JSON.stringify({ ip: ip.trim(), label: label.trim(), reason: reason.trim() }),
+      })
+      setDests(res.destinations); setIp(''); setLabel(''); setReason('')
+    } catch (e) { setError(e instanceof Error ? e.message : 'Could not add destination') }
+    finally { setBusy(false) }
+  }
+
+  async function remove(target: string) {
+    setBusy(true); setError(null)
+    try {
+      const res = await api<{ destinations: WhitelistedDest[] }>(
+        `/api/whitelisted-destinations/${encodeURIComponent(target)}`, { method: 'DELETE' })
+      setDests(res.destinations)
+    } catch (e) { setError(e instanceof Error ? e.message : 'Could not remove destination') }
+    finally { setBusy(false) }
+  }
+
+  return <div>
+    <h2 className="mb-3 text-lg font-semibold">Whitelisted Destinations</h2>
+    <p className="text-xs text-text-muted mb-4">Flows to these IPs are still classified and stored, but <strong>never trigger alerts</strong>. Use this to suppress false positives from known IoT cloud endpoints (e.g. Tuya, SmartLife).</p>
+    {dests.length === 0
+      ? <p className="text-sm text-text-muted">No destinations whitelisted. Alerts fire for all classified attack flows.</p>
+      : <ul className="space-y-2 mb-4">{dests.map(d => (
+        <li key={d.ip} className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-sm">
+          <span>
+            <span className="font-medium">{d.label}</span>{' '}
+            <span className="text-text-muted font-mono">{d.ip}</span>
+            {d.reason && <span className="ml-2 text-xs text-text-muted">— {d.reason}</span>}
+          </span>
+          <button disabled={!online || busy} onClick={() => void remove(d.ip)}
+            className="rounded-lg border border-border px-3 py-1 text-xs disabled:opacity-50 hover:bg-red-50">Remove</button>
+        </li>))}</ul>}
+    <div className="flex flex-wrap gap-2 items-end">
+      <label className="text-sm">Destination IP<input value={ip} onChange={e => setIp(e.target.value)}
+        placeholder="47.236.105.163" className="ml-2 rounded-lg border border-border px-3 py-2 font-mono text-sm" /></label>
+      <label className="text-sm">Label<input value={label} onChange={e => setLabel(e.target.value)}
+        placeholder="Tuya Cloud (SG)" className="ml-2 rounded-lg border border-border px-3 py-2 text-sm" /></label>
+      <label className="text-sm">Reason<input value={reason} onChange={e => setReason(e.target.value)}
+        placeholder="Smart plug heartbeat" className="ml-2 rounded-lg border border-border px-3 py-2 text-sm" /></label>
+      <button disabled={!online || busy} onClick={() => void add()}
+        className="rounded-xl bg-accent px-4 py-2 text-sm text-white disabled:opacity-50">{busy ? 'Working…' : 'Add to Whitelist'}</button>
+    </div>
+    <RequestState error={error} />
+  </div>
+}
+
+function WhitelistedDomains({ online }: { online: boolean }) {
+  const [domains, setDomains] = useState<WhitelistedDomain[]>([])
+  const [domain, setDomain] = useState('')
+  const [label, setLabel] = useState('')
+  const [reason, setReason] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  async function load() {
+    if (!online) return
+    try {
+      const res = await api<{ domains: WhitelistedDomain[] }>('/api/whitelisted-domains')
+      setDomains(res.domains)
+    } catch (e) { setError(e instanceof Error ? e.message : 'Could not load domain whitelist') }
+  }
+  useEffect(() => { void load() }, [online])
+
+  async function add() {
+    if (!domain.trim() || !label.trim()) { setError('Domain and label are required'); return }
+    setBusy(true); setError(null)
+    try {
+      const res = await api<{ domains: WhitelistedDomain[] }>('/api/whitelisted-domains', {
+        method: 'POST', body: JSON.stringify({ domain: domain.trim(), label: label.trim(), reason: reason.trim() }),
+      })
+      setDomains(res.domains); setDomain(''); setLabel(''); setReason('')
+    } catch (e) { setError(e instanceof Error ? e.message : 'Could not add domain') }
+    finally { setBusy(false) }
+  }
+
+  async function remove(target: string) {
+    setBusy(true); setError(null)
+    try {
+      const res = await api<{ domains: WhitelistedDomain[] }>(
+        `/api/whitelisted-domains/${encodeURIComponent(target)}`, { method: 'DELETE' })
+      setDomains(res.domains)
+    } catch (e) { setError(e instanceof Error ? e.message : 'Could not remove domain') }
+    finally { setBusy(false) }
+  }
+
+  return <div>
+    <h2 className="mb-3 text-lg font-semibold">Whitelisted Domains</h2>
+    <p className="text-xs text-text-muted mb-4">Flows with matching TLS SNI are still classified and stored, but <strong>never trigger alerts</strong>. Supports wildcards (e.g. *.tuyaeu.com). Use this to suppress false positives from known IoT cloud domains.</p>
+    {domains.length === 0
+      ? <p className="text-sm text-text-muted">No domains whitelisted. SNI-based suppression is inactive.</p>
+      : <ul className="space-y-2 mb-4">{domains.map(d => (
+        <li key={d.domain} className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-sm">
+          <span>
+            <span className="font-medium">{d.label}</span>{' '}
+            <span className="text-text-muted font-mono">{d.domain}</span>
+            {d.reason && <span className="ml-2 text-xs text-text-muted">— {d.reason}</span>}
+          </span>
+          <button disabled={!online || busy} onClick={() => void remove(d.domain)}
+            className="rounded-lg border border-border px-3 py-1 text-xs disabled:opacity-50 hover:bg-red-50">Remove</button>
+        </li>))}</ul>}
+    <div className="flex flex-wrap gap-2 items-end">
+      <label className="text-sm">Domain<input value={domain} onChange={e => setDomain(e.target.value)}
+        placeholder="*.tuyaeu.com" className="ml-2 rounded-lg border border-border px-3 py-2 font-mono text-sm" /></label>
+      <label className="text-sm">Label<input value={label} onChange={e => setLabel(e.target.value)}
+        placeholder="Tuya EU Cloud" className="ml-2 rounded-lg border border-border px-3 py-2 text-sm" /></label>
+      <label className="text-sm">Reason<input value={reason} onChange={e => setReason(e.target.value)}
+        placeholder="IoT cloud API" className="ml-2 rounded-lg border border-border px-3 py-2 text-sm" /></label>
+      <button disabled={!online || busy} onClick={() => void add()}
+        className="rounded-xl bg-accent px-4 py-2 text-sm text-white disabled:opacity-50">{busy ? 'Working…' : 'Add to Whitelist'}</button>
+    </div>
+    <RequestState error={error} />
+  </div>
+}
+
 export function SystemSettingsPage() {
   const { status, online, busy, refresh, switchEngine } = useSystem()
   const [draft, setDraft] = useState<Settings | null>(null)
@@ -96,6 +234,8 @@ export function SystemSettingsPage() {
       <p className="mt-3 text-xs text-text-muted">sentrix_sensor.py captures mirrored traffic and uploads flow windows. A connected Pi can be idle between uploads. Device observations are listed on the dashboard.</p>
     </section>
     <section className={panelClass}><MonitoredDevices online={online} /></section>
+    <section className={panelClass}><WhitelistedDestinations online={online} /></section>
+    <section className={panelClass}><WhitelistedDomains online={online} /></section>
     <section className={panelClass}><h2 className="mb-3 text-lg font-semibold">Alert Settings</h2>
       <p className="text-sm">Classification boundary: attack probability ≥ 50%.</p>
       <p className="mt-2 text-xs text-text-muted">Saved alert policy: {online && status ? status.settings.active_alerting ? `enabled; attack confidence must exceed ${(status.settings.alert_threshold * 100).toFixed(0)}%` : 'disabled' : 'unavailable'}.</p>
