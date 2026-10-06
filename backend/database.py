@@ -56,6 +56,12 @@ def init_db():
             label TEXT NOT NULL,
             reason TEXT NOT NULL DEFAULT '',
             added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
+        CREATE TABLE IF NOT EXISTS Whitelisted_Device_Ports (
+            mac TEXT NOT NULL,
+            port INTEGER NOT NULL,
+            reason TEXT NOT NULL DEFAULT '',
+            added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (mac, port));
         ''')
         additions = {
             'Network_Flows': {
@@ -323,4 +329,49 @@ def is_domain_whitelisted(sni: str) -> bool:
         if sni == d or (d.startswith('*.') and sni.endswith(d[2:])):
             return True
     return False
+
+
+# ── Whitelisted device ports (MAC + Port false-positive suppression) ──────
+
+
+def get_whitelisted_device_ports():
+    """Return list of whitelisted MAC + port combinations."""
+    with closing(get_db_connection()) as conn, conn:
+        rows = conn.execute(
+            'SELECT mac, port, reason, added_at FROM Whitelisted_Device_Ports ORDER BY added_at'
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+
+def add_whitelisted_device_port(mac: str, port: int, reason: str = ''):
+    """Whitelist a specific port for a specific MAC address."""
+    mac = mac.strip().lower()
+    reason = reason.strip()
+    if not mac or not isinstance(port, int):
+        raise ValueError("MAC and port are required")
+    with closing(get_db_connection()) as conn, conn:
+        conn.execute(
+            'INSERT INTO Whitelisted_Device_Ports (mac, port, reason) VALUES (?, ?, ?) '
+            'ON CONFLICT(mac, port) DO UPDATE SET reason=excluded.reason',
+            (mac, port, reason))
+
+
+def remove_whitelisted_device_port(mac: str, port: int) -> bool:
+    """Remove a whitelisted MAC+port combination."""
+    with closing(get_db_connection()) as conn, conn:
+        cur = conn.execute('DELETE FROM Whitelisted_Device_Ports WHERE mac = ? AND port = ?',
+                           (mac.strip().lower(), int(port)))
+        return cur.rowcount > 0
+
+
+def is_device_port_whitelisted(mac: str, port: int) -> bool:
+    """Fast check whether a MAC+port combination is in the whitelist."""
+    if not mac or port is None:
+        return False
+    with closing(get_db_connection()) as conn, conn:
+        row = conn.execute(
+            'SELECT 1 FROM Whitelisted_Device_Ports WHERE mac = ? AND port = ?',
+            (mac.strip().lower(), int(port))
+        ).fetchone()
+        return row is not None
 

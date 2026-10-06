@@ -205,6 +205,74 @@ function WhitelistedDomains({ online }: { online: boolean }) {
   </div>
 }
 
+function WhitelistedDevicePorts({ online }: { online: boolean }) {
+  const [combos, setCombos] = useState<any[]>([])
+  const [mac, setMac] = useState('')
+  const [port, setPort] = useState('')
+  const [reason, setReason] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  async function load() {
+    if (!online) return
+    try {
+      const res = await api<{ device_ports: any[] }>('/api/whitelisted-device-ports')
+      setCombos(res.device_ports)
+    } catch (e) { setError(e instanceof Error ? e.message : 'Could not load whitelist') }
+  }
+  useEffect(() => { void load() }, [online])
+
+  async function add() {
+    if (!mac.trim() || !port.trim()) { setError('MAC and port are required'); return }
+    setBusy(true); setError(null)
+    try {
+      const res = await api<{ device_ports: any[] }>('/api/whitelisted-device-ports', {
+        method: 'POST', body: JSON.stringify({ mac: mac.trim(), port: parseInt(port), reason: reason.trim() }),
+      })
+      setCombos(res.device_ports); setMac(''); setPort(''); setReason('')
+    } catch (e) { setError(e instanceof Error ? e.message : 'Could not add combination') }
+    finally { setBusy(false) }
+  }
+
+  async function remove(m: string, p: number) {
+    setBusy(true); setError(null)
+    try {
+      const res = await api<{ device_ports: any[] }>(
+        `/api/whitelisted-device-ports/${encodeURIComponent(m)}/${p}`, { method: 'DELETE' })
+      setCombos(res.device_ports)
+    } catch (e) { setError(e instanceof Error ? e.message : 'Could not remove combination') }
+    finally { setBusy(false) }
+  }
+
+  return <div>
+    <h2 className="mb-3 text-lg font-semibold">Whitelisted Device Ports</h2>
+    <p className="text-xs text-text-muted mb-4">Flows from these specific MAC addresses to these destination ports will <strong>never trigger alerts</strong>. Use this for devices with proprietary unparseable protocols (e.g. Tuya on 443, 8883, 20443).</p>
+    {combos.length === 0
+      ? <p className="text-sm text-text-muted">No device ports whitelisted.</p>
+      : <ul className="space-y-2 mb-4">{combos.map(c => (
+        <li key={`${c.mac}-${c.port}`} className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-sm">
+          <span>
+            <span className="font-medium font-mono">{c.mac}</span>{' '}
+            <span className="text-text-muted">Port {c.port}</span>
+            {c.reason && <span className="ml-2 text-xs text-text-muted">— {c.reason}</span>}
+          </span>
+          <button disabled={!online || busy} onClick={() => void remove(c.mac, c.port)}
+            className="rounded-lg border border-border px-3 py-1 text-xs disabled:opacity-50 hover:bg-red-50">Remove</button>
+        </li>))}</ul>}
+    <div className="flex flex-wrap gap-2 items-end">
+      <label className="text-sm">Device MAC<input value={mac} onChange={e => setMac(e.target.value)}
+        placeholder="68:57:2d:db:39:7d" className="ml-2 rounded-lg border border-border px-3 py-2 font-mono text-sm" /></label>
+      <label className="text-sm">Port<input type="number" value={port} onChange={e => setPort(e.target.value)}
+        placeholder="443" className="ml-2 rounded-lg border border-border px-3 py-2 w-24 text-sm" /></label>
+      <label className="text-sm">Reason<input value={reason} onChange={e => setReason(e.target.value)}
+        placeholder="Tuya heartbeat bypass" className="ml-2 rounded-lg border border-border px-3 py-2 text-sm" /></label>
+      <button disabled={!online || busy} onClick={() => void add()}
+        className="rounded-xl bg-accent px-4 py-2 text-sm text-white disabled:opacity-50">{busy ? 'Working…' : 'Add to Whitelist'}</button>
+    </div>
+    <RequestState error={error} />
+  </div>
+}
+
 export function SystemSettingsPage() {
   const { status, online, busy, refresh, switchEngine } = useSystem()
   const [draft, setDraft] = useState<Settings | null>(null)
@@ -236,6 +304,7 @@ export function SystemSettingsPage() {
     <section className={panelClass}><MonitoredDevices online={online} /></section>
     <section className={panelClass}><WhitelistedDestinations online={online} /></section>
     <section className={panelClass}><WhitelistedDomains online={online} /></section>
+    <section className={panelClass}><WhitelistedDevicePorts online={online} /></section>
     <section className={panelClass}><h2 className="mb-3 text-lg font-semibold">Alert Settings</h2>
       <p className="text-sm">Classification boundary: attack probability ≥ 50%.</p>
       <p className="mt-2 text-xs text-text-muted">Saved alert policy: {online && status ? status.settings.active_alerting ? `enabled; attack confidence must exceed ${(status.settings.alert_threshold * 100).toFixed(0)}%` : 'disabled' : 'unavailable'}.</p>

@@ -38,7 +38,9 @@ from database import (
     get_whitelisted_destinations, add_whitelisted_destination,
     remove_whitelisted_destination, is_destination_whitelisted,
     get_whitelisted_domains, add_whitelisted_domain,
-    remove_whitelisted_domain, is_domain_whitelisted
+    remove_whitelisted_domain, is_domain_whitelisted,
+    get_whitelisted_device_ports, add_whitelisted_device_port,
+    remove_whitelisted_device_port, is_device_port_whitelisted
 )
 
 from sentrix_ml.schema import EXPECTED_FEATURES, NUM_FEATURES
@@ -672,7 +674,7 @@ def hardware_live():
     return engine.last_hardware_ping > 0 and time.time() - engine.last_hardware_ping < HARDWARE_LIVE_TIMEOUT
 
 
-def alert_allowed(prediction, confidence, dst_ip=None, sni=None):
+def alert_allowed(prediction, confidence, dst_ip=None, sni=None, mac=None, dst_port=None):
     if not (settings['active_alerting'] and prediction == 1 and confidence > settings['alert_threshold']):
         return False
     # Suppress alerts for whitelisted destination IPs (known IoT cloud endpoints)
@@ -680,6 +682,9 @@ def alert_allowed(prediction, confidence, dst_ip=None, sni=None):
         return False
     # Suppress alerts for whitelisted domains (SNI-based, e.g. *.tuyaeu.com)
     if sni and is_domain_whitelisted(sni):
+        return False
+    # Suppress alerts for whitelisted MAC+Port (e.g. smart plug on port 443/8883)
+    if mac and dst_port and is_device_port_whitelisted(mac, dst_port):
         return False
     return True
 
@@ -837,6 +842,34 @@ def delete_whitelisted_domain(domain: str):
     if not remove_whitelisted_domain(domain):
         raise HTTPException(404, 'Domain not found')
     return {'status': 'ok', 'domains': get_whitelisted_domains()}
+
+
+class DevicePortWhitelistRequest(BaseModel):
+    mac: str
+    port: int
+    reason: str = ''
+
+
+@app.get('/api/whitelisted-device-ports')
+def list_whitelisted_device_ports():
+    """MAC+Port combinations whose flows are classified but never trigger alerts."""
+    return {'device_ports': get_whitelisted_device_ports()}
+
+
+@app.post('/api/whitelisted-device-ports')
+def create_whitelisted_device_port(request: DevicePortWhitelistRequest):
+    try:
+        add_whitelisted_device_port(request.mac, request.port, request.reason)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {'status': 'ok', 'device_ports': get_whitelisted_device_ports()}
+
+
+@app.delete('/api/whitelisted-device-ports/{mac}/{port}')
+def delete_whitelisted_device_port(mac: str, port: int):
+    if not remove_whitelisted_device_port(mac, port):
+        raise HTTPException(404, 'Combination not found')
+    return {'status': 'ok', 'device_ports': get_whitelisted_device_ports()}
 
 
 @app.get('/api/database/stats')
@@ -1014,7 +1047,13 @@ def ingest_live_flow(flow: dict):
             failure = str(exc)
             engine.last_error = failure
             system_status['inference_errors'] += 1
-        is_alert = failure is None and alert_allowed(prediction, confidence, dst_ip=str(flow.get('dst_ip', '')), sni=flow.get('sni'))
+        is_alert = failure is None and alert_allowed(
+            prediction, confidence, 
+            dst_ip=str(flow.get('dst_ip', '')), 
+            sni=flow.get('sni'),
+            mac=flow.get('device_mac'),
+            dst_port=flow.get('dst_port')
+        )
         try:
             flow_id = insert_network_flow(
                 src_ip=str(flow['src_ip']), dst_ip=str(flow['dst_ip']), proto=str(flow.get('proto', 'unknown')),
