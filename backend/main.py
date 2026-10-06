@@ -1077,40 +1077,6 @@ def ingest_live_flow(flow: dict):
                     p_rf=p_rf, p_cnn=p_cnn, mode=engine.execution_mode, model=engine.current_model)
 
 
-@app.post('/api/inject-attack')
-def deploy_attack(request: AttackRequest):
-    # Simulate an attack flow to trigger SENTRi-X ML models
-    is_ddos = "DDoS" in request.type
-    fake_flow = {
-        "src_ip": "10.0.0.254",
-        "dst_ip": "192.168.1.100",
-        "src_port": 54321,
-        "dst_port": 80,
-        "proto": "TCP",
-        "duration": 0.001 if is_ddos else 2.5,
-        "src_bytes": 120000 if is_ddos else 500,
-        "dst_bytes": 0 if is_ddos else 1500,
-        "src_pkts": 5000 if is_ddos else 15,
-        "dst_pkts": 0 if is_ddos else 12,
-        "device_mac": "aa:bb:cc:dd:ee:ff",
-        "device_name": "Simulated_Attacker",
-        "sensor_id": "rpi3b-edge-01",
-        "sni": None,
-        "_force_attack": True,
-        "data_source": request.type
-    }
-    
-    success_count = 0
-    for _ in range(request.intensity):
-        try:
-            # Inject directly into the flow processing pipeline
-            ingest_live_flow(fake_flow)
-            success_count += 1
-        except Exception:
-            pass
-            
-    return {'queued': success_count, 'queue_size': success_count, 'data_source': 'live_hardware_simulation', 'message': f'Injected {success_count} simulated packets.'}
-
 
 def process_simulation():
     # Background simulation processing is disabled for live hardware capture mode.
