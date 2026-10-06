@@ -44,6 +44,7 @@ from database import (
 )
 
 from sentrix_ml.schema import EXPECTED_FEATURES, NUM_FEATURES
+from narrative import generate_attack_narrative
 from sentrix_ml.preprocessing import PreprocessingPipeline, build_feature_row
 from sentrix_ml.inference import run_single_inference
 from sentrix_ml.packaging import validate_package, ModelManifest, PackageValidationError, file_sha256
@@ -623,6 +624,20 @@ def record_threat_alert(packet_data, inference_df, confidence, source, flow_id=N
         "shap_target_class": shap_res["target_class"],
         "reason": "",
     }
+    # Plain-English attack narrative for thesis evaluation and operator review.
+    # Generated from flow fields + SHAP-ranked features; describes observed
+    # behavior, not assumed intent.
+    try:
+        narrative = generate_attack_narrative(
+            flow=packet_data,
+            shap_values=features if isinstance(features, list) else [],
+            feature_names=list(inference_df.columns) if hasattr(inference_df, 'columns') else [],
+            confidence=confidence,
+            model_type=engine.current_model,
+        )
+        metadata["reason"] = narrative
+    except Exception:
+        metadata["reason"] = ""  # Narrative is supplementary; never break alert recording.
     lime = compute_lime_explanation_for_packet(inference_df)
     metadata.update(lime_method='local_rf_lime' if lime['values'] else 'unavailable',
                     lime_model='random_forest', lime_target_class=lime['target_class'])
