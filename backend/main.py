@@ -1041,12 +1041,8 @@ def ingest_live_flow(flow: dict):
         failure = None
         frame = prepare_feature_dataframe(flow)
         try:
-            if flow.get('_force_attack'):
-                prediction, confidence, p_rf, p_cnn = 1, 0.99, 0.99, 0.99
-                engine.last_error = None
-            else:
-                prediction, confidence, p_rf, p_cnn = run_inference(frame)
-                engine.last_error = None
+            prediction, confidence, p_rf, p_cnn = run_inference(frame)
+            engine.last_error = None
         except Exception as exc:
             failure = str(exc)
             engine.last_error = failure
