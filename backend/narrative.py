@@ -143,6 +143,87 @@ def _behavioral_assessment(flow):
     return observations
 
 
+def _classify_attack_type(flow, shap_values=None, feature_names=None):
+    """Classify the likely attack type from behavioral patterns.
+
+    Returns (attack_type, reasoning) where attack_type is a plain-English
+    label and reasoning explains which observations support it.
+    Uses cautious language -- these are pattern matches, not certainties.
+    """
+    dur = float(flow.get('duration', 0) or 0)
+    spkts = int(flow.get('src_pkts', 0) or 0)
+    dpkts = int(flow.get('dst_pkts', 0) or 0)
+    sbytes = int(flow.get('src_bytes', 0) or 0)
+    dbytes = int(flow.get('dst_bytes', 0) or 0)
+    dport = flow.get('dst_port')
+    proto = str(flow.get('proto', '')).upper()
+    sni = flow.get('sni')
+    total_pkts = spkts + dpkts
+
+    s0 = int(flow.get('conn_state_S0', 0) or 0)
+    rej = int(flow.get('conn_state_REJ', 0) or 0)
+    rsto = int(flow.get('conn_state_RSTO', 0) or 0)
+    sf = int(flow.get('conn_state_SF', 0) or 0)
+
+    # Priority order: most distinctive patterns first
+
+    # 1. Port scanning / reconnaissance: unanswered attempts, short, no data
+    if (s0 > 0 or rej > 0) and sf == 0 and total_pkts <= 5 and dur < 5:
+        return (
+            "network reconnaissance (port scanning)",
+            "the connection was probed but never completed -- "
+            "a hallmark of scanning tools mapping open ports"
+        )
+
+    # 2. DoS / flooding: very high packet or byte rate
+    if dur > 0 and dur < 10 and (total_pkts / dur) > 100:
+        return (
+            "potential denial-of-service (traffic flooding)",
+            f"the packet rate ({total_pkts / dur:.0f}/sec) far exceeds "
+            "normal IoT device behavior"
+        )
+    if dur > 0 and dur < 5 and sbytes > 500000:
+        return (
+            "potential denial-of-service (bandwidth exhaustion)",
+            f"{sbytes:,} bytes were sent in just {dur:.1f} seconds"
+        )
+
+    # 3. Brute force: repeated auth-port targeting with resets
+    auth_ports = {22, 23, 3389, 5900, 8088}
+    if dport in auth_ports and (rsto > 0 or rej > 0):
+        svc = {22: 'SSH', 23: 'Telnet', 3389: 'RDP', 5900: 'VNC', 8088: 'HTTP-alt'}.get(dport, 'authentication')
+        return (
+            f"potential brute-force attack on {svc}",
+            f"repeated connection attempts to the {svc} port were "
+            "reset or rejected, consistent with password guessing"
+        )
+
+    # 4. Data exfiltration: large outbound, minimal inbound
+    if sbytes > 100000 and dbytes < sbytes * 0.1 and sf > 0:
+        return (
+            "potential data exfiltration",
+            f"{sbytes:,} bytes were sent outward with only {dbytes:,} "
+            "bytes in return -- a large one-way transfer"
+        )
+
+    # 5. Suspicious encrypted channel: TLS without SNI
+    if proto == 'TCP' and dport == 443 and not sni and sf > 0:
+        return (
+            "suspicious encrypted communication",
+            "TLS traffic without a visible server name is atypical "
+            "for legitimate IoT cloud services and can indicate "
+            "command-and-control or tunneling"
+        )
+
+    # 6. Anomalous but unclassified
+    return (
+        "anomalous network behavior",
+        "the traffic pattern deviates significantly from the "
+        "learned baseline for this device, but does not match a "
+        "specific known attack signature"
+    )
+
+
 def _confidence_text(confidence):
     """Plain-English confidence description."""
     pct = confidence * 100
@@ -175,7 +256,14 @@ def generate_attack_narrative(flow, shap_values=None, feature_names=None,
     # 1. What happened (factual)
     parts.append(_describe_flow(flow))
 
-    # 2. Why it's suspicious (behavioral)
+    # 2. What kind of attack this resembles
+    attack_type, reasoning = _classify_attack_type(flow, shap_values, feature_names)
+    parts.append(
+        f"Based on the observed behavior, this is classified as "
+        f"{attack_type}: {reasoning}."
+    )
+
+    # 3. Why it's suspicious (behavioral details)
     observations = _behavioral_assessment(flow)
     if observations:
         parts.append(
@@ -183,7 +271,7 @@ def generate_attack_narrative(flow, shap_values=None, feature_names=None,
             "; ".join(observations) + "."
         )
 
-    # 3. What the model saw (top features in plain English)
+    # 4. What the model saw (top features in plain English)
     top = _top_features(shap_values, feature_names)
     if top:
         feat_text = ", ".join(
@@ -201,7 +289,7 @@ def generate_attack_narrative(flow, shap_values=None, feature_names=None,
             f"{_confidence_text(confidence)} confidence."
         )
 
-    # 4. Honest scope limitation
+    # 5. Honest scope limitation
     parts.append(
         "This assessment describes a single network flow. "
         "A definitive attack determination requires correlating "
