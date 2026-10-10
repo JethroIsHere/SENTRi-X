@@ -137,10 +137,16 @@ def run_single_trial(kit_dir: Path, config_file: Path, case: str, engine: str, t
                 summary = json.load(f)
             alerts = summary.get("alerts", {})
             candidates = alerts.get("candidate_alerts_in_scoring_window", [])
+            # Case-aware outcome labels: B0 is benign, so alerts are false
+            # positives, not detections. S1/S2 are attack scenarios.
+            if case == "B0":
+                outcome = "false_positive" if candidates else "clean"
+            else:
+                outcome = "detected" if candidates else "missed"
             trial_data.update({
                 "status": summary.get("status", "unknown"),
                 "alerts_count": len(candidates),
-                "detection_outcome": alerts.get("detection_outcome") or ("detected" if candidates else "none"),
+                "detection_outcome": alerts.get("detection_outcome") or outcome,
                 "detection_latency": alerts.get("detection_latency_seconds"),
                 "error": summary.get("error"),
             })
