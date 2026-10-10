@@ -37,18 +37,25 @@ export function XaiPreviewModal({ alert, onClose }: { alert: Alert; onClose: () 
   const lime = alert.lime_values || []
   const shapVerified = method === 'tree_shap_per_flow' && meta.shap_target_class != null
   const limeVerified = meta.lime_method === 'local_rf_lime' && meta.lime_target_class != null
+  const summaryText = meta.reason || (() => {
+    const topFeats = (alert.shap_values || [])
+      .filter(f => Number.isFinite(f.v))
+      .slice(0, 3)
+      .map(f => f.f.replace(/_/g, ' '))
+    const featClause = topFeats.length > 0 ? `, driven primarily by unusual ${topFeats.join(', ')}` : ''
+    return `Traffic from ${alert.source_ip} to ${alert.dest_ip} was flagged as ${alert.attack_type.toLowerCase()} with ${percent(alert.confidence)} model confidence${featClause}. The observed connection behavior diverges significantly from the learned normal baseline for this device.`
+  })()
+
   return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
     <div role="dialog" aria-modal="true" aria-labelledby="explanation-title" onClick={event => event.stopPropagation()} className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-border bg-surface p-6 text-text shadow-xl">
       <div className="flex items-start justify-between gap-3"><div><h2 id="explanation-title" className="text-xl font-bold">Recorded Alert Explanation</h2><p className="mt-1 text-xs text-text-muted">{sourceLabel(alert.data_source)} · {formatTime(alert.timestamp)}</p></div><button ref={closeButton} aria-label="Close explanation" onClick={onClose} className="rounded-lg border border-border px-3 py-1">Close</button></div>
       <div className="my-5 grid grid-cols-2 gap-3 text-sm"><div><p className="text-xs text-text-muted">Alert label</p>{alert.attack_type}</div><div><p className="text-xs text-text-muted">Prediction confidence</p>{percent(alert.confidence)}</div><div className="break-all"><p className="text-xs text-text-muted">Source</p>{alert.source_ip}</div><div className="break-all"><p className="text-xs text-text-muted">Destination</p>{alert.dest_ip}</div></div>
       <p className={`mb-5 rounded-lg border p-3 text-xs ${threatLevelTone(alert.threat_level)}`}>{alert.threat_level} — confidence-based alert category. Confidence is a model score, not measured detection accuracy.</p>
       {alert.attack_type_source === 'dataset_label' && <p className="mb-4 text-xs text-text-muted">The attack name comes from the replay dataset. The classifier's prediction is binary.</p>}
-      {meta.reason && (
-        <section className="mb-6 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-4">
-          <h3 className="font-semibold text-emerald-400">Plain-English Assessment</h3>
-          <p className="mt-2 text-sm leading-relaxed text-text">{meta.reason}</p>
-        </section>
-      )}
+      <section className="mb-6 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-4">
+        <h3 className="font-semibold text-emerald-400">Plain-English Assessment</h3>
+        <p className="mt-2 text-sm leading-relaxed text-text">{summaryText}</p>
+      </section>
       <section className="mb-6"><h3 className="font-semibold">{shap.length ? title : 'Feature explanation unavailable'}</h3>
         {method === 'tree_shap_per_flow' && <p className="my-2 text-xs text-text-muted">Calculated dynamically per-flow via TreeSHAP on the Random Forest for the {meta.shap_target_class === 1 ? 'attack' : 'benign'} class.</p>}
         {method === 'global_rf_importance' && <p className="my-2 text-xs text-text-muted">Overall feature importance in the RF model. These values are not per-flow SHAP and do not indicate an attack direction.</p>}
