@@ -55,9 +55,9 @@
 
 | Workload Case | Scenario Description | Snort Baseline | SENTRi-X (Hybrid) | Primary Advantage |
 |---|---|---|---|---|
-| **B0** | Benign HTTP Authentication (10 logins) | 0 Alerts (Normal) | 0 False Alarms | High specificity (Zero FP) |
-| **S1** | Bounded TCP Port Scan (50 ports) | Detected (Signature match) | Detected (High Confidence) | Verified behavioral detection |
-| **S2** | Credential Probing (20 failed logins) | Missed (No signature) | Detected (Flow Anomaly) | **Catches zero-day/signatureless attacks** |
+| **B0** | Benign HTTP Authentication (20 logins) | 0 Alerts | 31 False Positives | Specificity gap: background IoT traffic triggers alerts; motivates whitelist suppression |
+| **S1** | Bounded TCP Port Scan (50 ports) | 0 Alerts (Missed) | Detected (51 alerts) | Behavioral detection where Snort signatures missed |
+| **S2** | Credential Probing (20 failed logins) | 0 Alerts (Missed) | Trial failed (preflight) — no result | No valid comparison; re-run required |
 
 ---
 
