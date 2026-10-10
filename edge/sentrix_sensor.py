@@ -29,6 +29,7 @@ Training-feature parity notes (2026-10-04, verified against sentrix_ml):
 - DNS keeps the last-seen query values per flow (training: first query).
 """
 
+import os
 import time
 import threading
 import queue
@@ -42,8 +43,8 @@ INTERFACE = "eth0"
 # Site-specific: LAN backend URL below. Review before publishing this file
 # beyond the project repo. IoT device MACs are managed via the web dashboard
 # (/api/monitored-devices), not hardcoded here.
-BACKEND_URL = "http://192.168.254.156:8000/api/ingest-flow"
-HEARTBEAT_URL = "http://192.168.254.156:8000/api/heartbeat"
+BACKEND_URL = os.environ.get("SENTRIX_BACKEND_URL", "http://192.168.254.151:8000/api/ingest-flow")
+HEARTBEAT_URL = os.environ.get("SENTRIX_HEARTBEAT_URL", "http://192.168.254.151:8000/api/heartbeat")
 HEARTBEAT_INTERVAL = 3
 SENSOR_ID = "rpi3b-edge-01"
 
@@ -362,6 +363,9 @@ def process_packet(packet):
         proto = "TCP"
         packet_src_port = int(packet[TCP].sport)
         packet_dst_port = int(packet[TCP].dport)
+        # Never monitor the sensor's own communication with the backend API
+        if packet_src_port == 8000 or packet_dst_port == 8000:
+            return
 
     elif UDP in packet:
         proto = "UDP"

@@ -15,7 +15,7 @@ import sys
 import urllib.request
 import urllib.error
 
-URL = sys.argv[2] if len(sys.argv) > 2 and sys.argv[1] == "--url" else "http://192.168.254.156:8000"
+URL = sys.argv[2] if len(sys.argv) > 2 and sys.argv[1] == "--url" else "http://192.168.254.151:8000"
 if "--url" in sys.argv:
     URL = sys.argv[sys.argv.index("--url") + 1]
 
