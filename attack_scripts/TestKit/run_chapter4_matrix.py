@@ -29,10 +29,17 @@ ALL_ENGINES = ["rf", "cnn", "hybrid"]
 ALL_CASES = ["B0", "S1", "S2"]
 
 CASE_DESCRIPTIONS = {
-    "B0": "Benign HTTP Logins (10 attempts)",
+    "B0": "Baseline observation (verify passive/synthetic variant in trial configuration)",
     "S1": "TCP Port Scan (50 ports)",
     "S2": "Credential Probing (20 attempts)",
 }
+
+
+def observation_outcome(status: str, exit_code: int | str | None) -> str:
+    """Execution and alert counts cannot establish ground truth or detection."""
+    if status != "completed" or str(exit_code) != "0":
+        return "inconclusive"
+    return "pending_review"
 
 
 def http_json(url: str, method: str = "GET", payload: dict | None = None, timeout: float = 10.0) -> dict:
@@ -126,8 +133,9 @@ def run_single_trial(kit_dir: Path, config_file: Path, case: str, engine: str, t
         "elapsed_seconds": round(elapsed_wall, 1),
         "status": "failed",
         "alerts_count": 0,
-        "detection_outcome": "none",
+        "detection_outcome": "inconclusive",
         "detection_latency": None,
+        "review_required": True,
         "error": None,
     }
     
@@ -137,17 +145,17 @@ def run_single_trial(kit_dir: Path, config_file: Path, case: str, engine: str, t
                 summary = json.load(f)
             alerts = summary.get("alerts", {})
             candidates = alerts.get("candidate_alerts_in_scoring_window", [])
-            # Case-aware outcome labels: B0 is benign, so alerts are false
-            # positives, not detections. S1/S2 are attack scenarios.
-            if case == "B0":
-                outcome = "false_positive" if candidates else "clean"
-            else:
-                outcome = "detected" if candidates else "missed"
+            # The observer produces candidates, not independently scored results.
+            # Even an old summary's outcome/latency must not bypass evidence review.
+            outcome = observation_outcome(summary.get("status"), proc.returncode)
+            if (summary.get("complete_scoring_window") is not True or
+                    alerts.get("observer_issues")):
+                outcome = "inconclusive"
             trial_data.update({
                 "status": summary.get("status", "unknown"),
                 "alerts_count": len(candidates),
-                "detection_outcome": alerts.get("detection_outcome") or outcome,
-                "detection_latency": alerts.get("detection_latency_seconds"),
+                "detection_outcome": outcome,
+                "detection_latency": None,
                 "error": summary.get("error"),
             })
         except Exception as exc:
@@ -159,70 +167,109 @@ def run_single_trial(kit_dir: Path, config_file: Path, case: str, engine: str, t
     return trial_data
 
 
+def observation_cell(rows: list[dict]) -> str:
+    if not rows:
+        return "Not run"
+    return " / ".join(
+        f"{r['alerts_count']} candidates ({r['detection_outcome']}; `{r['trial_id']}`)"
+        if r['status'] == "completed" else
+        f"No valid observation ({r['status']}; `{r['trial_id']}`)"
+        for r in rows
+    )
+
+
+def normalize_observations(results: list[dict]) -> list[dict]:
+    """Preserve recorded values while withdrawing unreviewed legacy scores."""
+    normalized = []
+    for original in results:
+        row = dict(original)
+        previous = row.get("detection_outcome")
+        if previous not in ("pending_review", "inconclusive"):
+            row.setdefault("legacy_detection_outcome", previous)
+        if row.get("detection_latency") not in (None, ""):
+            row.setdefault("legacy_detection_latency", row["detection_latency"])
+        row.update(detection_outcome=observation_outcome(row.get("status"), row.get("exit_code")),
+                   detection_latency=None, review_required=True)
+        # Keep any stricter invalidity identified while parsing the raw summary.
+        if previous == "inconclusive":
+            row["detection_outcome"] = "inconclusive"
+        normalized.append(row)
+    return normalized
+
+
 def generate_markdown_report(results: list[dict], output_md: Path, output_csv: Path) -> None:
-    # Save CSV
+    results = normalize_observations(results)
     if results:
-        keys = list(results[0].keys())
+        keys = list(dict.fromkeys(key for row in results for key in row))
         with output_csv.open("w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=keys)
+            writer = csv.DictWriter(f, fieldnames=keys, lineterminator="\n")
             writer.writeheader()
             writer.writerows(results)
 
-    # Format Markdown
-    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     lines = [
-        "# Chapter 4 Empirical Evaluation: Physical Hardware Trial Matrix",
-        f"\n**Execution Date:** {timestamp}  ",
-        "**Testbed:** SENTRi-X Edge Sensor (Raspberry Pi 3B) + SENTRi-X Dual-Engine API + Snort IDS Baseline  \n",
-        "---",
-        "\n## 1. Master Evaluation Results Table\n",
-        "| Trial ID | Dataset | Engine | Workload Case | Status | Alerts Observed | Detection Outcome | Latency (s) | Duration |",
+        "# Chapter 4 Hardware Trial Observations — Evidence Review Pending",
+        f"\n**Report generated:** {generated} (not the trial execution date)\n",
+        "Candidate counts are recorded observations, not confirmed detections, false positives, "
+        "true negatives, or misses. No detector superiority or accuracy is established by this table. "
+        "Detection latency remains unavailable until scope, ground truth, exposure, and timing are reviewed.",
+        "\n`pending_review` means the run completed with exit code 0 but is unscored. "
+        "`inconclusive` means execution or trial checks require investigation; "
+        "exit code 3 can reflect incomplete actions, unexpected responses, or observer issues. "
+        "Failed preflight is not a missed attack. An empty alert log is not proof of a clean baseline.",
+        "\n## 1. Recorded trials\n",
+        "| Trial ID | Domain | Engine | Case | Status | Exit code | Candidate count | Review state | Duration (s) |",
         "|---|---|---|---|---|---|---|---|---|",
     ]
-    
     for r in results:
-        dataset = r.get("dataset", "snort")
+        count = r['alerts_count'] if r['status'] == 'completed' else '—'
         lines.append(
-            f"| `{r['trial_id']}` | **{dataset}** | `{r['engine']}` | `{r['case']}` | {r['status']} | {r['alerts_count']} | {r['detection_outcome']} | {r['detection_latency'] or '—'} | {r['elapsed_seconds']}s |"
+            f"| `{r['trial_id']}` | {r.get('dataset', 'snort')} | {r['engine']} | {r['case']} | "
+            f"{r['status']} | {r.get('exit_code', '—')} | {count} | {r['detection_outcome']} | {r['elapsed_seconds']} |"
         )
-    
     lines.extend([
-        "\n---",
-        "\n## 2. Snort vs. SENTRi-X Comparative Summary (Table 4.1)\n",
-        "| Workload Case | Scenario Description | Snort Baseline | SENTRi-X (Hybrid) | Primary Advantage |",
-        "|---|---|---|---|---|",
-        "| **B0** | Benign HTTP Authentication (20 logins) | 0 Alerts | 31 False Positives | Specificity gap: background IoT traffic triggers alerts; motivates whitelist suppression |",
-        "| **S1** | Bounded TCP Port Scan (50 ports) | 0 Alerts (Missed) | Detected (51 alerts) | Behavioral detection where Snort signatures missed |",
-        "| **S2** | Credential Probing (20 failed logins) | 0 Alerts (Missed) | Trial failed (preflight) — no result | No valid comparison; re-run required |",
-        "\n---",
-        "\n## 3. Multi-Model Performance Comparison on Live Hardware (Table 4.2)\n",
-        "| Model Domain | Engine | Port Scan (S1) Detection | Credential Probing (S2) Detection | Benign (B0) False Alarms |",
+        "\n## 2. Snort and OMNI Hybrid observations\n",
+        "Counts below are derived from the recorded rows. Repeats are retained separately. "
+        "Matched traffic exposure, enabled Snort rules, capture/log continuity, and identical "
+        "baseline variants must be verified before comparing detectors.",
+        "\n| Case | Workload | Snort | OMNI Hybrid |",
+        "|---|---|---|---|",
+    ])
+    for case in ALL_CASES:
+        snort = [r for r in results if r['engine'] == 'snort' and r['case'] == case]
+        hybrid = [r for r in results if r.get('dataset') == 'omni' and r['engine'] == 'hybrid' and r['case'] == case]
+        lines.append(f"| {case} | {CASE_DESCRIPTIONS[case]} | {observation_cell(snort)} | {observation_cell(hybrid)} |")
+    lines.extend([
+        "\n## 3. Observations by model domain and engine\n",
+        "| Domain | Engine | B0 candidates | S1 candidates | S2 candidates |",
         "|---|---|---|---|---|",
     ])
-    
-    # Group results by dataset & engine
-    grouped = {}
-    for r in results:
-        if r.get("engine") == "snort":
-            continue
-        key = (r.get("dataset", "omni"), r.get("engine", "hybrid"))
-        grouped.setdefault(key, {})[r["case"]] = r
-
-    for (dataset, engine), cases in sorted(grouped.items()):
-        b0 = cases.get("B0", {})
-        s1 = cases.get("S1", {})
-        s2 = cases.get("S2", {})
-        b0_res = "0 FP (Clean)" if b0.get("alerts_count", 0) == 0 else f"{b0.get('alerts_count')} FP"
-        s1_res = "Detected" if s1.get("alerts_count", 0) > 0 else "Missed"
-        s2_res = "Detected" if s2.get("alerts_count", 0) > 0 else "Missed"
-        lines.append(f"| **{dataset}** | `{engine}` | {s1_res} | {s2_res} | {b0_res} |")
-
-    lines.append("\n*Generated automatically by SENTRi-X Lab Test Kit Batch Orchestrator.*\n")
-    
-    with output_md.open("w", encoding="utf-8") as f:
-        f.write("\n".join(lines))
-    print(f"\n[REPORT] Saved Markdown summary to {output_md}", flush=True)
-    print(f"[REPORT] Saved master dataset to {output_csv}", flush=True)
+    groups = sorted({(r.get('dataset', 'unknown'), r['engine']) for r in results if r['engine'] != 'snort'})
+    for domain, engine in groups:
+        cells = [observation_cell([r for r in results if r.get('dataset') == domain and r['engine'] == engine and r['case'] == case])
+                 for case in ALL_CASES]
+        lines.append(f"| {domain} | {engine} | " + " | ".join(cells) + " |")
+    lines.extend([
+        "\n## 4. Evidence required for scoring\n",
+        "1. Preserve each trial's summary.json, events.jsonl, frozen configuration, observer logs, "
+        "and independent packet capture or target service logs. These bundles are not included in the committed matrix CSV.",
+        "2. Complete each trial's review.csv: validity, independently established ground truth, "
+        "relevant_alarm, eligible_alert_ids, reference_evidence, reviewer, and timing fields. "
+        "Correlate endpoints, ports, flow IDs, scoring windows, and preflight/background traffic.",
+        "3. Investigate nonzero exit codes and observer continuity issues. Keep invalid trials "
+        "separate from scored negatives and document every repeat rather than silently replacing rows.",
+        "4. Verify passive versus synthetic B0 from saved configurations; the existing CSV "
+        "does not encode this distinction. Review benign exposure before counting false positives.",
+        "5. Verify Snort version, configuration, enabled rule set, capture interface, packet counters, "
+        "and log output. Zero logged candidates alone cannot establish a missed attack.",
+        "6. Compute latency only for independently eligible alerts with a reviewed attack start "
+        "and clock/polling uncertainty. Candidate delay and whole-run duration are not detection latency.",
+        "\nPrior detection labels in the CSV are retained only in legacy_detection_outcome for auditability. "
+        "They are withdrawn as scored results. Historical narrative claims about cloud traffic, "
+        "preflight attribution, and confirmed attack efficacy require the original evidence bundles.",
+    ])
+    output_md.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"[REPORT] Saved unscored observations to {output_md} and {output_csv}", flush=True)
 
 
 def main():
@@ -237,7 +284,14 @@ def main():
     parser.add_argument("--skip-snort", action="store_true", help="Skip Snort baseline runs")
     parser.add_argument("--output-report", default="CHAPTER_4_FULL_RESULTS.md", help="Output Markdown report")
     parser.add_argument("--output-csv", default="chapter_4_matrix_results.csv", help="Output CSV results file")
+    parser.add_argument("--report-only", type=Path,
+                        help="Regenerate an unscored report from an existing CSV; executes no trials")
     args = parser.parse_args()
+    if args.report_only:
+        with args.report_only.open(newline="", encoding="utf-8") as f:
+            results = list(csv.DictReader(f))
+        generate_markdown_report(results, Path(args.output_report), Path(args.output_csv))
+        return
 
     kit_dir = Path(__file__).resolve().parent
     template_config = kit_dir / "lab_config.json"
@@ -318,3 +372,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

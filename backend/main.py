@@ -43,7 +43,7 @@ from database import (
     remove_whitelisted_device_port, is_device_port_whitelisted
 )
 
-from sentrix_ml.schema import EXPECTED_FEATURES, NUM_FEATURES
+from sentrix_ml.schema import EXPECTED_FEATURES, NUM_FEATURES, ATTACK_CLASS_INDEX
 from narrative import generate_attack_narrative, classify_attack_type
 from sentrix_ml.preprocessing import PreprocessingPipeline, build_feature_row
 from sentrix_ml.inference import run_single_inference
@@ -630,10 +630,12 @@ def record_threat_alert(packet_data, inference_df, confidence, source, flow_id=N
     try:
         narrative = generate_attack_narrative(
             flow=packet_data,
-            shap_values=features if isinstance(features, list) else [],
+            shap_values=(features if isinstance(features, list)
+                         and shap_res['method'] == 'tree_shap_per_flow'
+                         and shap_res['target_class'] == ATTACK_CLASS_INDEX else []),
             feature_names=list(inference_df.columns) if hasattr(inference_df, 'columns') else [],
             confidence=confidence,
-            model_type=engine.current_model,
+            model_type=f"{engine.execution_mode} ({engine.current_model})",
         )
         metadata["reason"] = narrative
     except Exception:
@@ -642,7 +644,7 @@ def record_threat_alert(packet_data, inference_df, confidence, source, flow_id=N
     metadata.update(lime_method='local_rf_lime' if lime['values'] else 'unavailable',
                     lime_model='random_forest', lime_target_class=lime['target_class'])
     # Live inference is binary, so we use heuristic behavioral classification
-    # to determine the specific attack type from flow patterns.
+    # to describe observed flow patterns; it cannot verify an attack subtype.
     # Dataset labels are contextual labels, not model subtype predictions.
     label = 'Malicious Flow Anomaly'
     label_source = 'binary_classifier'
@@ -1115,3 +1117,4 @@ def process_simulation():
 async def simulate_live_traffic():
     # Background simulation worker is disabled for live hardware capture mode.
     pass
+
