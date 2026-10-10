@@ -30,7 +30,7 @@ export interface Alert {
   sensor_id?: string | null; device_mac?: string | null; flow_id?: number | null
   attack_type_source?: string; shap_values?: Feature[]; lime_values?: Feature[]
   explanation_meta?: { shap_method?: string; shap_model?: string; shap_target_class?: number | null
-    reference_index?: number; lime_method?: string; lime_model?: string; lime_target_class?: number | null }
+    reference_index?: number; lime_method?: string; lime_model?: string; lime_target_class?: number | null; reason?: string }
 }
 export interface Flow {
   id: number; timestamp: string; sensor_id: string; device_name: string | null; device_mac: string | null

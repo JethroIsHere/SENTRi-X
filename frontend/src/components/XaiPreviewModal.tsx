@@ -30,10 +30,12 @@ export function XaiPreviewModal({ alert, onClose }: { alert: Alert; onClose: () 
   }, [])
   const meta = alert.explanation_meta || {}
   const method = meta.shap_method
-  const title = method === 'global_rf_importance' ? 'Global Random Forest Feature Importance'
+  const title = method === 'tree_shap_per_flow' ? 'Local TreeSHAP Explanation (Random Forest)'
+    : method === 'global_rf_importance' ? 'Global Random Forest Feature Importance'
     : method === 'reference_sample_shap' ? 'SHAP from a Stored Reference Sample' : 'Stored Feature Values — Method Unverified'
   const shap = alert.shap_values || []
   const lime = alert.lime_values || []
+  const shapVerified = method === 'tree_shap_per_flow' && meta.shap_target_class != null
   const limeVerified = meta.lime_method === 'local_rf_lime' && meta.lime_target_class != null
   return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
     <div role="dialog" aria-modal="true" aria-labelledby="explanation-title" onClick={event => event.stopPropagation()} className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-border bg-surface p-6 text-text shadow-xl">
@@ -48,10 +50,11 @@ export function XaiPreviewModal({ alert, onClose }: { alert: Alert; onClose: () 
         </section>
       )}
       <section className="mb-6"><h3 className="font-semibold">{shap.length ? title : 'Feature explanation unavailable'}</h3>
+        {method === 'tree_shap_per_flow' && <p className="my-2 text-xs text-text-muted">Calculated dynamically per-flow via TreeSHAP on the Random Forest for the {meta.shap_target_class === 1 ? 'attack' : 'benign'} class.</p>}
         {method === 'global_rf_importance' && <p className="my-2 text-xs text-text-muted">Overall feature importance in the RF model. These values are not per-flow SHAP and do not indicate an attack direction.</p>}
         {method === 'reference_sample_shap' && <p className="my-2 text-xs text-text-muted">A nearby stored sample was selected (index {meta.reference_index}). This is a reference explanation, not SHAP calculated for this flow. The artifact's model identity is unverified.</p>}
         {shap.length > 0 && !method && <p className="my-2 text-xs text-text-muted">This older record does not identify its explanation method. No class direction can be established.</p>}
-        {shap.length > 0 ? <Features values={shap} signed={false} target="unknown" /> : <p className="mt-2 text-sm text-text-muted">No feature explanation was saved with this alert.</p>}
+        {shap.length > 0 ? <Features values={shap} signed={shapVerified} target={meta.shap_target_class === 1 ? 'attack' : 'benign'} /> : <p className="mt-2 text-sm text-text-muted">No feature explanation was saved with this alert.</p>}
       </section>
       <section className="mb-6"><h3 className="font-semibold">{limeVerified ? 'Local LIME Explanation of the RF' : 'LIME Explanation'}</h3>
         {limeVerified && <p className="my-2 text-xs text-text-muted">Explains the Random Forest's {meta.lime_target_class === 1 ? 'attack' : 'benign'} class. It does not explain the CNN or the fused hybrid output.</p>}
