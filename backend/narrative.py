@@ -71,13 +71,30 @@ def _describe_flow(flow):
     return " ".join(parts) + "."
 
 
-def _top_features(shap_values, feature_names, n=3):
+def _top_features(shap_values, feature_names=None, n=3):
     """Return the top-n features by absolute SHAP value, in plain English."""
-    if not shap_values or not feature_names:
+    if not shap_values:
         return []
-    pairs = sorted(zip(feature_names, shap_values),
-                   key=lambda x: abs(x[1]), reverse=True)[:n]
-    return [(FEATURE_NAMES.get(name, name), val) for name, val in pairs]
+    # If shap_values is a list of dicts (e.g. [{'f': 'feat_name', 'v': val}, ...])
+    if isinstance(shap_values, list) and shap_values and isinstance(shap_values[0], dict):
+        extracted = []
+        for item in shap_values:
+            name = item.get('f') or item.get('feature') or ''
+            val = item.get('v') if item.get('v') is not None else item.get('value', 0.0)
+            try:
+                extracted.append((FEATURE_NAMES.get(name, name), float(val)))
+            except (ValueError, TypeError):
+                continue
+        return sorted(extracted, key=lambda x: abs(x[1]), reverse=True)[:n]
+
+    if not feature_names:
+        return []
+    try:
+        pairs = sorted(zip(feature_names, shap_values),
+                       key=lambda x: abs(float(x[1])), reverse=True)[:n]
+        return [(FEATURE_NAMES.get(name, name), float(val)) for name, val in pairs]
+    except Exception:
+        return []
 
 
 def _behavioral_assessment(flow):
