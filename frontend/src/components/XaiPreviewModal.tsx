@@ -53,7 +53,7 @@ export function XaiPreviewModal({ alert, onClose }: { alert: Alert; onClose: () 
       <p className={`mb-5 rounded-lg border p-3 text-xs ${threatLevelTone(alert.threat_level)}`}>{alert.threat_level} — confidence-based alert category. Confidence is a model score, not measured detection accuracy.</p>
       {alert.attack_type_source === 'dataset_label' && <p className="mb-4 text-xs text-text-muted">The attack name comes from the replay dataset. The classifier's prediction is binary.</p>}
       <section className="mb-6 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-4">
-        <h3 className="font-semibold text-emerald-400">Plain-English Assessment</h3>
+        <h3 className="font-semibold text-emerald-400">Assessment</h3>
         <p className="mt-2 text-sm leading-relaxed text-text">{summaryText}</p>
       </section>
       <section className="mb-6"><h3 className="font-semibold">{shap.length ? title : 'Feature explanation unavailable'}</h3>
