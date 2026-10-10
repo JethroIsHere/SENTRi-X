@@ -44,7 +44,7 @@ from database import (
 )
 
 from sentrix_ml.schema import EXPECTED_FEATURES, NUM_FEATURES
-from narrative import generate_attack_narrative
+from narrative import generate_attack_narrative, classify_attack_type
 from sentrix_ml.preprocessing import PreprocessingPipeline, build_feature_row
 from sentrix_ml.inference import run_single_inference
 from sentrix_ml.packaging import validate_package, ModelManifest, PackageValidationError, file_sha256
@@ -641,14 +641,28 @@ def record_threat_alert(packet_data, inference_df, confidence, source, flow_id=N
     lime = compute_lime_explanation_for_packet(inference_df)
     metadata.update(lime_method='local_rf_lime' if lime['values'] else 'unavailable',
                     lime_model='random_forest', lime_target_class=lime['target_class'])
-    # Live inference is binary. Dataset labels are contextual labels, not model subtype predictions.
+    # Live inference is binary, so we use heuristic behavioral classification
+    # to determine the specific attack type from flow patterns.
+    # Dataset labels are contextual labels, not model subtype predictions.
     label = 'Malicious Flow Anomaly'
+    label_source = 'binary_classifier'
     if source == 'simulation':
         for key in ('type', 'Label', 'label'):
             value = packet_data.get(key)
             if value is not None and str(value).lower() not in ('normal', 'benign', '0', '0.0', 'nan', '1', '1.0'):
                 label = str(value)
+                label_source = 'dataset_label'
                 break
+    if label_source == 'binary_classifier':
+        # Heuristic attack-type classification from behavioral patterns.
+        # Best-effort; falls back to generic label on failure.
+        try:
+            attack_type, _ = classify_attack_type(packet_data)
+            # Capitalize for display consistency
+            label = attack_type[0].upper() + attack_type[1:] if attack_type else label
+            label_source = 'heuristic_behavioral'
+        except Exception:
+            pass  # Keep generic label
     src = packet_data.get('src_ip') or packet_data.get('src') or 'unknown'
     dst = packet_data.get('dst_ip') or packet_data.get('dst') or 'unknown'
     level = classify_threat_level(confidence)
@@ -659,7 +673,7 @@ def record_threat_alert(packet_data, inference_df, confidence, source, flow_id=N
                  sensor_id=packet_data.get('sensor_id'), device_name=packet_data.get('device_name'),
                  device_mac=packet_data.get('device_mac'), shap_values=features,
                  lime_values=lime['values'], explanation_meta=metadata,
-                 attack_type_source='dataset_label' if label != 'Malicious Flow Anomaly' else 'binary_classifier')
+                 attack_type_source=label_source)
     insert_alert(alert)
     return alert
 

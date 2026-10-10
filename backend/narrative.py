@@ -143,7 +143,7 @@ def _behavioral_assessment(flow):
     return observations
 
 
-def _classify_attack_type(flow, shap_values=None, feature_names=None):
+def classify_attack_type(flow, shap_values=None, feature_names=None):
     """Classify the likely attack type from behavioral patterns.
 
     Returns (attack_type, reasoning) where attack_type is a plain-English
@@ -257,7 +257,7 @@ def generate_attack_narrative(flow, shap_values=None, feature_names=None,
     parts.append(_describe_flow(flow))
 
     # 2. What kind of attack this resembles
-    attack_type, reasoning = _classify_attack_type(flow, shap_values, feature_names)
+    attack_type, reasoning = classify_attack_type(flow, shap_values, feature_names)
     parts.append(
         f"Based on the observed behavior, this is classified as "
         f"{attack_type}: {reasoning}."
