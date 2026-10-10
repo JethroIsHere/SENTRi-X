@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import type { Alert, Feature } from '../lib/api'
-import { formatTime, percent, sourceLabel, useApiPoll } from '../lib/api'
+import { formatTime, percent, sourceLabel } from '../lib/api'
 
 function Features({ values, signed, target }: { values: Feature[]; signed: boolean; target: string }) {
   const largest = Math.max(...values.map(value => Math.abs(value.v)), 0.001)
@@ -15,7 +15,6 @@ export function XaiPreviewModal({ alert, onClose }: { alert: Alert; onClose: () 
   const closeButton = useRef<HTMLButtonElement>(null)
   const closeAction = useRef(onClose)
   closeAction.current = onClose
-  const rules = useApiPoll<{ rules: string }>('/api/explainability/ripper', 0)
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null
     const overflow = document.body.style.overflow
@@ -65,9 +64,6 @@ export function XaiPreviewModal({ alert, onClose }: { alert: Alert; onClose: () 
         {limeVerified && <p className="my-2 text-xs text-text-muted">Explains the Random Forest's {meta.lime_target_class === 1 ? 'attack' : 'benign'} class. It does not explain the CNN or the fused hybrid output.</p>}
         {!limeVerified && lime.length > 0 && <p className="my-2 text-xs text-text-muted">The explained model and target class were not recorded for these legacy values.</p>}
         {lime.length ? <Features values={lime} signed={limeVerified} target={meta.lime_target_class === 1 ? 'attack' : 'benign'} /> : <p className="mt-2 text-sm text-text-muted">No local LIME explanation was saved.</p>}
-      </section>
-      <section className="mb-5"><h3 className="font-semibold">RIPPER Reference Rules</h3><p className="my-2 text-xs text-text-muted">Stored rules for reference. No rule match was evaluated for this alert.</p>
-        {rules.error ? <p className="text-xs text-amber-600">Rules unavailable: {rules.error}</p> : <pre className="max-h-36 overflow-auto whitespace-pre-wrap rounded-lg bg-background-soft p-3 text-xs">{rules.data?.rules || 'No stored rules available.'}</pre>}
       </section>
       <p className="border-t border-border pt-3 text-xs text-text-muted">Recorded model: {alert.model_type || 'Unknown'} · Mode: {alert.execution_mode || 'Unknown'} · Alert ID: {alert.id}</p>
     </div>
