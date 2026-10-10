@@ -182,8 +182,13 @@ def execute(args, cfg):
     print("Detection outcome remains blank until independent evidence and alert scope are reviewed.", flush=True)
     if status != "completed":
         return 2
+    # B0 is passive baseline: no HTTP responses expected (expected_http_responses is None)
+    http_check_ok = (
+        args.case == "S1" or args.case == "B0" or
+        actions["expected_http_responses"] == actions["planned"]
+    )
     if (not actions["all_actions_attempted"] or alert_summary.get("observer_issues") or
-            (args.case != "S1" and actions["expected_http_responses"] != actions["planned"])):
+            not http_check_ok):
         return 3
     return 0
 

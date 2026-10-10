@@ -38,3 +38,7 @@ CH4-CIC_IDS2017-HYBRID-S2-5489,S2,hybrid,3,182.0,completed,4,detected,,,cic_ids2
 CH4-SNORT-B0-5676,B0,snort,0,181.5,completed,0,clean,,,snort
 CH4-SNORT-S1-5862,S1,snort,3,181.6,completed,0,missed,,,snort
 CH4-SNORT-S2-6049,S2,snort,0,181.6,completed,0,missed,,,snort
+CH4-RERUN-OMNI-HYBRID-S2,S2,hybrid,0,182.0,completed,32,detected,,,omni
+CH4-RERUN-TON-CNN-S1,S1,cnn,0,182.0,completed,44,detected,,,ton_iot
+CH4-RERUN-OMNI-HYBRID-B0,B0,hybrid,0,182.0,completed,15,false_positive,,,omni
+CH4-RERUN-OMNI-HYBRID-S1,S1,hybrid,0,182.0,completed,51,detected,,,omni

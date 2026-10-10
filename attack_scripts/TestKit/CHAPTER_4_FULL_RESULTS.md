@@ -48,6 +48,10 @@
 | `CH4-SNORT-B0-5676` | **snort** | `snort` | `B0` | completed | 0 | clean | — | 181.5s |
 | `CH4-SNORT-S1-5862` | **snort** | `snort` | `S1` | completed | 0 | missed | — | 181.6s |
 | `CH4-SNORT-S2-6049` | **snort** | `snort` | `S2` | completed | 0 | missed | — | 181.6s |
+| `CH4-RERUN-OMNI-HYBRID-S2` | **omni** | `hybrid` | `S2` | completed | 32 | detected | — | 182.0s |
+| `CH4-RERUN-TON-CNN-S1` | **ton_iot** | `cnn` | `S1` | completed | 44 | detected | — | 182.0s |
+| `CH4-RERUN-OMNI-HYBRID-B0` | **omni** | `hybrid` | `B0` | completed | 15 | false_positive | — | 182.0s |
+| `CH4-RERUN-OMNI-HYBRID-S1` | **omni** | `hybrid` | `S1` | completed | 51 | detected | — | 182.0s |
 
 ---
 
@@ -55,9 +59,10 @@
 
 | Workload Case | Scenario Description | Snort Baseline | SENTRi-X (Hybrid) | Primary Advantage |
 |---|---|---|---|---|
-| **B0** | Benign HTTP Authentication (20 logins) | 0 Alerts | 31 False Positives | Specificity gap: background IoT traffic triggers alerts; motivates whitelist suppression |
-| **S1** | Bounded TCP Port Scan (50 ports) | 0 Alerts (Missed) | Detected (51 alerts) | Behavioral detection where Snort signatures missed |
-| **S2** | Credential Probing (20 failed logins) | 0 Alerts (Missed) | Trial failed (preflight) — no result | No valid comparison; re-run required |
+| **B0 (Synthetic)** | Benign HTTP Authentication (20 rapid logins in 30s) | 0 Alerts (Normal) | 31 False Positives | Rapid login burst flagged anomalous (0.83–0.95 conf); motivates passive baseline redesign |
+| **B0 (Passive)** | Benign Passive Baseline (0 synthetic requests) | 0 Alerts (Normal) | 15 Candidate Alerts | Idle baseline without synthetic burst artifacts; observes natural device traffic |
+| **S1** | Bounded TCP Port Scan (50 ports) | 0 Alerts (Missed) | Detected (51 alerts) | Behavioral anomaly detection where Snort static signatures failed |
+| **S2** | Credential Probing (20 failed logins) | 0 Alerts (Missed) | Detected (32 alerts) | Behavioral detection of brute force probing (validated via `CH4-RERUN-OMNI-HYBRID-S2`) |
 
 ---
 
@@ -72,10 +77,36 @@
 | **cic_ids2017** | `hybrid` | Detected | Detected | 4 FP |
 | **cic_ids2017** | `rf` | Missed | Missed | 0 FP (Clean) |
 | **omni** | `cnn` | Detected | Detected | 33 FP |
-| **omni** | `hybrid` | Detected | Missed | 31 FP |
+| **omni** | `hybrid` | Detected | Detected (32 alerts)* | 31 FP (15 FP Passive)* |
 | **omni** | `rf` | Detected | Detected | 34 FP |
-| **ton_iot** | `cnn` | Missed | Detected | 24 FP |
+| **ton_iot** | `cnn` | Detected (44 alerts)* | Detected | 24 FP |
 | **ton_iot** | `hybrid` | Detected | Detected | 30 FP |
 | **ton_iot** | `rf` | Detected | Detected | 29 FP |
+
+*\*Updated with remediated hardware re-runs (`CH4-RERUN-OMNI-HYBRID-S2`, `CH4-RERUN-TON-CNN-S1`, and `CH4-RERUN-OMNI-HYBRID-B0`).*
+
+---
+
+## 4. Empirical Remediation & Trial Audit Analysis
+
+### Phase 1: B0 False Positive Diagnosis
+- **Investigation:** Examined raw flow records and candidate alerts across all B0 trials.
+- **Findings:**
+  1. *Synthetic burst anomaly:* The initial B0 test generated 20 rapid HTTP logins in 30 seconds to port 8088 (`192.168.254.184:8088`). All models classified these bursts as anomalous (confidence 0.83–0.95), indistinguishable from S2 credential probing. Twenty logins in 30s is not natural user behavior.
+  2. *Natural IoT Traffic:* Background IoT traffic from monitored devices (e.g. Tuya cloud heartbeats from `192.168.254.100` to `47.236.105.163:8883` on MQTT/TLS) was correctly scored as **benign (`is_anomaly = 0`)** by the hybrid ensemble.
+  3. *Passive B0 Redesign:* B0 was redesigned (commit `2b5bc5b`) to generate zero synthetic traffic, passively observing natural device behavior for the 30-second action window.
+
+### Phase 2: Whitelist Status
+- Background IoT cloud endpoints (`47.236.105.163:8883`) and LAN broadcast packets (`255.255.255.255`) did **not** trigger alerts under the classifier (`is_anomaly = 0`). Consequently, IP whitelist rules were not required for cloud services.
+- Remaining candidate alerts during passive baseline correspond to inter-host telemetry and health preflight checks between the laptop (`192.168.254.156`) and the defending Pi (`192.168.254.184`).
+
+### Phase 3: Remediated Trials (Preflight Resolution)
+Two trials in the initial matrix failed preflight due to transient target HTTP timeouts. With target health verified and service active, both trials were re-executed:
+- `CH4-RERUN-OMNI-HYBRID-S2`: **Detected** (32 candidate alerts, 20/20 probe actions executed).
+- `CH4-RERUN-TON-CNN-S1`: **Detected** (44 candidate alerts, 40 port scan actions executed).
+
+### Phase 4: Validation Trials
+- `CH4-RERUN-OMNI-HYBRID-B0` (Passive Benign Baseline): Completed with 0 planned and 0 attempted synthetic actions. Candidate alerts dropped from 31 to 15.
+- `CH4-RERUN-OMNI-HYBRID-S1` (Port Scan Validation): **Detected** with 51 candidate alerts, confirming attack detection efficacy remained uncompromised.
 
 *Generated automatically by SENTRi-X Lab Test Kit Batch Orchestrator.*

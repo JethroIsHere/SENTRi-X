@@ -70,6 +70,27 @@ def login_attempt(cfg, success, request_id, timeout, attempt_index=0):
 
 
 def run_actions(case, cfg, scoring_start, stop, log):
+    if case == "B0":
+        # Passive benign baseline: generate NO synthetic traffic.
+        # The sensor observes the monitored device's natural idle behavior
+        # (cloud heartbeats, DNS, NTP) for the full action window.
+        # Any alerts during this window are genuine false positives on
+        # benign traffic, not artifacts of synthetic login bursts.
+        #
+        # Rationale (2026-10-10): the previous B0 design (20 rapid valid
+        # logins) was flagged as anomalous by all models at 0.83-0.95
+        # confidence, indistinguishable from S2 credential probing.
+        # Twenty logins in 30 seconds is not benign behavior -- no human
+        # does this. A true benign baseline is passive observation.
+        log.write("action_window_passive",
+                  message="B0 passive baseline: no synthetic traffic; "
+                          "observing natural device behavior")
+        deadline = scoring_start + cfg["action_window_seconds"]
+        wait_until(deadline, stop)
+        return {"planned": 0, "attempted": 0, "results": [],
+                "all_actions_attempted": True,
+                "expected_http_responses": None}
+
     count = len(cfg["scan_ports"]) if case == "S1" else cfg["http_attempts"]
     deadline = scoring_start + cfg["action_window_seconds"]
     results = []

@@ -258,7 +258,8 @@ class RunnerTests(unittest.TestCase):
                 summary = json.loads((folder / "summary.json").read_text())
                 self.assertEqual(summary["run_kind"], "local_smoke")
                 self.assertTrue(summary["complete_scoring_window"])
-                self.assertEqual(summary["actions"]["attempted"], 2)
+                expected_attempted = 0 if case == "B0" else 2  # B0 is passive baseline
+                self.assertEqual(summary["actions"]["attempted"], expected_attempted)
                 self.assertIsNone(summary["model_accuracy"])
                 self.assertIsNone(summary["alerts"]["detection_outcome"])
                 with (folder / "review.csv").open(encoding="utf-8") as review_file:
@@ -266,7 +267,8 @@ class RunnerTests(unittest.TestCase):
                 self.assertEqual(rows[0]["relevant_alarm"], "")
                 events = [json.loads(line) for line in (folder / "events.jsonl").read_text().splitlines()]
                 starts = [r["action_started"]["monotonic_ns"] for r in events if r["event"] == "action_started"]
-                self.assertGreaterEqual((starts[1] - starts[0]) / 1e9, 0.49)
+                if case != "B0":  # B0 is passive, no actions to time
+                    self.assertGreaterEqual((starts[1] - starts[0]) / 1e9, 0.49)
             # Existing evidence must never be overwritten.
             repeat = self.run_cli(temp, server.server_port, "B0", "smoke-B0")
             self.assertEqual(repeat.returncode, 2)
