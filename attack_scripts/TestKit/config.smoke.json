@@ -1,0 +1,12 @@
+{
+  "protocol_id": "software-smoke-only",
+  "configuration_id": "loopback-smoke-only",
+  "target_ip": "127.0.0.1",
+  "target_mac": "",
+  "service_port": 8088,
+  "backend_url": "http://127.0.0.1:8000",
+  "model_domain": "omni",
+  "expected_alert_threshold": 0.87,
+  "snort_json_file": "snort_logs/alert_json.txt",
+  "scan_ports": [8088, 8089]
+}

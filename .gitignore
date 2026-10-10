@@ -22,7 +22,11 @@ project_context.md
 
 # Demo and thesis-related files
 WSL_DEMO_SETUP.md
-attack_scripts/
+attack_scripts/launch_attack.py
+attack_scripts/trigger_snort_baseline.py
+!attack_scripts/TestKit/
+!attack_scripts/TestKit/*.csv
+!attack_scripts/SENTRi-X_Lab_Test_Kit_v1.1.0.zip
 backend/requirements_xai.txt
 backend_error.log
 backend_start.log

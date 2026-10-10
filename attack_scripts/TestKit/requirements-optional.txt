@@ -1,0 +1,3 @@
+# Core traffic generation and alert observation use Python's standard library.
+# Only sample_resources.py needs this package.
+psutil>=5.9,<8

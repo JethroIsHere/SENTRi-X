@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+evidence/
+target_evidence/
+snort_logs/
+resource_evidence/
+lab_config.json

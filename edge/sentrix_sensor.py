@@ -43,8 +43,8 @@ INTERFACE = "eth0"
 # Site-specific: LAN backend URL below. Review before publishing this file
 # beyond the project repo. IoT device MACs are managed via the web dashboard
 # (/api/monitored-devices), not hardcoded here.
-BACKEND_URL = os.environ.get("SENTRIX_BACKEND_URL", "http://192.168.254.151:8000/api/ingest-flow")
-HEARTBEAT_URL = os.environ.get("SENTRIX_HEARTBEAT_URL", "http://192.168.254.151:8000/api/heartbeat")
+BACKEND_URL = os.environ.get("SENTRIX_BACKEND_URL", "http://192.168.254.156:8000/api/ingest-flow")
+HEARTBEAT_URL = os.environ.get("SENTRIX_HEARTBEAT_URL", "http://192.168.254.156:8000/api/heartbeat")
 HEARTBEAT_INTERVAL = 3
 SENSOR_ID = "rpi3b-edge-01"
 
