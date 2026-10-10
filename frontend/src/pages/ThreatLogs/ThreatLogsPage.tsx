@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { formatTime, percent, sourceLabel, useApiPoll } from '../../lib/api'
 import type { Alert } from '../../lib/api'
 import { panelClass, RequestState } from '../../components/LiveTelemetry'
@@ -12,6 +12,12 @@ export function ThreatLogsPage() {
   const [attack, setAttack] = useState('all')
   const [confidence, setConfidence] = useState(0)
   const [selected, setSelected] = useState<Alert | null>(null)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('modal') === 'true' && logs.data?.logs?.length && !selected) {
+      setSelected(logs.data.logs[0])
+    }
+  }, [logs.data])
   const filtered = useMemo(() => (logs.data?.logs || []).filter(row =>
     (source === 'all' || (row.data_source || 'unknown') === source) && (attack === 'all' || row.attack_type === attack) && row.confidence >= confidence / 100 &&
     [row.source_ip, row.dest_ip, row.attack_type, row.device_name, row.timestamp, row.model_type, row.status].some(value => value?.toLowerCase().includes(query.toLowerCase()))
