@@ -1,7 +1,6 @@
 import { useEffect, useRef } from 'react'
 import type { Alert, Feature } from '../lib/api'
 import { formatTime, percent, sourceLabel, useApiPoll } from '../lib/api'
-import { threatLevelTone } from '../utils/threatLevel'
 
 function Features({ values, signed, target }: { values: Feature[]; signed: boolean; target: string }) {
   const largest = Math.max(...values.map(value => Math.abs(value.v)), 0.001)
@@ -50,7 +49,6 @@ export function XaiPreviewModal({ alert, onClose }: { alert: Alert; onClose: () 
     <div role="dialog" aria-modal="true" aria-labelledby="explanation-title" onClick={event => event.stopPropagation()} className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-border bg-surface p-6 text-text shadow-xl">
       <div className="flex items-start justify-between gap-3"><div><h2 id="explanation-title" className="text-xl font-bold">Recorded Alert Explanation</h2><p className="mt-1 text-xs text-text-muted">{sourceLabel(alert.data_source)} · {formatTime(alert.timestamp)}</p></div><button ref={closeButton} aria-label="Close explanation" onClick={onClose} className="rounded-lg border border-border px-3 py-1">Close</button></div>
       <div className="my-5 grid grid-cols-2 gap-3 text-sm"><div><p className="text-xs text-text-muted">Alert label</p>{alert.attack_type}</div><div><p className="text-xs text-text-muted">Prediction confidence</p>{percent(alert.confidence)}</div><div className="break-all"><p className="text-xs text-text-muted">Source</p>{alert.source_ip}</div><div className="break-all"><p className="text-xs text-text-muted">Destination</p>{alert.dest_ip}</div></div>
-      <p className={`mb-5 rounded-lg border p-3 text-xs ${threatLevelTone(alert.threat_level)}`}>{alert.threat_level} — confidence-based alert category. Confidence is a model score, not measured detection accuracy.</p>
       {alert.attack_type_source === 'dataset_label' && <p className="mb-4 text-xs text-text-muted">The attack name comes from the replay dataset. The classifier's prediction is binary.</p>}
       <section className="mb-6 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-4">
         <h3 className="font-semibold text-emerald-400">Assessment</h3>
