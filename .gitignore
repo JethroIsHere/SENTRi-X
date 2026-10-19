@@ -55,6 +55,7 @@ THESIS_HARDWARE_TRANSITION_AND_CHAPTER_GAPS.md
 
 # Docs folder (thesis transition guides)
 docs/
+!docs/RASPBERRY_PI_EDGE_INFERENCE_FEASIBILITY_STUDY.md
 
 # SQLite database (runtime generated)
 *.db

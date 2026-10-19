@@ -11,7 +11,7 @@ if str(ROOT_DIR) not in sys.path:
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, Literal
@@ -40,7 +40,8 @@ from database import (
     get_whitelisted_domains, add_whitelisted_domain,
     remove_whitelisted_domain, is_domain_whitelisted,
     get_whitelisted_device_ports, add_whitelisted_device_port,
-    remove_whitelisted_device_port, is_device_port_whitelisted
+    remove_whitelisted_device_port, is_device_port_whitelisted,
+    insert_audit_log, get_audit_logs, prune_audit_logs, get_or_set_admin_api_key
 )
 
 from sentrix_ml.schema import EXPECTED_FEATURES, NUM_FEATURES, ATTACK_CLASS_INDEX
@@ -60,6 +61,49 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def get_client_ip(request: Request) -> str:
+    """Extract client IP from proxy headers or connection host."""
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def verify_admin_auth(request: Request) -> dict:
+    """FastAPI dependency to verify administrator authorization and record security events."""
+    require_auth = os.environ.get("SENTRIX_REQUIRE_AUTH", "true").lower() in ("true", "1", "yes")
+    auth_header = request.headers.get("Authorization", "")
+    bearer_token = auth_header[7:].strip() if auth_header.startswith("Bearer ") else None
+    provided_key = (
+        request.headers.get("X-API-Key")
+        or bearer_token
+        or request.query_params.get("api_key")
+    )
+    valid_key = get_or_set_admin_api_key()
+    client_ip = get_client_ip(request)
+
+    if require_auth:
+        if not provided_key or provided_key != valid_key:
+            insert_audit_log(
+                actor="unauthenticated",
+                action=f"ACCESS_DENIED:{request.method}:{request.url.path}",
+                resource=str(request.url.path),
+                status="DENIED",
+                details=f"Missing or invalid Admin API Key for {request.method} {request.url.path}",
+                client_ip=client_ip
+            )
+            raise HTTPException(
+                status_code=401,
+                detail="Admin authentication required. Provide valid X-API-Key or Bearer token."
+            )
+    return {
+        "actor": "admin" if (provided_key == valid_key) else "local_admin",
+        "client_ip": client_ip,
+        "key_provided": bool(provided_key)
+    }
+
 
 # Hardware heartbeat/liveness timeout in seconds.
 HARDWARE_LIVE_TIMEOUT = 10.0
@@ -723,6 +767,8 @@ def alert_allowed(prediction, confidence, dst_ip=None, sni=None, mac=None, dst_p
 @app.on_event('startup')
 async def startup_event():
     init_db()
+    get_or_set_admin_api_key()
+    prune_audit_logs()
     stored = load_settings(settings)
     settings.update(SettingsRequest(**stored).model_dump())
     load_models_and_data('omni', 'omni', is_startup=True)
@@ -804,18 +850,34 @@ def list_monitored_devices():
 
 
 @app.post('/api/monitored-devices')
-def create_monitored_device(request: MonitoredDeviceRequest):
+def create_monitored_device(request: MonitoredDeviceRequest, auth: dict = Depends(verify_admin_auth)):
     try:
         add_monitored_device(request.mac, request.name)
+        insert_audit_log(
+            actor=auth['actor'],
+            action='ADD_MONITORED_DEVICE',
+            resource=f'device:{request.mac}',
+            details=json.dumps({'mac': request.mac, 'name': request.name}),
+            client_ip=auth['client_ip'],
+            status='SUCCESS'
+        )
     except ValueError as e:
         raise HTTPException(400, str(e))
     return {'status': 'ok', 'devices': get_monitored_devices()}
 
 
 @app.delete('/api/monitored-devices/{mac}')
-def delete_monitored_device(mac: str):
+def delete_monitored_device(mac: str, auth: dict = Depends(verify_admin_auth)):
     if not remove_monitored_device(mac):
         raise HTTPException(404, 'Device not found')
+    insert_audit_log(
+        actor=auth['actor'],
+        action='REMOVE_MONITORED_DEVICE',
+        resource=f'device:{mac}',
+        details=json.dumps({'mac': mac}),
+        client_ip=auth['client_ip'],
+        status='SUCCESS'
+    )
     return {'status': 'ok', 'devices': get_monitored_devices()}
 
 
@@ -832,18 +894,34 @@ def list_whitelisted_destinations():
 
 
 @app.post('/api/whitelisted-destinations')
-def create_whitelisted_destination(request: WhitelistRequest):
+def create_whitelisted_destination(request: WhitelistRequest, auth: dict = Depends(verify_admin_auth)):
     try:
         add_whitelisted_destination(request.ip, request.label, request.reason)
+        insert_audit_log(
+            actor=auth['actor'],
+            action='ADD_WHITELISTED_DESTINATION',
+            resource=f'ip:{request.ip}',
+            details=json.dumps({'ip': request.ip, 'label': request.label, 'reason': request.reason}),
+            client_ip=auth['client_ip'],
+            status='SUCCESS'
+        )
     except ValueError as e:
         raise HTTPException(400, str(e))
     return {'status': 'ok', 'destinations': get_whitelisted_destinations()}
 
 
 @app.delete('/api/whitelisted-destinations/{ip}')
-def delete_whitelisted_destination(ip: str):
+def delete_whitelisted_destination(ip: str, auth: dict = Depends(verify_admin_auth)):
     if not remove_whitelisted_destination(ip):
         raise HTTPException(404, 'Destination not found')
+    insert_audit_log(
+        actor=auth['actor'],
+        action='REMOVE_WHITELISTED_DESTINATION',
+        resource=f'ip:{ip}',
+        details=json.dumps({'ip': ip}),
+        client_ip=auth['client_ip'],
+        status='SUCCESS'
+    )
     return {'status': 'ok', 'destinations': get_whitelisted_destinations()}
 
 
@@ -860,18 +938,34 @@ def list_whitelisted_domains():
 
 
 @app.post('/api/whitelisted-domains')
-def create_whitelisted_domain(request: DomainWhitelistRequest):
+def create_whitelisted_domain(request: DomainWhitelistRequest, auth: dict = Depends(verify_admin_auth)):
     try:
         add_whitelisted_domain(request.domain, request.label, request.reason)
+        insert_audit_log(
+            actor=auth['actor'],
+            action='ADD_WHITELISTED_DOMAIN',
+            resource=f'domain:{request.domain}',
+            details=json.dumps({'domain': request.domain, 'label': request.label, 'reason': request.reason}),
+            client_ip=auth['client_ip'],
+            status='SUCCESS'
+        )
     except ValueError as e:
         raise HTTPException(400, str(e))
     return {'status': 'ok', 'domains': get_whitelisted_domains()}
 
 
 @app.delete('/api/whitelisted-domains/{domain}')
-def delete_whitelisted_domain(domain: str):
+def delete_whitelisted_domain(domain: str, auth: dict = Depends(verify_admin_auth)):
     if not remove_whitelisted_domain(domain):
         raise HTTPException(404, 'Domain not found')
+    insert_audit_log(
+        actor=auth['actor'],
+        action='REMOVE_WHITELISTED_DOMAIN',
+        resource=f'domain:{domain}',
+        details=json.dumps({'domain': domain}),
+        client_ip=auth['client_ip'],
+        status='SUCCESS'
+    )
     return {'status': 'ok', 'domains': get_whitelisted_domains()}
 
 
@@ -888,18 +982,34 @@ def list_whitelisted_device_ports():
 
 
 @app.post('/api/whitelisted-device-ports')
-def create_whitelisted_device_port(request: DevicePortWhitelistRequest):
+def create_whitelisted_device_port(request: DevicePortWhitelistRequest, auth: dict = Depends(verify_admin_auth)):
     try:
         add_whitelisted_device_port(request.mac, request.port, request.reason)
+        insert_audit_log(
+            actor=auth['actor'],
+            action='ADD_WHITELISTED_PORT',
+            resource=f'port:{request.mac}:{request.port}',
+            details=json.dumps({'mac': request.mac, 'port': request.port, 'reason': request.reason}),
+            client_ip=auth['client_ip'],
+            status='SUCCESS'
+        )
     except ValueError as e:
         raise HTTPException(400, str(e))
     return {'status': 'ok', 'device_ports': get_whitelisted_device_ports()}
 
 
 @app.delete('/api/whitelisted-device-ports/{mac}/{port}')
-def delete_whitelisted_device_port(mac: str, port: int):
+def delete_whitelisted_device_port(mac: str, port: int, auth: dict = Depends(verify_admin_auth)):
     if not remove_whitelisted_device_port(mac, port):
         raise HTTPException(404, 'Combination not found')
+    insert_audit_log(
+        actor=auth['actor'],
+        action='REMOVE_WHITELISTED_PORT',
+        resource=f'port:{mac}:{port}',
+        details=json.dumps({'mac': mac, 'port': port}),
+        client_ip=auth['client_ip'],
+        status='SUCCESS'
+    )
     return {'status': 'ok', 'device_ports': get_whitelisted_device_ports()}
 
 
@@ -972,16 +1082,25 @@ def get_settings():
 
 
 @app.put('/api/settings')
-def update_settings(request: SettingsRequest):
+def update_settings(request: SettingsRequest, auth: dict = Depends(verify_admin_auth)):
     with engine_lock:
+        old_settings = dict(settings)
         values = request.model_dump()
         save_settings(values)
         settings.update(values)
+        insert_audit_log(
+            actor=auth['actor'],
+            action='UPDATE_SETTINGS',
+            resource='settings',
+            details=json.dumps({'old': old_settings, 'new': values}),
+            client_ip=auth['client_ip'],
+            status='SUCCESS'
+        )
     return get_settings()
 
 
 @app.post('/api/clear')
-def clear_dashboard_data(request: ClearRequest = ClearRequest()):
+def clear_dashboard_data(request: ClearRequest = ClearRequest(), auth: dict = Depends(verify_admin_auth)):
     with engine_lock:
         clear_all_alerts('simulation' if request.scope == 'simulation' else None)
         engine.attack_queue.clear()
@@ -990,11 +1109,19 @@ def clear_dashboard_data(request: ClearRequest = ClearRequest()):
             system_status['processed_flows'] = 0
             system_status['inference_errors'] = 0
             system_status['counter_epoch'] = str(uuid4())
+        insert_audit_log(
+            actor=auth['actor'],
+            action='CLEAR_DATA',
+            resource=f'scope:{request.scope}',
+            details=json.dumps({'scope': request.scope}),
+            client_ip=auth['client_ip'],
+            status='SUCCESS'
+        )
     return {'status': 'ok', 'scope': request.scope, 'flows_retained': True}
 
 
 @app.post('/api/switch')
-def switch_engine(request: SwitchRequest):
+def switch_engine(request: SwitchRequest, auth: dict = Depends(verify_admin_auth)):
     with engine_lock:
         previous_state = {
             'manifest': engine.manifest,
@@ -1034,16 +1161,81 @@ def switch_engine(request: SwitchRequest):
             initialize_lime_explainer()
             engine.last_error = None
             update_core_model_label()
+            insert_audit_log(
+                actor=auth['actor'],
+                action='SWITCH_MODEL',
+                resource=f'{request.model_type}:{request.mode}',
+                details=json.dumps({'dataset': dataset, 'mode': request.mode}),
+                client_ip=auth['client_ip'],
+                status='SUCCESS'
+            )
         except Exception as exc:
             for k, v in previous_state.items():
                 setattr(engine, k, v)
             system_status['rf_online'] = previous_rf_online
             system_status['cnn_online'] = previous_cnn_online
             update_core_model_label()
+            insert_audit_log(
+                actor=auth['actor'],
+                action='SWITCH_MODEL',
+                resource=f'{request.model_type}:{request.mode}',
+                details=json.dumps({'error': str(exc)}),
+                client_ip=auth['client_ip'],
+                status='FAILED'
+            )
             raise HTTPException(409, f'Switch not applied: {exc}') from exc
         finally:
             engine.switching = False
     return {'status': 'ok', 'current_model': engine.current_model, 'execution_mode': engine.execution_mode}
+
+
+@app.get('/api/admin/audit-logs')
+def get_admin_audit_logs(limit: int = Query(50, ge=1, le=500),
+                         action: Optional[str] = None,
+                         auth: dict = Depends(verify_admin_auth)):
+    """Retrieve recent attributable administrator audit records."""
+    return {'logs': get_audit_logs(limit=limit, action=action)}
+
+
+@app.get('/api/admin/auth-status')
+def get_admin_auth_status(request: Request):
+    """Check whether administration requires an API key and whether the current caller is authorized."""
+    require_auth = os.environ.get("SENTRIX_REQUIRE_AUTH", "true").lower() in ("true", "1", "yes")
+    auth_header = request.headers.get("Authorization", "")
+    bearer_token = auth_header[7:].strip() if auth_header.startswith("Bearer ") else None
+    provided_key = (
+        request.headers.get("X-API-Key")
+        or bearer_token
+        or request.query_params.get("api_key")
+    )
+    valid_key = get_or_set_admin_api_key()
+    is_valid = bool(provided_key and provided_key == valid_key)
+    return {
+        'auth_required': require_auth,
+        'authenticated': is_valid or (not require_auth),
+        'key_valid': is_valid,
+        'client_ip': get_client_ip(request)
+    }
+
+
+class SetApiKeyRequest(BaseModel):
+    new_key: str = Field(..., min_length=8, max_length=128)
+
+
+@app.post('/api/admin/api-key')
+def update_admin_api_key(request: SetApiKeyRequest, auth: dict = Depends(verify_admin_auth)):
+    """Update administrator API key (requires current admin authorization)."""
+    updated_key = get_or_set_admin_api_key(request.new_key)
+    insert_audit_log(
+        actor=auth['actor'],
+        action='UPDATE_ADMIN_KEY',
+        resource='admin_api_key',
+        details='Administrator API key updated',
+        client_ip=auth['client_ip'],
+        status='SUCCESS'
+    )
+    return {'status': 'ok', 'message': 'Admin API key updated successfully'}
+
 
 
 @app.post('/api/heartbeat')

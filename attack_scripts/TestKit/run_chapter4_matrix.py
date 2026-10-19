@@ -45,6 +45,9 @@ def observation_outcome(status: str, exit_code: int | str | None) -> str:
 def http_json(url: str, method: str = "GET", payload: dict | None = None, timeout: float = 10.0) -> dict:
     data = json.dumps(payload).encode("utf-8") if payload else None
     headers = {"Content-Type": "application/json"} if payload else {}
+    api_key = os.environ.get("SENTRIX_ADMIN_KEY") or os.environ.get("SENTRIX_API_KEY") or "sentrix-admin-2026"
+    if api_key:
+        headers["X-API-Key"] = api_key
     req = Request(url, data=data, headers=headers, method=method)
     with urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read().decode("utf-8"))

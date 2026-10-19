@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useSystem } from '../../context/SystemContext'
-import { api, DOMAINS, MODES } from '../../lib/api'
-import type { Settings } from '../../lib/api'
+import { api, DOMAINS, MODES, getAdminKey, setAdminKey, formatTime } from '../../lib/api'
+import type { Settings, AuditLog } from '../../lib/api'
 import { panelClass, RequestState } from '../../components/LiveTelemetry'
 
 interface MonitoredDevice { mac: string; name: string; added_at: string }
@@ -273,6 +273,188 @@ function WhitelistedDevicePorts({ online }: { online: boolean }) {
   </div>
 }
 
+function AdminSecurityCard({ online }: { online: boolean }) {
+  const [apiKey, setApiKeyState] = useState(getAdminKey())
+  const [showKey, setShowKey] = useState(false)
+  const [statusText, setStatusText] = useState<string | null>(null)
+  const [verified, setVerified] = useState<boolean | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  async function checkAuth() {
+    if (!online) return
+    setBusy(true)
+    try {
+      const res = await api<{ auth_required: boolean; authenticated: boolean; key_valid: boolean; client_ip: string }>('/api/admin/auth-status')
+      setVerified(res.key_valid || (!res.auth_required && res.authenticated))
+      setStatusText(res.key_valid ? 'Admin key verified & active' : res.auth_required ? 'Admin key required to save changes' : 'Authentication optional (test mode)')
+    } catch {
+      setVerified(false)
+      setStatusText('Could not verify key with backend')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  useEffect(() => {
+    void checkAuth()
+  }, [online])
+
+  function handleSave() {
+    setAdminKey(apiKey)
+    void checkAuth()
+  }
+
+  function handleClear() {
+    setAdminKey('')
+    setApiKeyState('')
+    void checkAuth()
+  }
+
+  return <div>
+    <div className="flex flex-wrap items-center justify-between gap-3 mb-2">
+      <h2 className="text-lg font-semibold">Admin Authentication & Access Control</h2>
+      {verified !== null && (
+        <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${
+          verified ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20' : 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20'
+        }`}>
+          <span className={`h-1.5 w-1.5 rounded-full ${verified ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+          {verified ? 'Admin Privileges Active' : 'Key Required for Changes'}
+        </span>
+      )}
+    </div>
+    <p className="text-xs text-text-muted mb-4 leading-relaxed">
+      An Administrator API Key (<code className="font-mono text-xs">X-API-Key</code>) is required to apply configuration changes (model switching, threshold adjustments, monitored devices, and suppression whitelists). All administrative modifications are permanently logged to the attributable audit trail below.
+    </p>
+    <div className="flex flex-wrap gap-2 items-center">
+      <div className="relative flex-1 min-w-[260px] max-w-md">
+        <input
+          type={showKey ? 'text' : 'password'}
+          value={apiKey}
+          placeholder="Enter Admin API Key (default: sentrix-admin-2026)"
+          onChange={e => setApiKeyState(e.target.value)}
+          className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm font-mono pr-16"
+        />
+        <button
+          type="button"
+          onClick={() => setShowKey(!showKey)}
+          className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-text-muted hover:text-text px-1.5 py-0.5"
+        >
+          {showKey ? 'Hide' : 'Show'}
+        </button>
+      </div>
+      <button
+        onClick={handleSave}
+        disabled={!online || busy}
+        className="rounded-xl bg-accent px-4 py-2 text-sm text-white disabled:opacity-50"
+      >
+        {busy ? 'Checking…' : 'Save Key'}
+      </button>
+      {apiKey && (
+        <button
+          onClick={handleClear}
+          disabled={!online || busy}
+          className="rounded-xl border border-border px-3 py-2 text-sm text-text-muted hover:bg-surface-soft disabled:opacity-50"
+        >
+          Clear
+        </button>
+      )}
+    </div>
+    {statusText && <p className="mt-2 text-xs text-text-muted">{statusText}</p>}
+  </div>
+}
+
+function AdminAuditTrail({ online }: { online: boolean }) {
+  const [logs, setLogs] = useState<AuditLog[]>([])
+  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  async function loadLogs() {
+    if (!online) return
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await api<{ logs: AuditLog[] }>('/api/admin/audit-logs?limit=30')
+      setLogs(res.logs)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not retrieve audit logs (Admin Key required)')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void loadLogs()
+  }, [online])
+
+  return <div>
+    <div className="flex flex-wrap items-center justify-between gap-3 mb-2">
+      <div>
+        <h2 className="text-lg font-semibold">Attributable Administration Audit Trail</h2>
+        <p className="text-xs text-text-muted mt-1">
+          Immutable event record of administrative mutations and access denials. Retained for 90 days (up to 10,000 records) per Chapter 5 recommendations.
+        </p>
+      </div>
+      <button
+        onClick={() => void loadLogs()}
+        disabled={!online || loading}
+        className="rounded-lg border border-border px-3 py-1.5 text-xs text-text-muted hover:bg-surface-soft disabled:opacity-50"
+      >
+        {loading ? 'Refreshing…' : 'Refresh Audit Trail'}
+      </button>
+    </div>
+
+    <RequestState error={error} />
+
+    {logs.length === 0 ? (
+      <p className="text-sm text-text-muted py-4">No administrative audit events recorded yet.</p>
+    ) : (
+      <div className="mt-3 overflow-x-auto">
+        <table className="w-full text-left text-xs">
+          <thead>
+            <tr className="border-b border-border text-text-muted">
+              <th className="py-2 pr-3 font-medium">Timestamp (UTC)</th>
+              <th className="py-2 px-3 font-medium">Action</th>
+              <th className="py-2 px-3 font-medium">Actor</th>
+              <th className="py-2 px-3 font-medium">Resource</th>
+              <th className="py-2 px-3 font-medium">Status</th>
+              <th className="py-2 pl-3 font-medium">Details</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border/50">
+            {logs.map(log => {
+              const isDenied = log.status === 'DENIED'
+              const isFailed = log.status === 'FAILED'
+              return (
+                <tr key={log.id} className="hover:bg-surface-soft/40">
+                  <td className="py-2 pr-3 font-mono text-[11px] whitespace-nowrap">{formatTime(log.timestamp)}</td>
+                  <td className="py-2 px-3 font-mono font-medium">{log.action}</td>
+                  <td className="py-2 px-3 text-text-muted">
+                    <span>{log.actor}</span>
+                    {log.client_ip && <span className="block text-[10px] font-mono text-text-muted/80">{log.client_ip}</span>}
+                  </td>
+                  <td className="py-2 px-3 font-mono text-text-muted">{log.resource}</td>
+                  <td className="py-2 px-3">
+                    <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-medium uppercase ${
+                      isDenied ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20' :
+                      isFailed ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20' :
+                      'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
+                    }`}>
+                      {log.status}
+                    </span>
+                  </td>
+                  <td className="py-2 pl-3 text-text-muted max-w-[240px] truncate" title={log.details || ''}>
+                    {log.details || '—'}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    )}
+  </div>
+}
+
 export function SystemSettingsPage() {
   const { status, online, busy, refresh, switchEngine } = useSystem()
   const [draft, setDraft] = useState<Settings | null>(null)
@@ -292,6 +474,7 @@ export function SystemSettingsPage() {
   }
   return <div className="max-w-6xl space-y-6">
     <header><h1 className="text-3xl font-bold">System & Model Settings</h1><p className="mt-2 text-sm text-text-muted">Choose model weights, execution mode, and persisted alert settings.</p></header>
+    <section className={panelClass}><AdminSecurityCard online={online} /></section>
     <section className={panelClass}><h2 className="mb-4 text-lg font-semibold">Execution Mode</h2><div className="flex flex-wrap gap-3">{MODES.map(mode => <button key={mode.id} disabled={!online || busy || status?.switching} onClick={() => status && void switchEngine(status.current_model, mode.id)} aria-pressed={online && status?.execution_mode === mode.id} className={`rounded-xl border px-4 py-3 text-sm disabled:opacity-50 ${online && status?.execution_mode === mode.id ? 'border-accent bg-accent-soft text-accent-dark' : 'border-border'}`}>{mode.name}</button>)}</div>
       <p className="mt-4 text-xs text-text-muted">RF uses tabular flow features. The 1D CNN processes the ordered 28-feature vector. Hybrid mode averages their attack probabilities.</p>
     </section>
@@ -320,5 +503,6 @@ export function SystemSettingsPage() {
       </div>}
       <RequestState error={error} />{message && <p role="status" className="mt-3 text-sm text-accent-dark">{message}</p>}
     </section>
+    <section className={panelClass}><AdminAuditTrail online={online} /></section>
   </div>
 }

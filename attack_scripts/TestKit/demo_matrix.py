@@ -43,6 +43,7 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -90,9 +91,13 @@ class DemoError(Exception):
 def api_request(backend, method, path, payload=None, timeout=15):
     url = backend.rstrip("/") + path
     data = json.dumps(payload).encode() if payload is not None else None
+    headers = {"Content-Type": "application/json"} if data else {}
+    api_key = os.environ.get("SENTRIX_ADMIN_KEY") or os.environ.get("SENTRIX_API_KEY") or "sentrix-admin-2026"
+    if api_key:
+        headers["X-API-Key"] = api_key
     request = urllib.request.Request(
         url, data=data, method=method,
-        headers={"Content-Type": "application/json"} if data else {})
+        headers=headers)
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             return json.loads(response.read().decode())

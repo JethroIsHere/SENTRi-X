@@ -47,6 +47,7 @@ BACKEND_URL = os.environ.get("SENTRIX_BACKEND_URL", "http://192.168.254.156:8000
 HEARTBEAT_URL = os.environ.get("SENTRIX_HEARTBEAT_URL", "http://192.168.254.156:8000/api/heartbeat")
 HEARTBEAT_INTERVAL = 3
 SENSOR_ID = "rpi3b-edge-01"
+SENSOR_API_KEY = os.environ.get("SENTRIX_API_KEY") or os.environ.get("SENTRIX_ADMIN_KEY", "sentrix-admin-2026")
 
 # Monitored IoT devices — managed via the web dashboard (/api/monitored-devices),
 # NOT hardcoded here. The sensor fetches the allowlist from the backend at
@@ -519,8 +520,9 @@ def build_payload(flow):
 
 def post_json(session, url, payload, timeout, expected_status):
     # No automatic replay: the current backend does not deduplicate flow POSTs.
+    headers = {"X-API-Key": SENSOR_API_KEY} if SENSOR_API_KEY else {}
     with session.post(
-        url, json=payload, timeout=timeout, allow_redirects=False,
+        url, json=payload, headers=headers, timeout=timeout, allow_redirects=False,
     ) as response:
         response.raise_for_status()
         if not 200 <= response.status_code < 300:

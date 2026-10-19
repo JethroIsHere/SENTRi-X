@@ -62,6 +62,16 @@ def init_db():
             reason TEXT NOT NULL DEFAULT '',
             added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (mac, port));
+        CREATE TABLE IF NOT EXISTS Admin_Audit_Logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TIMESTAMP NOT NULL,
+            actor TEXT NOT NULL,
+            action TEXT NOT NULL,
+            resource TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'SUCCESS',
+            details TEXT,
+            client_ip TEXT);
+        CREATE INDEX IF NOT EXISTS idx_audit_time ON Admin_Audit_Logs(timestamp);
         ''')
         additions = {
             'Network_Flows': {
@@ -374,4 +384,80 @@ def is_device_port_whitelisted(mac: str, port: int) -> bool:
             (mac.strip().lower(), int(port))
         ).fetchone()
         return row is not None
+
+
+# ── Attributable Admin Audit Trail ──────────────────────────────────────────
+
+
+def insert_audit_log(actor: str, action: str, resource: str, details: str = '',
+                     client_ip: str = '', status: str = 'SUCCESS') -> int:
+    """Record an attributable audit log entry for administrative mutations or security events."""
+    timestamp = utc_now()
+    with closing(get_db_connection()) as conn, conn:
+        cur = conn.execute(
+            'INSERT INTO Admin_Audit_Logs (timestamp, actor, action, resource, status, details, client_ip) '
+            'VALUES (?, ?, ?, ?, ?, ?, ?)',
+            (timestamp, actor, action, resource, status, str(details or ''), str(client_ip or ''))
+        )
+        return cur.lastrowid
+
+
+def get_audit_logs(limit: int = 100, action: str = None) -> list[dict]:
+    """Retrieve latest attributable administrative audit logs."""
+    limit = max(1, min(limit, 500))
+    query = 'SELECT id, timestamp, actor, action, resource, status, details, client_ip FROM Admin_Audit_Logs '
+    params = []
+    if action:
+        query += 'WHERE action = ? '
+        params.append(action)
+    query += 'ORDER BY id DESC LIMIT ?'
+    params.append(limit)
+    with closing(get_db_connection()) as conn, conn:
+        rows = conn.execute(query, params).fetchall()
+        return [dict(row) for row in rows]
+
+
+def prune_audit_logs(retention_days: int = 90, max_records: int = 10000) -> int:
+    """Prune audit logs older than retention period or beyond max records limit."""
+    deleted = 0
+    with closing(get_db_connection()) as conn, conn:
+        # Retention by date
+        cur1 = conn.execute(
+            "DELETE FROM Admin_Audit_Logs WHERE datetime(timestamp) < datetime('now', ?)",
+            (f"-{int(retention_days)} days",)
+        )
+        deleted += cur1.rowcount
+        # Retention by maximum volume (keep newest max_records)
+        cur2 = conn.execute(
+            'DELETE FROM Admin_Audit_Logs WHERE id NOT IN ('
+            'SELECT id FROM Admin_Audit_Logs ORDER BY id DESC LIMIT ?)',
+            (int(max_records),)
+        )
+        deleted += cur2.rowcount
+    return deleted
+
+
+def get_or_set_admin_api_key(new_key: str = None) -> str:
+    """Get active admin API key from environment or App_Settings."""
+    env_key = os.environ.get("SENTRIX_ADMIN_KEY")
+    if env_key:
+        return env_key.strip()
+    with closing(get_db_connection()) as conn, conn:
+        if new_key:
+            conn.execute(
+                'INSERT INTO App_Settings (key, value) VALUES (?, ?) '
+                'ON CONFLICT(key) DO UPDATE SET value=excluded.value',
+                ('admin_api_key', new_key.strip())
+            )
+            return new_key.strip()
+        row = conn.execute("SELECT value FROM App_Settings WHERE key = 'admin_api_key'").fetchone()
+        if row and row[0]:
+            return row[0]
+        default_key = "sentrix-admin-2026"
+        conn.execute(
+            'INSERT INTO App_Settings (key, value) VALUES (?, ?)',
+            ('admin_api_key', default_key)
+        )
+        return default_key
+
 

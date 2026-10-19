@@ -31,6 +31,124 @@ export function ThreatLogsPage() {
     const link = document.createElement('a'); link.href = url; link.download = `sentrix-alerts-${new Date().toISOString().slice(0, 10)}.csv`; link.click()
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
+
+  function exportPrintableReport() {
+    const printWindow = window.open('', '_blank')
+    if (!printWindow) {
+      alert('Please allow popups to open the printable incident report.')
+      return
+    }
+    const typeCounts: Record<string, number> = {}
+    const levelCounts: Record<string, number> = {}
+    filtered.forEach(r => {
+      typeCounts[r.attack_type] = (typeCounts[r.attack_type] || 0) + 1
+      levelCounts[r.threat_level] = (levelCounts[r.threat_level] || 0) + 1
+    })
+
+    const rowsHtml = filtered.map(row => `
+      <tr>
+        <td style="font-family: monospace; font-size: 11px;">${formatTime(row.timestamp)}</td>
+        <td>${sourceLabel(row.data_source)}</td>
+        <td>${row.device_name || '—'}</td>
+        <td style="font-family: monospace; font-size: 11px;">${row.source_ip} → ${row.dest_ip}</td>
+        <td><strong>${row.attack_type}</strong></td>
+        <td>${(row.confidence * 100).toFixed(1)}%</td>
+        <td><span class="badge ${row.threat_level.toLowerCase()}">${row.threat_level}</span></td>
+        <td>${row.model_type} (${row.execution_mode})</td>
+      </tr>
+    `).join('')
+
+    const docHtml = `<!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>SENTRi-X Threat Intelligence & Incident Report</title>
+        <style>
+          @page { size: landscape; margin: 12mm; }
+          body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #1e293b; margin: 0; padding: 16px; font-size: 12px; }
+          .header { border-bottom: 2px solid #0f172a; padding-bottom: 12px; margin-bottom: 16px; }
+          .title { font-size: 20px; font-weight: 700; color: #0f172a; margin: 0 0 4px 0; }
+          .subtitle { font-size: 12px; color: #64748b; margin: 0; }
+          .meta-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 10px; margin-bottom: 16px; font-size: 11px; }
+          .meta-item strong { display: block; color: #475569; font-size: 10px; text-transform: uppercase; margin-bottom: 2px; }
+          .stats-grid { display: flex; gap: 16px; margin-bottom: 16px; }
+          .stat-card { flex: 1; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px 12px; background: #ffffff; }
+          .stat-card h4 { margin: 0 0 6px 0; font-size: 11px; text-transform: uppercase; color: #64748b; }
+          .stat-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+          .pill { font-size: 10px; background: #f1f5f9; padding: 2px 6px; border-radius: 4px; border: 1px solid #cbd5e1; }
+          table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 11px; }
+          th { background: #f1f5f9; color: #334155; text-align: left; padding: 6px 8px; border: 1px solid #cbd5e1; font-weight: 600; }
+          td { padding: 5px 8px; border: 1px solid #e2e8f0; }
+          tr:nth-child(even) { background: #f8fafc; }
+          .badge { display: inline-block; padding: 1px 5px; border-radius: 3px; font-weight: 600; font-size: 10px; }
+          .badge.critical { background: #ffe4e6; color: #e11d48; }
+          .badge.high { background: #ffedd5; color: #ea580c; }
+          .badge.medium { background: #fef3c7; color: #d97706; }
+          .badge.low { background: #f1f5f9; color: #475569; }
+          .disclaimer { margin-top: 20px; border-top: 1px solid #e2e8f0; padding-top: 8px; font-size: 10px; color: #94a3b8; line-height: 1.4; }
+          .no-print { margin-bottom: 16px; }
+          @media print {
+            .no-print { display: none; }
+            body { padding: 0; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="no-print" style="background: #eff6ff; border: 1px solid #bfdbfe; padding: 10px 14px; border-radius: 6px; display: flex; justify-content: space-between; align-items: center;">
+          <span><strong>Executive Threat Report:</strong> Ready for printing or export to PDF.</span>
+          <button onclick="window.print()" style="background: #2563eb; color: #fff; border: none; padding: 6px 14px; border-radius: 4px; font-weight: bold; cursor: pointer;">Print / Save as PDF</button>
+        </div>
+        <div class="header">
+          <h1 class="title">SENTRi-X Edge NIDS — Threat Intelligence Report</h1>
+          <p class="subtitle">Generated on ${new Date().toUTCString()} · Executive Incident Export</p>
+        </div>
+        <div class="meta-grid">
+          <div class="meta-item"><strong>Report Scope</strong>${filtered.length} alert records</div>
+          <div class="meta-item"><strong>Active Filter</strong>Query: "${query || 'None'}", Origin: ${source}</div>
+          <div class="meta-item"><strong>Confidence Filter</strong>≥ ${confidence}%</div>
+          <div class="meta-item"><strong>Classification Threshold</strong>0.50 (Standard operating point)</div>
+        </div>
+        <div class="stats-grid">
+          <div class="stat-card">
+            <h4>Attacks by Category</h4>
+            <div class="stat-pills">
+              ${Object.entries(typeCounts).map(([k, v]) => `<span class="pill"><strong>${k}:</strong> ${v}</span>`).join('')}
+            </div>
+          </div>
+          <div class="stat-card">
+            <h4>Severity Breakdown</h4>
+            <div class="stat-pills">
+              ${Object.entries(levelCounts).map(([k, v]) => `<span class="pill"><strong>${k}:</strong> ${v}</span>`).join('')}
+            </div>
+          </div>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Timestamp (UTC)</th>
+              <th>Origin</th>
+              <th>Device</th>
+              <th>Endpoints</th>
+              <th>Alert Label</th>
+              <th>Confidence</th>
+              <th>Level</th>
+              <th>Model (Mode)</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml}
+          </tbody>
+        </table>
+        <div class="disclaimer">
+          <strong>Notice:</strong> Alert records represent flow windows evaluated by machine learning models that exceeded the alert threshold. High confidence indicates strong resemblance to training attack patterns and does not guarantee verified malicious compromise. Ground-truth verification requires correlation with host-level event logs.
+        </div>
+      </body>
+      </html>`
+    printWindow.document.open()
+    printWindow.document.write(docHtml)
+    printWindow.document.close()
+  }
+
   return <div className="space-y-5">
     <header><h1 className="text-3xl font-bold">Threat Logs</h1><p className="mt-2 text-sm text-text-muted">Latest 500 saved alerts, newest first. Live hardware and historical records retain their origin. Benign flows are shown on the dashboard.</p></header>
     <section className="rounded-xl border border-border/50 bg-surface/50 p-4 text-xs text-text-muted leading-relaxed">
@@ -45,7 +163,10 @@ export function ThreatLogsPage() {
       <label className="flex flex-col gap-1">Alert label<select value={attack} onChange={event => setAttack(event.target.value)} className="rounded-lg border border-border bg-surface px-3 py-2"><option value="all">All labels</option>{types.map(type => <option key={type}>{type}</option>)}</select></label>
       <label className="flex flex-col gap-1">Minimum confidence: {confidence}%<input type="range" min="0" max="100" value={confidence} onChange={event => setConfidence(Number(event.target.value))} /></label>
       <button onClick={() => { setQuery(''); setSource('all'); setAttack('all'); setConfidence(0) }} className="rounded-lg border border-border px-3 py-2">Reset filters</button>
-      <button disabled={!filtered.length} onClick={exportCsv} className="rounded-lg bg-accent px-3 py-2 text-white disabled:opacity-50">Export displayed rows</button>
+      <div className="flex flex-wrap gap-2">
+        <button disabled={!filtered.length} onClick={exportCsv} className="rounded-lg bg-accent px-3 py-2 text-white disabled:opacity-50">Export CSV</button>
+        <button disabled={!filtered.length} onClick={exportPrintableReport} className="rounded-lg border border-accent/40 bg-accent/10 text-accent-dark px-3 py-2 font-medium hover:bg-accent/20 disabled:opacity-50">Export PDF / Print Report</button>
+      </div>
     </div>
     <RequestState error={logs.error} loading={logs.loading} />
     <p className="text-xs text-text-muted">Showing {filtered.length} of {logs.data?.logs.length || 0} retrieved alerts. Older records may have unknown origin or explanation method.</p>

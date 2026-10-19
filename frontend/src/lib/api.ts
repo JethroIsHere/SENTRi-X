@@ -47,6 +47,22 @@ export interface Benchmark {
   available: boolean; model?: string; mode?: string; dataset?: string; evaluation_split?: string
   source?: string; metrics?: Record<string, number>
 }
+export interface AuditLog {
+  id: number; timestamp: string; actor: string; action: string; resource: string
+  status: 'SUCCESS' | 'DENIED' | 'FAILED'; details: string | null; client_ip: string | null
+}
+export const getAdminKey = (): string => {
+  if (typeof window === 'undefined') return ''
+  return localStorage.getItem('sentrix_admin_key') || ''
+}
+export const setAdminKey = (key: string) => {
+  if (typeof window === 'undefined') return
+  if (key && key.trim()) {
+    localStorage.setItem('sentrix_admin_key', key.trim())
+  } else {
+    localStorage.removeItem('sentrix_admin_key')
+  }
+}
 export const sourceLabel = (source?: string) => source === 'live_hardware' ? 'Live hardware' : source === 'simulation' ? 'Simulation' : 'Origin unknown'
 export const percent = (value: number | null | undefined) => value == null ? 'Unavailable' : `${(value * 100).toFixed(1)}%`
 export const formatTime = (value?: string | null) => {
@@ -62,14 +78,25 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   options.signal?.addEventListener('abort', cancel, { once: true })
   if (options.signal?.aborted) controller.abort()
   const timer = setTimeout(cancel, options.method && options.method !== 'GET' ? 60000 : 8000)
+  const adminKey = getAdminKey()
+  const authHeaders: Record<string, string> = adminKey ? { 'X-API-Key': adminKey } : {}
   try {
     const response = await fetch(`${API_BASE_URL}${path}`, {
-      ...options, headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...options.headers },
+      ...options,
+      headers: {
+        ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+        ...authHeaders,
+        ...options.headers,
+      },
       signal: controller.signal,
     })
     const body = await response.json().catch(() => null)
     if (!response.ok) {
-      const detail = typeof body?.detail === 'string' ? body.detail : `Request failed (HTTP ${response.status}).`
+      const detail = typeof body?.detail === 'string'
+        ? body.detail
+        : response.status === 401
+          ? 'Admin API Key required or invalid (HTTP 401). Configure your key in System Settings.'
+          : `Request failed (HTTP ${response.status}).`
       throw new Error(detail)
     }
     if (body === null) throw new Error('The backend returned an invalid response.')
