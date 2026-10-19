@@ -1,0 +1,28 @@
+{
+  "candidate": "omni_v2",
+  "n_samples": 300,
+  "modes": {
+    "rf": {
+      "mean_latency_ms": 56.1926,
+      "median_latency_ms": 53.1428,
+      "p95_latency_ms": 73.336,
+      "p99_latency_ms": 85.4622,
+      "throughput_flows_per_sec": 17.79
+    },
+    "cnn": {
+      "mean_latency_ms": 182.495,
+      "median_latency_ms": 153.62,
+      "p95_latency_ms": 329.2152,
+      "p99_latency_ms": 511.537,
+      "throughput_flows_per_sec": 5.48
+    },
+    "hybrid": {
+      "mean_latency_ms": 221.4856,
+      "median_latency_ms": 201.3949,
+      "p95_latency_ms": 295.9665,
+      "p99_latency_ms": 459.7896,
+      "throughput_flows_per_sec": 4.51
+    }
+  },
+  "memory_rss_mib": 389.78
+}

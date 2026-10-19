@@ -57,6 +57,8 @@ class ExplanationResult:
     target_class: Optional[int] = None
     model: str = ""
     reason: str = ""       # Why unavailable, if applicable
+    fidelity_score: Optional[float] = None    # Local surrogate R^2 fidelity score
+    local_prediction: Optional[float] = None  # Local surrogate linear model prediction
 
 
 def create_lime_explainer(
@@ -130,11 +132,25 @@ def explain_with_lime(
             {"f": str(expr), "v": round(float(weight), 4)}
             for expr, weight in pairs
         ]
+        score = None
+        if hasattr(explanation, "score") and explanation.score is not None:
+            if isinstance(explanation.score, dict):
+                score = float(explanation.score.get(target, explanation.score.get(1, 0.0)))
+            else:
+                score = float(explanation.score)
+        local_pred = None
+        if hasattr(explanation, "local_pred") and explanation.local_pred is not None:
+            if hasattr(explanation.local_pred, "__getitem__"):
+                local_pred = float(explanation.local_pred[0])
+            else:
+                local_pred = float(explanation.local_pred)
         return ExplanationResult(
             features=features,
             method="local_rf_lime",
             target_class=int(target),
             model="random_forest",
+            fidelity_score=round(score, 4) if score is not None else None,
+            local_prediction=round(local_pred, 4) if local_pred is not None else None,
         )
     except Exception as e:
         return ExplanationResult(

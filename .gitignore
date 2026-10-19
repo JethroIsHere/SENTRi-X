@@ -56,6 +56,13 @@ THESIS_HARDWARE_TRANSITION_AND_CHAPTER_GAPS.md
 # Docs folder (thesis transition guides)
 docs/
 !docs/RASPBERRY_PI_EDGE_INFERENCE_FEASIBILITY_STUDY.md
+!docs/FEATURE_EQUIVALENCE_AND_CALIBRATION_STUDY.md
+!docs/DEPLOYMENT_INSTALLATION_AND_BENCHMARK_GUIDE.md
+!docs/EXPERT_EVALUATION_FOLLOWUP_AND_UNPRESENTED_FEATURES.md
+
+# Specific evaluation and benchmark scripts
+!scripts/evaluate_byte_semantics_and_calibration.py
+!scripts/benchmark_performance.py
 
 # SQLite database (runtime generated)
 *.db
