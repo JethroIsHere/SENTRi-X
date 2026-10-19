@@ -23,12 +23,21 @@ export function DeviceCards({ devices }: { devices: Device[] }) {
 export function FlowTable({ flows }: { flows: Flow[] }) {
   if (!flows.length) return <p className="text-sm text-text-muted">No live flow records available yet.</p>
   return <div className="overflow-x-auto"><table className="w-full text-left text-xs">
-    <thead className="text-text-muted"><tr>{['Time', 'Device / endpoints', 'Protocol', 'Packets', 'Prediction', 'Confidence', 'RF / CNN attack scores', 'Model'].map(label => <th className="p-3 whitespace-nowrap" key={label}>{label}</th>)}</tr></thead>
+    <thead className="text-text-muted"><tr>{[
+      { label: 'Time', tip: '' },
+      { label: 'Device / endpoints', tip: '' },
+      { label: 'Protocol', tip: '' },
+      { label: 'Packets', tip: '' },
+      { label: 'Prediction', tip: '' },
+      { label: 'Confidence', tip: 'Confidence is the model’s estimated attack probability for this flow. Flows scoring at or above the alert threshold — currently 0.50, adjustable in Settings — are recorded as alerts. A high score means the flow strongly resembled attack traffic in the model’s training data; it is not a verified attack.' },
+      { label: 'RF / CNN attack scores', tip: '' },
+      { label: 'Model', tip: '' },
+    ].map(({ label, tip }) => <th className="p-3 whitespace-nowrap" key={label} title={tip || undefined}>{label}{tip && <span className="ml-1 cursor-help text-text-muted" aria-label={tip}>ⓘ</span>}</th>)}</tr></thead>
     <tbody>{flows.map(flow => <tr key={flow.id} className="border-t border-border/60">
       <td className="p-3 whitespace-nowrap">{formatTime(flow.timestamp)}</td>
       <td className="p-3"><p className="font-medium">{flow.device_name?.replace(/_/g, ' ') || flow.sensor_id}</p><p className="font-mono whitespace-nowrap text-text-muted">{flow.src_ip}:{flow.src_port ?? '—'} → {flow.dst_ip}:{flow.dst_port ?? '—'}</p></td>
       <td className="p-3">{flow.proto}</td><td className="p-3">{flow.src_pkts + flow.dst_pkts}</td>
-      <td className="p-3"><span className={flow.prediction === 1 ? (flow.is_anomaly === 1 ? 'text-rose-500 font-medium' : 'text-amber-500') : flow.prediction === 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-500'}>{flow.prediction == null ? 'Unavailable' : flow.prediction === 1 ? (flow.is_anomaly === 1 ? 'Attack' : 'Attack (Suppressed)') : 'Benign'}</span>{flow.inference_error && <p className="mt-1 max-w-xs text-amber-600">{flow.inference_error}</p>}{flow.is_anomaly === 1 && <p className="text-xs text-rose-500/80 mt-0.5">Alert criteria met</p>}</td>
+      <td className="p-3"><span className={flow.prediction === 1 ? (flow.is_anomaly === 1 ? 'text-rose-500 font-medium' : 'text-amber-500') : flow.prediction === 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-500'} title={flow.prediction == null ? 'Unavailable means this data was not recorded for the flow — not that the value was zero or normal. Older records may predate the feature; live flows may lack data the sensor could not extract.' : undefined}>{flow.prediction == null ? 'Unavailable' : flow.prediction === 1 ? (flow.is_anomaly === 1 ? 'Attack' : 'Attack (Suppressed)') : 'Benign'}</span>{flow.inference_error && <p className="mt-1 max-w-xs text-amber-600">{flow.inference_error}</p>}{flow.is_anomaly === 1 && <p className="text-xs text-rose-500/80 mt-0.5">Alert criteria met</p>}</td>
       <td className="p-3">{percent(flow.confidence)}</td><td className="p-3 whitespace-nowrap">{percent(flow.p_rf)} / {percent(flow.p_cnn)}</td>
       <td className="p-3">{flow.model_used} · {flow.execution_mode || 'Unknown mode'}</td>
     </tr>)}</tbody></table></div>

@@ -10,6 +10,8 @@ This kit generates real, bounded lab traffic and records evidence for your thesi
 
 | File | Purpose |
 | --- | --- |
+| `demo_matrix.py` | Automated live demo matrix across all 4 datasets x modes + Snort, live backend switching, HTML report |
+| `config.demo.json` | Pre-configured trial configuration for the live demo matrix |
 | `run_trial.py` | Runs B0 normal logins, S1 TCP connect scanning, or S2 repeated failed logins; observes one selected engine |
 | `lab_target.py` | Disposable HTTP login service with independent request logs |
 | `config.example.json` | Physical lab settings to copy and edit |
@@ -106,3 +108,22 @@ Repeat B0 and S2 with different Trial IDs. Select RF or CNN in the dashboard bef
 Finish feature parity and model retraining, freeze the tested build and protocol, and confirm capture/observer continuity. Then run the approved matrix with new IDs, omitting `--pilot`. The software still calls these `physical_trial_candidate` runs until the evidence is reviewed.
 
 S1 tests TCP connect scanning. S2 tests a limited pattern of failed authentication to a lab service; it does not demonstrate password compromise or automatic recognition of wrong passwords by your current sensor. Keep misses and false alarms in the results.
+
+## 7. Automated Live Demo Matrix (`demo_matrix.py`)
+
+For live demonstrations and presentations, use the automated matrix runner. It switches the backend across datasets and model modes live via the API, runs all B0/S1/S2 cases, compares with Snort, and builds an HTML comparison report.
+
+- **Full walkthrough**: See [`HOW_TO_RUN_DEMO.md`](../../HOW_TO_RUN_DEMO.md) at the project root.
+- **Fast Live Presentation Demo** (~15 min):
+  ```bash
+  python3 demo_matrix.py --config config.demo.json --backend http://127.0.0.1:8000 --pace fast --yes
+  ```
+- **Single-Dataset Quick Demo** (~5 min):
+  ```bash
+  python3 demo_matrix.py --config config.demo.json --backend http://127.0.0.1:8000 --datasets omni --pace fast --yes
+  ```
+- **Dry-run preview** (no traffic sent):
+  ```bash
+  python3 demo_matrix.py --config config.demo.json --backend http://127.0.0.1:8000 --dry-run
+  ```
+

@@ -78,7 +78,11 @@ export function DashboardPage() {
           {rates.map((rate, index) => <div key={index} className="flex h-full flex-1 flex-col justify-end" title={`${rate.toFixed(2)} flows/s`}><div className="rounded-t bg-accent" style={{ height: `${rate / rateMax * 100}%` }} /></div>)}
         </div><p className="mt-2 text-xs text-text-muted">Latest: {latestRate?.toFixed(2)} flows/s · scale maximum: {rateMax.toFixed(2)} flows/s</p>
       </> : <p className="py-8 text-sm text-text-muted">{live ? 'Waiting for two live counter samples.' : 'Live measurements appear when the backend confirms the Pi connection.'}</p>}
-      <p className="mt-3 text-sm">{!online ? 'Backend unavailable.' : !live ? (status?.node_status === 'Pi disconnected' ? 'Pi disconnected. Retaining last recorded observations while waiting to reconnect.' : 'Waiting for Pi sensor connection...') : latestRate === 0 ? 'Pi connected; no additional flow windows in the latest interval.' : 'Pi connected. Flow arrivals are measured above.'}</p>
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <p className="text-sm">{!online ? 'Backend unavailable.' : !live ? (status?.node_status === 'Pi disconnected' ? 'Pi disconnected. Retaining last recorded observations while waiting to reconnect.' : 'Waiting for Pi sensor connection...') : latestRate === 0 ? 'Pi connected; no additional flow windows in the latest interval.' : 'Pi connected. Flow arrivals are measured above.'}</p>
+        {(!online || !live) && <span className="rounded border border-amber-500/50 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-600" title="No new data is being received. All figures shown are from the last recorded state.">STALE DATA</span>}
+      </div>
+      <SensorStatusHelp online={online} live={live} latestRate={latestRate} />
       <p className="mt-1 text-xs text-text-muted">Last live flow: {formatTime(status?.last_flow_at)}</p>
     </section>
     <section className={panelClass}><h2 className="mb-2 text-lg font-semibold">Observed IoT Devices</h2><p className="mb-4 text-xs text-text-muted">Identity and last observation from saved live flows. Stored totals persist across counter resets; a quiet device is not necessarily offline.</p>
@@ -98,4 +102,34 @@ export function DashboardPage() {
     {notice && <div role="status" className="fixed bottom-5 right-5 z-30 max-w-sm rounded-xl border border-rose-500/40 bg-surface p-4 shadow-xl"><p className="font-semibold">New recorded alert</p><p className="text-xs">{sourceLabel(notice.data_source)} · {notice.attack_type}</p><button className="mt-2 text-xs text-accent-dark" onClick={() => { setSelected(notice); setNotice(null) }}>Review alert</button><button aria-label="Dismiss alert notification" className="ml-4 text-xs" onClick={() => setNotice(null)}>Dismiss</button></div>}
     {selected && <XaiPreviewModal alert={selected} onClose={() => setSelected(null)} />}
   </div>
+}
+
+function SensorStatusHelp({ online, live, latestRate }: { online: boolean; live: boolean; latestRate: number | null }) {
+  const [open, setOpen] = useState(false)
+  let message = ''
+  if (!online) {
+    message = 'The dashboard cannot reach the inference service. All displayed data is stale.'
+  } else if (!live) {
+    message = 'The sensor missed its last heartbeat. Everything shown is the last recorded data, frozen at the disconnect time. No new alerts can be generated until it reconnects.'
+  } else if (latestRate === 0) {
+    message = 'The sensor is reachable but recorded no new traffic in the last interval. A quiet network looks like this; it does not mean monitoring stopped.'
+  } else {
+    message = 'The sensor is live. The numbers on this page reflect current network traffic.'
+  }
+  return (
+    <div className="mt-2">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="text-xs text-accent-dark underline-offset-2 hover:underline"
+        aria-expanded={open}
+      >
+        {open ? 'Hide' : 'What does this mean?'}
+      </button>
+      {open && (
+        <p className="mt-2 max-w-prose text-xs text-text-muted leading-relaxed">
+          {message}
+        </p>
+      )}
+    </div>
+  )
 }

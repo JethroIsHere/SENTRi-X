@@ -33,6 +33,12 @@ export function ThreatLogsPage() {
   }
   return <div className="space-y-5">
     <header><h1 className="text-3xl font-bold">Threat Logs</h1><p className="mt-2 text-sm text-text-muted">Latest 500 saved alerts, newest first. Live hardware and historical records retain their origin. Benign flows are shown on the dashboard.</p></header>
+    <section className="rounded-xl border border-border/50 bg-surface/50 p-4 text-xs text-text-muted leading-relaxed">
+      <p className="font-medium text-text mb-1">How a flow becomes what you see here, in three stages:</p>
+      <p><span className="font-medium text-text">(1) Classification</span> — every captured flow is scored by the active model.</p>
+      <p className="mt-1"><span className="font-medium text-text">(2) Alert</span> — flows scoring at or above the threshold are recorded as alerts and appear here.</p>
+      <p className="mt-1"><span className="font-medium text-text">(3) Suppression</span> — alerts matching your whitelist rules (destination IP, domain, or device and port) are still classified and stored, but shown as ‘Attack (Suppressed)’ instead of raising notifications. Suppressed does not mean benign — it means you told the system to stay quiet about this traffic.</p>
+    </section>
     <div className="flex flex-wrap gap-3 items-end text-xs">
       <label className="flex flex-col gap-1">Search<input value={query} onChange={event => setQuery(event.target.value)} placeholder="Device, address, model or label" className="rounded-lg border border-border bg-surface px-3 py-2" /></label>
       <label className="flex flex-col gap-1">Origin<select value={source} onChange={event => setSource(event.target.value)} className="rounded-lg border border-border bg-surface px-3 py-2"><option value="all">All origins</option><option value="live_hardware">Live hardware</option><option value="simulation">Simulation</option><option value="unknown">Origin unknown</option></select></label>
@@ -43,7 +49,15 @@ export function ThreatLogsPage() {
     </div>
     <RequestState error={logs.error} loading={logs.loading} />
     <p className="text-xs text-text-muted">Showing {filtered.length} of {logs.data?.logs.length || 0} retrieved alerts. Older records may have unknown origin or explanation method.</p>
-    <div className={`${panelClass} overflow-x-auto`}><table className="w-full text-left text-xs"><thead><tr>{['Time', 'Origin / device', 'Endpoints', 'Alert label', 'Confidence', 'Category', 'Review'].map(label => <th key={label} className="p-3 whitespace-nowrap">{label}</th>)}</tr></thead>
+    <div className={`${panelClass} overflow-x-auto`}><table className="w-full text-left text-xs"><thead><tr>{[
+      { label: 'Time', tip: '' },
+      { label: 'Origin / device', tip: '' },
+      { label: 'Endpoints', tip: '' },
+      { label: 'Alert label', tip: '' },
+      { label: 'Confidence', tip: 'Confidence is the model’s estimated attack probability for this flow. Flows scoring at or above the alert threshold — currently 0.50, adjustable in Settings — are recorded as alerts. A high score means the flow strongly resembled attack traffic in the model’s training data; it is not a verified attack.' },
+      { label: 'Category', tip: '' },
+      { label: 'Review', tip: '' },
+    ].map(({ label, tip }) => <th key={label} className="p-3 whitespace-nowrap" title={tip || undefined}>{label}{tip && <span className="ml-1 cursor-help text-text-muted" aria-label={tip}>ⓘ</span>}</th>)}</tr></thead>
       <tbody>{filtered.map(row => <tr key={row.id} className="border-t border-border"><td className="p-3 whitespace-nowrap">{formatTime(row.timestamp)}</td><td className="p-3">{sourceLabel(row.data_source)}<p className="text-text-muted">{row.device_name?.replace(/_/g, ' ')}</p></td>
         <td className="p-3 font-mono whitespace-nowrap">{row.source_ip} → {row.dest_ip}</td><td className="p-3">{row.attack_type}{row.attack_type_source === 'heuristic_behavioral' && <p className="text-xs text-text-muted">Heuristic assessment · unverified subtype</p>}</td><td className="p-3">{percent(row.confidence)}</td><td className="p-3"><span className={`rounded border px-2 py-1 ${threatLevelTone(row.threat_level)}`}>{row.threat_level}</span></td><td className="p-3"><button onClick={() => setSelected(row)} className="text-accent-dark underline">Explanation</button></td></tr>)}</tbody></table>
       {!filtered.length && !logs.loading && !logs.error && <p className="py-6 text-sm text-text-muted">{logs.data?.logs.length ? 'No alerts match the filters.' : 'No saved alerts. Live traffic may still be arriving normally.'}</p>}

@@ -301,7 +301,12 @@ export function SystemSettingsPage() {
     <section className={panelClass}><h2 className="mb-3 text-lg font-semibold">Raspberry Pi Sensor</h2><p className="text-sm">{!online ? 'Backend unavailable' : status?.is_hardware_live ? 'Pi connected' : 'Waiting for a recent Pi heartbeat'}</p>
       <p className="mt-3 text-xs text-text-muted">sentrix_sensor.py captures mirrored traffic and uploads flow windows. A connected Pi can be idle between uploads. Device observations are listed on the dashboard.</p>
     </section>
-    <section className={panelClass}><MonitoredDevices online={online} /></section>
+    <section className={panelClass}>
+      <p className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
+        <span className="font-semibold">Note on trusted and whitelisted devices:</span> A trusted or whitelisted device can still generate suspicious traffic. Whitelisting only suppresses alert notifications for matching traffic — the flows are still captured, classified, and stored, and remain visible as suppressed entries. If a trusted device starts behaving unusually, review its suppressed flows before extending its whitelist entries.
+      </p>
+      <MonitoredDevices online={online} />
+    </section>
     <section className={panelClass}><WhitelistedDestinations online={online} /></section>
     <section className={panelClass}><WhitelistedDomains online={online} /></section>
     <section className={panelClass}><WhitelistedDevicePorts online={online} /></section>

@@ -1,117 +1,186 @@
 # SENTRi-X Live Hardware Demo Guide
 
-This guide explains how to start the SENTRi-X platform, the Raspberry Pi edge sensor, Snort (for baseline comparison), and how to inject attacks that both systems can detect during a live demonstration.
+This guide provides a step-by-step walkthrough to run a live demonstration of the **SENTRi-X Intrusion Detection System**, including the Raspberry Pi edge sensor, Snort baseline comparison, and the automated **Live Demo Matrix** (`demo_matrix.py`).
 
 ---
 
-## 1. Start the SENTRi-X Backend (WSL/Linux)
-The backend hosts the API and the machine learning inference engine. It must run inside WSL or Linux.
+## Architecture & IP Quick Reference
 
-1. Open a WSL Ubuntu terminal.
-2. Navigate to the project directory:
+| Component | Host / Device | IP / Address | Notes |
+| :--- | :--- | :--- | :--- |
+| **Backend API** | Windows host (WSL2) | `127.0.0.1:8000` / `192.168.254.141:8000` | Port `8000` forwarded from Windows to WSL2 |
+| **Frontend UI** | Windows host | `http://localhost:5173` | React + Vite dashboard |
+| **Edge Sensor** | Raspberry Pi | Mirrored switch port | Sniffs IoT traffic, posts 28-feature flows |
+| **Target Service** | Lab Target machine | `192.168.254.184:8088` | MAC: `b8:27:eb:98:08:95` |
+| **Snort IDS** | Windows host (WSL2) | Interface `eth0` | Signature-based baseline comparator |
+
+---
+
+## Step 1: Start the SENTRi-X Backend (WSL)
+
+The backend hosts the ML inference engines (Random Forest, 1D-CNN, Hybrid) and the live telemetry API.
+
+1. **Start the backend** using the automated script:
+   ```powershell
+   # From Windows PowerShell:
+   wsl bash /mnt/c/Users/LENOVO/SENTRi-X/backend/start_backend.sh
+   ```
+   *Or inside a WSL Ubuntu terminal:*
    ```bash
    cd /mnt/c/Users/LENOVO/SENTRi-X
-   ```
-3. Activate the WSL virtual environment:
-   ```bash
    source wsl_venv/bin/activate
-   ```
-4. Start the Uvicorn server:
-   ```bash
    cd backend
-   python -m uvicorn main:app --host 0.0.0.0 --port 8000
+   python -u -m uvicorn main:app --host 0.0.0.0 --port 8000
    ```
-*Wait for the `Application startup complete.` message. The machine learning models take 10-20 seconds to load into memory.*
+2. **Verify Backend Status**:
+   In PowerShell or browser, verify the API is alive:
+   ```powershell
+   curl.exe http://127.0.0.1:8000/api/status
+   ```
+   *Expected output:*
+   - `"api_version": 2`
+   - `"data_source": "live_hardware"`
+   - `"rf_online": true`, `"cnn_online": true`
+   - `"node_status": "Waiting for Pi"` (switches to `"Active Sensor"` once the Pi starts)
 
 ---
 
-## 2. Start the SENTRi-X Frontend (Windows)
-The frontend is the React dashboard that visualizes the threats and XAI explanations.
+## Step 2: Start the SENTRi-X Frontend (Windows)
 
-1. Open a Windows PowerShell terminal.
-2. Navigate to the frontend directory:
+1. Open a PowerShell terminal and start the Vite dev server:
    ```powershell
    cd C:\Users\LENOVO\SENTRi-X\frontend
-   ```
-3. Start the Vite development server:
-   ```powershell
    npm run dev
    ```
-4. Open your browser and navigate to `http://localhost:5173`.
+2. Open your browser to **`http://localhost:5173`**.
+3. **Demo Tip:** Navigate to **Threat Logs** (`http://localhost:5173/threat-logs`) to watch real-time detections and XAI explanations land during attack runs.
 
 ---
 
-## 3. Start the Edge Sensor (Raspberry Pi)
-The Raspberry Pi sits on the network edge, captures live packets, extracts features, and streams them to the backend.
+## Step 3: Start the Edge Sensor (Raspberry Pi)
 
-1. SSH into the Raspberry Pi.
-2. Navigate to the SENTRi-X project directory:
+The Pi captures packets at the network edge, extracts 28 flow features, and streams them with a periodic heartbeat to the backend.
+
+1. SSH into the Raspberry Pi:
+   ```bash
+   ssh pi@<PI_IP>
+   ```
+2. Navigate to the project directory and start the sensor:
    ```bash
    cd ~/SENTRi-X
-   ```
-3. Activate the Pi's virtual environment:
-   ```bash
    source venv/bin/activate
+
+   # Explicitly set the host backend URL (Host IP: 192.168.254.141)
+   SENTRIX_BACKEND_URL="http://192.168.254.141:8000/api/ingest-flow" \
+   SENTRIX_HEARTBEAT_URL="http://192.168.254.141:8000/api/heartbeat" \
+   sudo -E python3 edge/sentrix_sensor.py
    ```
-4. Run the sensor script as **root** (required for packet sniffing):
-   ```bash
-   sudo venv/bin/python edge/sentrix_sensor.py
-   ```
-*The sensor will automatically discover the backend on the network and begin streaming 28-feature flow data.*
+3. **Check Connection**:
+   - The Pi console will display flow transmission summaries.
+   - On the web dashboard, the status badge will turn green (**"Sensor Online"**).
+   - `curl.exe http://127.0.0.1:8000/api/status` will show `"is_hardware_live": true`.
 
 ---
 
-## 4. Start Snort (WSL/Linux)
-Snort is used to demonstrate the baseline capabilities of a signature-based IDS compared to SENTRi-X.
+## Step 4: Start Snort (WSL - Optional / For Comparison)
 
-1. Open a second WSL Ubuntu terminal.
-2. Start Snort in console mode to monitor live alerts on the `eth0` interface:
+If you are including Snort in the live comparison matrix:
+
+1. In a WSL terminal, ensure Snort is running and logging alerts:
    ```bash
-   sudo snort -i eth0 -c /etc/snort/snort.conf -A console
+   sudo /usr/sbin/snort -m 027 -D -d -l /var/log/snort -u snort -g snort -c /etc/snort/snort.conf -i eth0
    ```
+2. *Note:* If running the demo without Snort, simply add the `--no-snort` flag to the matrix command in Step 6.
 
 ---
 
-## 5. Running the Attack Scripts (Lab Test Kit)
+## Step 5: Start the Lab Target Service
 
-The legacy `launch_attack.py` and `trigger_snort_baseline.py` scripts have been phased out. We now use the **SENTRi-X Lab Test Kit** (`run_trial.py` and `lab_target.py`) to generate bounded physical evaluation traffic.
+The lab target is a lightweight HTTP service running on the monitored machine whose traffic is mirrored to the Pi sensor.
 
-### A. Set Up the Target Service
-Run the lab target on a separate VM or lab computer (whose traffic is mirrored to the Pi sensor):
-1. Extract `SENTRi-X_Lab_Test_Kit_v1.1.0.zip` to your target machine.
-2. Run the target service:
+1. On the lab target device (`192.168.254.184`):
    ```bash
-   python lab_target.py --bind <LAB_TARGET_IPV4> --port 8088 --log target_evidence/service.jsonl
+   cd attack_scripts/TestKit
+   python lab_target.py --bind 192.168.254.184 --port 8088 --log target_evidence/service.jsonl
    ```
-3. *Important*: Ensure the target machine's MAC address is added to `IOT_DEVICES` in the Pi's `sentrix_sensor.py` so the traffic is captured!
+2. Verify the port is listening and accessible from the generator host.
 
-### B. Configure the Trial Generator
-On the machine that will generate the attacks (can be this Windows host):
-1. Open a PowerShell terminal and navigate to the extracted Test Kit folder:
+---
+
+## Step 6: Run the Live Demo Matrix (`demo_matrix.py`)
+
+The live demo matrix script automates the entire evaluation:
+- Dynamically switches backend models (`omni`, `ton_iot`, `bot_iot`, `cic_ids2017`) via `POST /api/switch`.
+- Executes bounded test cases:
+  - **B0**: Benign background baseline (no attacks).
+  - **S1**: Bounded TCP connect scan (50 ports + banner grab).
+  - **S2**: 20 failed HTTP credential logins (brute force).
+- Logs candidate alerts from the dashboard in real time.
+- Compiles a self-contained HTML report with side-by-side comparison charts.
+
+The trial configuration is located at `attack_scripts/TestKit/config.demo.json`.
+
+### Option A: Plan Preview (Dry-Run - 0 seconds)
+Verify configuration and backend reachability without injecting network traffic:
+```powershell
+cd C:\Users\LENOVO\SENTRi-X\attack_scripts\TestKit
+python demo_matrix.py --config config.demo.json --backend http://127.0.0.1:8000 --dry-run
+```
+
+### Option B: Fast Live Presentation Demo (~15-20 minutes)
+Runs all 4 dataset models in **Hybrid Mode** + Snort baseline at fast pacing (`--pace fast`):
+```powershell
+cd C:\Users\LENOVO\SENTRi-X\attack_scripts\TestKit
+python demo_matrix.py --config config.demo.json --backend http://127.0.0.1:8000 --pace fast --yes
+```
+
+### Option C: Single-Dataset Quick Demo (~5 minutes)
+Runs only the `omni` dataset model (ideal for quick 5-minute defense presentations):
+```powershell
+cd C:\Users\LENOVO\SENTRi-X\attack_scripts\TestKit
+python demo_matrix.py --config config.demo.json --backend http://127.0.0.1:8000 --datasets omni --pace fast --yes
+```
+
+### Option D: Full 45-Trial Evaluation Matrix (~90-120 minutes)
+Runs all 4 datasets across all 3 model modes (`rf`, `cnn`, `hybrid`) + Snort at full standard pacing:
+```powershell
+cd C:\Users\LENOVO\SENTRi-X\attack_scripts\TestKit
+python demo_matrix.py --config config.demo.json --backend http://127.0.0.1:8000 --pace full --modes rf cnn hybrid --yes
+```
+
+> **Tip:** If Snort is not running or not needed, append `--no-snort` to any of the commands above.
+
+---
+
+## Step 7: View the HTML Report & Evidence
+
+1. Once the matrix run completes, open the generated HTML report:
    ```powershell
-   cd C:\Users\LENOVO\SENTRi-X\attack_scripts\TestKit
+   # Opens the latest report in your default browser:
+   explorer.exe (Get-ChildItem -Directory "demo_*" | Sort-Object CreationTime -Descending | Select-Object -First 1).FullName\demo_matrix_report.html
    ```
-2. Make a copy of `config.example.json` named `lab_config.json`.
-3. Edit `lab_config.json` with the target's IP (`target_ip`) and MAC (`target_mac`), and ensure the backend URL points to the running backend API.
+2. The report presents:
+   - Bar charts comparing candidate alert counts for **B0**, **S1**, and **S2** across models and Snort.
+   - Pacing and timing metadata.
+   - Direct links to per-trial raw evidence bundles under `evidence/<trial_id>/`.
 
-### C. Run the Evaluation Trials
-Execute the three trial cases using the `run_trial.py` script. (If running on Windows PowerShell, use `py -3` or `python` instead of `python3`).
+---
 
-**Case B0 (Normal Behavior / Baseline):**
-```powershell
-python run_trial.py --config lab_config.json --case B0 --engine hybrid --trial-id DEMO-B0-001 --execute
-```
+## Step 8: Manual Single-Trial Execution (Alternative)
 
-**Case S1 (TCP Connect Scanning):**
-```powershell
-python run_trial.py --config lab_config.json --case S1 --engine hybrid --trial-id DEMO-S1-001 --execute
-```
-*(Both Snort and SENTRi-X should flag this activity depending on rules.)*
+If you only want to demonstrate a single individual trial without the matrix runner:
 
-**Case S2 (Repeated Failed Logins / Stealthy Exploit):**
-```powershell
-python run_trial.py --config lab_config.json --case S2 --engine hybrid --trial-id DEMO-S2-001 --execute
-```
-*(Demonstrates advanced behavior capture where Snort stays silent, but SENTRi-X triggers an alert based on ML anomalies.)*
+- **Case B0 (Normal Behavior):**
+  ```powershell
+  python run_trial.py --config config.demo.json --case B0 --engine hybrid --trial-id DEMO-B0-001 --execute
+  ```
 
-*Note: Allow the full three-minute warm-up/observation sequence to finish for each trial.*
+- **Case S1 (Port Scanning):**
+  ```powershell
+  python run_trial.py --config config.demo.json --case S1 --engine hybrid --trial-id DEMO-S1-001 --execute
+  ```
+
+- **Case S2 (Repeated Failed Logins):**
+  ```powershell
+  python run_trial.py --config config.demo.json --case S2 --engine hybrid --trial-id DEMO-S2-001 --execute
+  ```
