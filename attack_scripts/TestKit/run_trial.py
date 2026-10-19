@@ -22,7 +22,7 @@ from sentrix_lab.observers import make_observer
 from sentrix_lab.traffic import run_actions
 
 CASE_NAMES = {
-    "B0": "benign successful HTTP authentication",
+    "B0": "passive benign baseline (no synthetic traffic)",
     "S1": "bounded TCP connect port scan",
     "S2": "repeated failed HTTP authentication with fixed dummy credentials",
 }
