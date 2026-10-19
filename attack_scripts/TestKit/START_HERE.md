@@ -12,7 +12,7 @@ This kit generates real, bounded lab traffic and records evidence for your thesi
 | --- | --- |
 | `demo_matrix.py` | Automated live demo matrix across all 4 datasets x modes + Snort, live backend switching, HTML report |
 | `config.demo.json` | Pre-configured trial configuration for the live demo matrix |
-| `run_trial.py` | Runs B0 normal logins, S1 TCP connect scanning, or S2 repeated failed logins; observes one selected engine |
+| `run_trial.py` | Runs B0 passive observation (no synthetic traffic), S1 TCP connect scanning, or S2 repeated failed logins; observes one selected engine |
 | `lab_target.py` | Disposable HTTP login service with independent request logs |
 | `config.example.json` | Physical lab settings to copy and edit |
 | `config.smoke.json` | Short loopback checks that never count as physical evaluation |
