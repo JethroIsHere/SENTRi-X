@@ -135,9 +135,9 @@ $$p_{\text{fused}} = w_{\text{rf}} \cdot p_{\text{rf}} + (1 - w_{\text{rf}}) \cd
 
 ### 4.3 Engineering Verdict on Model Selection
 1. **Retaining $w = 0.50$ for General Ensemble Stability**:
-   While setting $w_{\text{rf}} = 0.70 - 0.80$ achieves the highest empirical F1 across all four offline benchmarks, maintaining **$w = 0.50$** in production (`sentrix_ml/inference.py`) serves as a principled regularization hedge. An equal blend preserves the dual-perspective inductive biases of both decision trees and spatial 1D convolutional feature extractors, protecting against tree overfitting on unseen zero-day live network structures.
+   While setting $w_{\text{rf}} = 0.70 - 0.80$ achieves the highest empirical F1 across all four offline benchmarks, maintaining **$w = 0.50$** in the deployed research prototype (`sentrix_ml/inference.py`) serves as a principled regularization hedge. An equal blend preserves the dual-perspective inductive biases of both decision trees and spatial 1D convolutional feature extractors, protecting against tree overfitting on unseen traffic structures.
 2. **Threshold Justification**:
-   The threshold sweep previously conducted on Omni held-out data established $\tau = 0.50$ as the F1-optimal operating point ($\text{Precision} = 0.9985$, $\text{Recall} = 0.9618$, $\text{F1} = 0.9798$). Our calibration assessment confirms that at $\tau = 0.50$, the hybrid ensemble suppresses false alarms to $0.37\%$, providing reliable detection for live deployments.
+   The threshold sweep previously conducted on Omni held-out data established $\tau = 0.50$ as the F1-optimal operating point ($\text{Precision} = 0.9985$, $\text{Recall} = 0.9618$, $\text{F1} = 0.9798$). Our calibration assessment confirms that at $\tau = 0.50$, the hybrid ensemble suppresses false alarms to $0.37\%$, These are offline holdout measurements; live-deployment detection reliability remains unestablished pending the independent trial review.
 
 ---
 
