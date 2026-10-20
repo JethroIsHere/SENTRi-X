@@ -198,20 +198,6 @@ export function NetworkGraphPage() {
   const [resettingMac, setResettingMac] = useState<string | null>(null)
   const [removingMac, setRemovingMac] = useState<string | null>(null)
 
-  // Expandable Legend state with persistent preference in localStorage
-  const [isLegendExpanded, setIsLegendExpanded] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return true
-    const saved = localStorage.getItem('sentrix_legend_expanded')
-    return saved === null ? true : saved === 'true'
-  })
-
-  const toggleLegend = () => {
-    setIsLegendExpanded(prev => {
-      const next = !prev
-      localStorage.setItem('sentrix_legend_expanded', String(next))
-      return next
-    })
-  }
 
   const devices = useMemo(() => devicePoll.data?.devices || [], [devicePoll.data])
   const customLabels = useMemo(() => labelsPoll.data?.labels || {}, [labelsPoll.data])
@@ -594,169 +580,27 @@ export function NetworkGraphPage() {
             )}
           </div>
 
-          {/* Sleek, Address-Free Topology Legend */}
-          <div className="mt-4 rounded-xl border border-border/60 bg-surface/40 overflow-hidden text-xs">
-            <button
-              type="button"
-              onClick={toggleLegend}
-              className="w-full flex items-center justify-between px-3.5 py-2.5 text-left hover:bg-surface/80 transition-colors cursor-pointer select-none"
-              aria-expanded={isLegendExpanded}
-            >
-              <div className="flex items-center gap-2">
-                <span className="font-semibold text-text">Topology Legend</span>
-                <span className="text-[11px] text-text-muted">· Node roles & link patterns</span>
-              </div>
-              <div className="flex items-center gap-1.5 text-xs text-primary font-medium">
-                <span>{isLegendExpanded ? 'Hide Guide' : 'Show Guide'}</span>
-                <span className={`inline-block text-[10px] transition-transform duration-200 ${isLegendExpanded ? 'rotate-180' : ''}`}>
-                  ▼
+          {/* Connection Link Flow Legend: Benign Flow vs Attack Flow */}
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/60 bg-surface/40 px-4 py-2.5 text-xs text-text-muted">
+            <span className="font-semibold text-text text-xs">Connection Flow Legend:</span>
+            <div className="flex flex-wrap items-center gap-6">
+              {/* Benign Flow */}
+              <span className="inline-flex items-center gap-2">
+                <span className="inline-block w-6 border-t-2 border-solid border-[#475569]" />
+                <span className="font-medium text-text">Benign Flow</span>
+                <span className="text-[11px] text-text-muted">(Normal Traffic)</span>
+              </span>
+
+              {/* Attack Flow */}
+              <span className="inline-flex items-center gap-2">
+                <span className="inline-block w-6 border-t-2 border-dashed border-[#f43f5e]" />
+                <span className="inline-flex h-4 w-4 items-center justify-center rounded bg-rose-500 text-[10px] font-bold text-white shadow-xs">
+                  !
                 </span>
-              </div>
-            </button>
-
-            {/* Collapsed Bar: Single-line clean badge summary */}
-            {!isLegendExpanded && (
-              <div className="px-3.5 pb-2.5 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-text-muted border-t border-border/30 pt-2">
-                <span className="inline-flex items-center gap-1.5">
-                  <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-xs bg-[#14b8a6] text-[8px] font-bold text-white">IoT</span>
-                  <span>Monitored IoT</span>
-                </span>
-                <span className="inline-flex items-center gap-1.5">
-                  <span className="inline-flex h-3 w-4.5 items-center justify-center rounded-full bg-[#8b5cf6] text-[8px] font-bold text-white">Pi</span>
-                  <span>IDS Sensor</span>
-                </span>
-                <span className="inline-flex items-center gap-1.5">
-                  <span className="inline-flex h-3 w-3 rotate-45 items-center justify-center bg-[#06b6d4] text-[7px] font-bold text-white">
-                    <span className="-rotate-45">GW</span>
-                  </span>
-                  <span>Gateway</span>
-                </span>
-                <span className="inline-flex items-center gap-1.5">
-                  <span className="inline-flex h-3 w-3.5 items-center justify-center rounded-xs bg-[#3b82f6] text-[8px] font-bold text-white">PC</span>
-                  <span>Defender PC</span>
-                </span>
-                <span className="inline-flex items-center gap-1.5">
-                  <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border border-dashed border-[#0284c7] bg-[#0284c7] text-[7px] font-bold text-white">WAN</span>
-                  <span>Cloud Service</span>
-                </span>
-                <span className="inline-flex items-center gap-1.5">
-                  <span className="inline-block w-4 border-t-2 border-dashed border-[#f43f5e]" />
-                  <span className="text-rose-500 font-bold">! Alert</span>
-                </span>
-              </div>
-            )}
-
-            {/* Expanded: Clean, concise 2/4-column compact items with zero real IP addresses */}
-            {isLegendExpanded && (
-              <div className="p-3.5 pt-2.5 border-t border-border/40 bg-background-soft/30">
-                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2.5 text-xs">
-                  {/* Monitored IoT Device */}
-                  <div className="flex items-start gap-2.5 rounded-lg border border-border/50 bg-surface/70 p-2.5 min-w-0 overflow-hidden">
-                    <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-[#14b8a6] text-[9px] font-bold text-white mt-0.5">
-                      IoT
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="font-semibold text-text truncate">Monitored IoT Device</div>
-                      <p className="text-[11px] text-text-muted mt-0.5 leading-snug break-words">
-                        Enrolled smart device tracked via MAC allowlist.
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Raspberry Pi Sensor */}
-                  <div className="flex items-start gap-2.5 rounded-lg border border-border/50 bg-surface/70 p-2.5 min-w-0 overflow-hidden">
-                    <span className="inline-flex h-5 w-6 shrink-0 items-center justify-center rounded-full bg-[#8b5cf6] text-[9px] font-bold text-white mt-0.5">
-                      Pi
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="font-semibold text-text truncate">Raspberry Pi IDS</div>
-                      <p className="text-[11px] text-text-muted mt-0.5 leading-snug break-words">
-                        Edge sensor capturing passive flow telemetry.
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Local Gateway / Router */}
-                  <div className="flex items-start gap-2.5 rounded-lg border border-border/50 bg-surface/70 p-2.5 min-w-0 overflow-hidden">
-                    <span className="inline-flex h-5 w-5 shrink-0 rotate-45 items-center justify-center bg-[#06b6d4] text-[8px] font-bold text-white mt-0.5">
-                      <span className="-rotate-45">GW</span>
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="font-semibold text-text truncate">Network Gateway</div>
-                      <p className="text-[11px] text-text-muted mt-0.5 leading-snug break-words">
-                        Subnet router handling DHCP and WAN uplink.
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Defender Host Workstation */}
-                  <div className="flex items-start gap-2.5 rounded-lg border border-border/50 bg-surface/70 p-2.5 min-w-0 overflow-hidden">
-                    <span className="inline-flex h-5 w-5.5 shrink-0 items-center justify-center rounded-xs bg-[#3b82f6] text-[9px] font-bold text-white mt-0.5">
-                      PC
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="font-semibold text-text truncate">Defender Workstation</div>
-                      <p className="text-[11px] text-text-muted mt-0.5 leading-snug break-words">
-                        Host executing hybrid AI models and dashboard.
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Cloud / Remote Broker */}
-                  <div className="flex items-start gap-2.5 rounded-lg border border-border/50 bg-surface/70 p-2.5 min-w-0 overflow-hidden">
-                    <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-dashed border-[#0284c7] bg-[#0284c7] text-[8px] font-bold text-white mt-0.5">
-                      WAN
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="font-semibold text-text truncate">Cloud Service</div>
-                      <p className="text-[11px] text-text-muted mt-0.5 leading-snug break-words">
-                        External cloud APIs syncing with smart devices.
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Broadcast / Multicast */}
-                  <div className="flex items-start gap-2.5 rounded-lg border border-border/50 bg-surface/70 p-2.5 min-w-0 overflow-hidden">
-                    <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-dashed border-[#94a3b8] bg-[#94a3b8] text-[9px] font-bold text-white mt-0.5">
-                      BC
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="font-semibold text-text truncate">Broadcast / Multicast</div>
-                      <p className="text-[11px] text-text-muted mt-0.5 leading-snug break-words">
-                        Local discovery and subnet multicast traffic.
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Alert Qualified Link */}
-                  <div className="flex items-start gap-2.5 rounded-lg border border-border/50 bg-surface/70 p-2.5 min-w-0 overflow-hidden">
-                    <div className="flex items-center gap-1 shrink-0 mt-0.5">
-                      <span className="w-2.5 border-t-2 border-dashed border-[#f43f5e]" />
-                      <span className="inline-flex h-4.5 w-4.5 items-center justify-center rounded bg-rose-500 text-[10px] font-bold text-white shadow-xs">
-                        !
-                      </span>
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="font-semibold text-rose-500 truncate">Alert Qualified Link</div>
-                      <p className="text-[11px] text-text-muted mt-0.5 leading-snug break-words">
-                        Traffic flagged by AI exceeding alert threshold.
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Normal / Benign Flow */}
-                  <div className="flex items-start gap-2.5 rounded-lg border border-border/50 bg-surface/70 p-2.5 min-w-0 overflow-hidden">
-                    <span className="w-4.5 border-t-2 border-solid border-[#475569] shrink-0 mt-2" />
-                    <div className="min-w-0 flex-1">
-                      <div className="font-semibold text-text truncate">Benign Link Flow</div>
-                      <p className="text-[11px] text-text-muted mt-0.5 leading-snug break-words">
-                        Normal baseline traffic without anomaly flags.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
+                <span className="font-semibold text-rose-500">Attack Flow</span>
+                <span className="text-[11px] text-rose-400/90">(Alert Qualified)</span>
+              </span>
+            </div>
           </div>
 
           {graph.omitted > 0 && (
