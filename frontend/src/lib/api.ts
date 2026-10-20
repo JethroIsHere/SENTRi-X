@@ -91,6 +91,19 @@ export async function removeAllObservedDevices(): Promise<{ status: string; mess
   return api('/api/devices', { method: 'DELETE' })
 }
 
+export async function setEndpointLabel(ip: string, label: string): Promise<{ status: string; labels: Record<string, string> }> {
+  return api('/api/endpoint-labels', {
+    method: 'POST',
+    body: JSON.stringify({ ip, label }),
+  })
+}
+
+export async function deleteEndpointLabel(ip: string): Promise<{ status: string; labels: Record<string, string> }> {
+  return api(`/api/endpoint-labels/${encodeURIComponent(ip)}`, {
+    method: 'DELETE',
+  })
+}
+
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   const controller = new AbortController()
   const cancel = () => controller.abort()

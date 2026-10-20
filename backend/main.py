@@ -45,6 +45,7 @@ from database import (
     remove_whitelisted_domain, is_domain_whitelisted,
     get_whitelisted_device_ports, add_whitelisted_device_port,
     remove_whitelisted_device_port, is_device_port_whitelisted,
+    get_endpoint_labels, set_endpoint_label, remove_endpoint_label,
     insert_audit_log, get_audit_logs, prune_audit_logs, get_or_set_admin_api_key
 )
 
@@ -1050,6 +1051,49 @@ def delete_whitelisted_device_port(mac: str, port: int, auth: dict = Depends(ver
         status='SUCCESS'
     )
     return {'status': 'ok', 'device_ports': get_whitelisted_device_ports()}
+
+
+class EndpointLabelRequest(BaseModel):
+    ip: str = Field(..., min_length=1, max_length=64)
+    label: str = Field(..., min_length=1, max_length=128)
+
+
+@app.get('/api/endpoint-labels')
+def list_endpoint_labels():
+    """Custom human-readable labels/names for network IPs/endpoints."""
+    return {'labels': get_endpoint_labels()}
+
+
+@app.post('/api/endpoint-labels')
+def create_endpoint_label(request: EndpointLabelRequest, auth: dict = Depends(verify_admin_auth)):
+    try:
+        set_endpoint_label(request.ip.strip(), request.label.strip())
+        insert_audit_log(
+            actor=auth['actor'],
+            action='SET_ENDPOINT_LABEL',
+            resource=f'ip:{request.ip.strip()}',
+            details=json.dumps({'ip': request.ip.strip(), 'label': request.label.strip()}),
+            client_ip=auth['client_ip'],
+            status='SUCCESS'
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {'status': 'ok', 'labels': get_endpoint_labels()}
+
+
+@app.delete('/api/endpoint-labels/{ip:path}')
+def delete_endpoint_label(ip: str, auth: dict = Depends(verify_admin_auth)):
+    if not remove_endpoint_label(ip.strip()):
+        raise HTTPException(404, 'Endpoint label not found')
+    insert_audit_log(
+        actor=auth['actor'],
+        action='REMOVE_ENDPOINT_LABEL',
+        resource=f'ip:{ip.strip()}',
+        details=json.dumps({'ip': ip.strip()}),
+        client_ip=auth['client_ip'],
+        status='SUCCESS'
+    )
+    return {'status': 'ok', 'labels': get_endpoint_labels()}
 
 
 @app.get('/api/database/stats')

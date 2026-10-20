@@ -285,6 +285,57 @@ def remove_all_observed_devices(unenroll: bool = True) -> dict:
         }
 
 
+def get_endpoint_labels() -> dict:
+    """Return dict of custom endpoint IP labels with intelligent defaults."""
+    defaults = {
+        "192.168.254.184": "Raspberry Pi 3B+ Sensor",
+        "192.168.254.254": "Local Gateway / Router",
+        "192.168.254.156": "Defender Host (Laptop)",
+    }
+    with closing(get_db_connection()) as conn, conn:
+        row = conn.execute("SELECT value FROM App_Settings WHERE key = 'endpoint_labels'").fetchone()
+        if row and row['value']:
+            custom = decode_json(row['value'], {})
+            result = dict(defaults)
+            result.update(custom)
+            return result
+    return defaults
+
+
+def set_endpoint_label(ip: str, label: str) -> dict:
+    """Set or update a friendly label for an IP endpoint."""
+    ip = ip.strip()
+    label = label.strip()
+    with closing(get_db_connection()) as conn, conn:
+        row = conn.execute("SELECT value FROM App_Settings WHERE key = 'endpoint_labels'").fetchone()
+        custom = decode_json(row['value'], {}) if row and row['value'] else {}
+        if label:
+            custom[ip] = label
+        else:
+            custom.pop(ip, None)
+        conn.execute(
+            "INSERT INTO App_Settings (key, value) VALUES ('endpoint_labels', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (json.dumps(custom),)
+        )
+    return get_endpoint_labels()
+
+
+def remove_endpoint_label(ip: str) -> bool:
+    """Remove a custom label for an IP endpoint. Returns True if removed, False if not configured."""
+    ip = ip.strip()
+    with closing(get_db_connection()) as conn, conn:
+        row = conn.execute("SELECT value FROM App_Settings WHERE key = 'endpoint_labels'").fetchone()
+        custom = decode_json(row['value'], {}) if row and row['value'] else {}
+        if ip in custom:
+            del custom[ip]
+            conn.execute(
+                "INSERT INTO App_Settings (key, value) VALUES ('endpoint_labels', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (json.dumps(custom),)
+            )
+            return True
+        return False
 
 
 def load_settings(defaults):
