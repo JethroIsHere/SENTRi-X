@@ -9,11 +9,33 @@ export function RequestState({ error, loading }: { error: string | null; loading
   return null
 }
 
-export function DeviceCards({ devices }: { devices: Device[] }) {
+export function DeviceCards({
+  devices,
+  onResetDevice,
+  resettingMac,
+}: {
+  devices: Device[]
+  onResetDevice?: (mac: string, name: string) => void
+  resettingMac?: string | null
+}) {
   if (!devices.length) return <p className="text-sm text-text-muted">No device flows recorded with device identity yet. Keep sentrix_sensor.py running and wait for a flow window to arrive.</p>
   return <div className="grid gap-4 md:grid-cols-2">{devices.map(device => <article key={device.device_mac} className="rounded-xl border border-border bg-background-soft p-4">
-    <h3 className="font-semibold text-text">{device.device_name?.replace(/_/g, ' ') || 'Observed device'}</h3>
-    <p className="mt-1 font-mono text-xs text-text-muted">{device.device_mac}</p>
+    <div className="flex items-start justify-between gap-2">
+      <div>
+        <h3 className="font-semibold text-text">{device.device_name?.replace(/_/g, ' ') || 'Observed device'}</h3>
+        <p className="mt-1 font-mono text-xs text-text-muted">{device.device_mac}</p>
+      </div>
+      {onResetDevice && (
+        <button
+          disabled={resettingMac === device.device_mac}
+          onClick={() => onResetDevice(device.device_mac, device.device_name?.replace(/_/g, ' ') || device.device_mac)}
+          className="rounded-lg border border-rose-500/30 px-2.5 py-1 text-xs text-rose-500 hover:bg-rose-500/10 disabled:opacity-50"
+          title={`Reset flow counts and observations for ${device.device_name || device.device_mac}`}
+        >
+          {resettingMac === device.device_mac ? 'Resetting…' : 'Reset'}
+        </button>
+      )}
+    </div>
     <p className="mt-3 text-sm">Last address: <span className="font-mono">{device.last_ip}</span></p>
     <p className="text-sm">Stored flows: {device.flow_count.toLocaleString()} · Packets in those flows: {device.packet_count.toLocaleString()}</p>
     <p className="mt-2 text-xs text-text-muted">Last observed: {formatTime(device.last_seen)}</p>

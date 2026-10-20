@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useSystem } from '../../context/SystemContext'
-import { api, formatTime, sourceLabel, useApiPoll } from '../../lib/api'
+import { api, clearLiveFlows, clearObservedDevices, formatTime, sourceLabel, useApiPoll } from '../../lib/api'
 import type { Alert, Device, Flow } from '../../lib/api'
 import { DeviceCards, FlowTable, panelClass, RequestState } from '../../components/LiveTelemetry'
 import { XaiPreviewModal } from '../../components/XaiPreviewModal'
@@ -16,6 +16,9 @@ export function DashboardPage() {
   const [actionError, setActionError] = useState<string | null>(null)
   const [message, setMessage] = useState('')
   const [clearing, setClearing] = useState(false)
+  const [clearingFlows, setClearingFlows] = useState(false)
+  const [clearingDevices, setClearingDevices] = useState(false)
+  const [resettingDeviceMac, setResettingDeviceMac] = useState<string | null>(null)
   const previousAlert = useRef<string | null | undefined>(undefined)
   const latest = alerts.data?.logs[0] || null
   useEffect(() => {
@@ -40,6 +43,51 @@ export function DashboardPage() {
       refresh(); alerts.refresh(); flows.refresh(); devices.refresh()
     } catch (error) { setActionError(error instanceof Error ? error.message : 'Reset failed.') }
     finally { setClearing(false) }
+  }
+
+  async function handleClearFlows() {
+    const prompt = 'Reset recent live flows? Stored network flow records will be deleted and flow arrival rates reset.'
+    if (!window.confirm(prompt)) return
+    setClearingFlows(true); setActionError(null); setMessage('')
+    try {
+      await clearLiveFlows()
+      setMessage('Live flows cleared. Table and arrival rate counters reset.')
+      refresh(); flows.refresh(); devices.refresh()
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Resetting live flows failed.')
+    } finally {
+      setClearingFlows(false)
+    }
+  }
+
+  async function handleClearAllDevices() {
+    const prompt = 'Reset all observed IoT devices? Observation counts will be cleared; configured monitored devices are retained and will repopulate as new traffic arrives.'
+    if (!window.confirm(prompt)) return
+    setClearingDevices(true); setActionError(null); setMessage('')
+    try {
+      await clearObservedDevices()
+      setMessage('Observed IoT device records reset.')
+      devices.refresh(); flows.refresh()
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Resetting observed devices failed.')
+    } finally {
+      setClearingDevices(false)
+    }
+  }
+
+  async function handleClearSingleDevice(mac: string, name: string) {
+    const prompt = `Reset observation records for ${name} (${mac})?`
+    if (!window.confirm(prompt)) return
+    setResettingDeviceMac(mac); setActionError(null); setMessage('')
+    try {
+      await clearObservedDevices(mac)
+      setMessage(`Observation records reset for ${name}.`)
+      devices.refresh(); flows.refresh()
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : `Resetting device ${name} failed.`)
+    } finally {
+      setResettingDeviceMac(null)
+    }
   }
   const live = online && !!status?.is_hardware_live
   const latestRate = rates.at(-1) ?? null
@@ -85,12 +133,50 @@ export function DashboardPage() {
       <SensorStatusHelp online={online} live={live} latestRate={latestRate} />
       <p className="mt-1 text-xs text-text-muted">Last live flow: {formatTime(status?.last_flow_at)}</p>
     </section>
-    <section className={panelClass}><h2 className="mb-2 text-lg font-semibold">Observed IoT Devices</h2><p className="mb-4 text-xs text-text-muted">Identity and last observation from saved live flows. Stored totals persist across counter resets; a quiet device is not necessarily offline.</p>
-      <RequestState error={devices.error} loading={devices.loading} /><DeviceCards devices={devices.data?.devices || []} />
+    <section className={panelClass}>
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold">Observed IoT Devices</h2>
+          <p className="mt-1 text-xs text-text-muted">Identity and last observation from saved live flows. Stored totals persist across counter resets; a quiet device is not necessarily offline.</p>
+        </div>
+        {devices.data?.devices && devices.data.devices.length > 0 && (
+          <button
+            disabled={clearingDevices || !online}
+            onClick={() => void handleClearAllDevices()}
+            className="rounded-xl border border-rose-500/40 px-3 py-1.5 text-xs text-rose-500 hover:bg-rose-500/10 disabled:opacity-50"
+            title="Clear all observed IoT device history and counts"
+          >
+            {clearingDevices ? 'Resetting…' : 'Reset Observed Devices'}
+          </button>
+        )}
+      </div>
+      <RequestState error={devices.error} loading={devices.loading} />
+      <DeviceCards
+        devices={devices.data?.devices || []}
+        onResetDevice={(mac, name) => void handleClearSingleDevice(mac, name)}
+        resettingMac={resettingDeviceMac}
+      />
     </section>
-    <section className={panelClass}><div className="mb-3 flex items-center justify-between"><h2 className="text-lg font-semibold">Recent Live Flows</h2><Link className="text-xs text-accent-dark" to="/network-graph">View connections</Link></div>
+    <section className={panelClass}>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold">Recent Live Flows</h2>
+        <div className="flex items-center gap-3">
+          {flows.data?.flows && flows.data.flows.length > 0 && (
+            <button
+              disabled={clearingFlows || !online}
+              onClick={() => void handleClearFlows()}
+              className="rounded-xl border border-rose-500/40 px-3 py-1.5 text-xs text-rose-500 hover:bg-rose-500/10 disabled:opacity-50"
+              title="Clear all saved live network flows"
+            >
+              {clearingFlows ? 'Resetting…' : 'Reset Live Flows'}
+            </button>
+          )}
+          <Link className="text-xs text-accent-dark hover:underline" to="/network-graph">View connections</Link>
+        </div>
+      </div>
       <p className="mb-3 text-xs text-text-muted">Latest 10 saved windows, including benign traffic. RF/CNN values are attack scores; confidence refers to the predicted class.</p>
-      <RequestState error={flows.error} loading={flows.loading} /><FlowTable flows={flows.data?.flows || []} />
+      <RequestState error={flows.error} loading={flows.loading} />
+      <FlowTable flows={flows.data?.flows || []} />
     </section>
     <section className={panelClass}><h2 className="mb-3 text-lg font-semibold">Latest Saved Alert</h2>
       <RequestState error={alerts.error} loading={alerts.loading} />

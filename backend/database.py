@@ -227,6 +227,29 @@ def clear_all_alerts(source=None):
             conn.execute('DELETE FROM Alert_Logs')
 
 
+def clear_all_flows(source=None):
+    """Delete flows from Network_Flows table."""
+    with closing(get_db_connection()) as conn, conn:
+        if source:
+            conn.execute('DELETE FROM Network_Flows WHERE data_source=?', (source,))
+        else:
+            conn.execute('DELETE FROM Network_Flows')
+
+
+def clear_device_observations(mac=None):
+    """Delete flow records associated with observed IoT device(s)."""
+    with closing(get_db_connection()) as conn, conn:
+        if mac:
+            conn.execute(
+                "DELETE FROM Network_Flows WHERE lower(device_mac) = lower(?)", (mac.strip(),)
+            )
+        else:
+            conn.execute(
+                "DELETE FROM Network_Flows WHERE device_mac IS NOT NULL AND device_mac != ''"
+            )
+
+
+
 def load_settings(defaults):
     result = dict(defaults)
     with closing(get_db_connection()) as conn, conn:

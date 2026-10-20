@@ -32,6 +32,8 @@ from database import (
     insert_alert,
     get_all_alerts,
     clear_all_alerts,
+    clear_all_flows,
+    clear_device_observations,
     get_database_stats, get_recent_flows, get_device_summaries, get_alert_counts,
     load_settings, save_settings, utc_now,
     get_monitored_devices, add_monitored_device, remove_monitored_device,
@@ -737,7 +739,12 @@ class SwitchRequest(BaseModel):
 
 
 class ClearRequest(BaseModel):
-    scope: Literal['simulation', 'all'] = 'simulation'
+    scope: Literal['simulation', 'all', 'flows', 'devices'] = 'simulation'
+    mac: Optional[str] = None
+
+
+class ClearDevicesRequest(BaseModel):
+    mac: Optional[str] = None
 
 
 class AttackRequest(BaseModel):
@@ -1102,22 +1109,87 @@ def update_settings(request: SettingsRequest, auth: dict = Depends(verify_admin_
 @app.post('/api/clear')
 def clear_dashboard_data(request: ClearRequest = ClearRequest(), auth: dict = Depends(verify_admin_auth)):
     with engine_lock:
-        clear_all_alerts('simulation' if request.scope == 'simulation' else None)
-        engine.attack_queue.clear()
-        system_status['simulated_events'] = 0
-        if request.scope == 'all':
+        if request.scope == 'flows':
+            clear_all_flows()
             system_status['processed_flows'] = 0
             system_status['inference_errors'] = 0
             system_status['counter_epoch'] = str(uuid4())
+            if isinstance(system_status.get('chart_data'), list):
+                system_status['chart_data'].clear()
+            insert_audit_log(
+                actor=auth['actor'],
+                action='CLEAR_LIVE_FLOWS',
+                resource='Network_Flows',
+                details=json.dumps({'scope': 'flows'}),
+                client_ip=auth['client_ip'],
+                status='SUCCESS'
+            )
+            return {'status': 'ok', 'scope': 'flows', 'flows_retained': False}
+        elif request.scope == 'devices':
+            clear_device_observations(request.mac)
+            insert_audit_log(
+                actor=auth['actor'],
+                action='CLEAR_OBSERVED_DEVICES',
+                resource=f'device_mac:{request.mac or "all"}',
+                details=json.dumps({'mac': request.mac or 'all'}),
+                client_ip=auth['client_ip'],
+                status='SUCCESS'
+            )
+            return {'status': 'ok', 'scope': 'devices', 'flows_retained': True}
+        else:
+            clear_all_alerts('simulation' if request.scope == 'simulation' else None)
+            engine.attack_queue.clear()
+            system_status['simulated_events'] = 0
+            if request.scope == 'all':
+                system_status['processed_flows'] = 0
+                system_status['inference_errors'] = 0
+                system_status['counter_epoch'] = str(uuid4())
+                if isinstance(system_status.get('chart_data'), list):
+                    system_status['chart_data'].clear()
+            insert_audit_log(
+                actor=auth['actor'],
+                action='CLEAR_DATA',
+                resource=f'scope:{request.scope}',
+                details=json.dumps({'scope': request.scope}),
+                client_ip=auth['client_ip'],
+                status='SUCCESS'
+            )
+            return {'status': 'ok', 'scope': request.scope, 'flows_retained': True}
+
+
+@app.post('/api/clear-flows')
+def clear_flows_endpoint(auth: dict = Depends(verify_admin_auth)):
+    with engine_lock:
+        clear_all_flows()
+        system_status['processed_flows'] = 0
+        system_status['inference_errors'] = 0
+        system_status['counter_epoch'] = str(uuid4())
+        if isinstance(system_status.get('chart_data'), list):
+            system_status['chart_data'].clear()
         insert_audit_log(
             actor=auth['actor'],
-            action='CLEAR_DATA',
-            resource=f'scope:{request.scope}',
-            details=json.dumps({'scope': request.scope}),
+            action='CLEAR_LIVE_FLOWS',
+            resource='Network_Flows',
+            details=json.dumps({'action': 'clear_all_flows'}),
             client_ip=auth['client_ip'],
             status='SUCCESS'
         )
-    return {'status': 'ok', 'scope': request.scope, 'flows_retained': True}
+    return {'status': 'ok', 'message': 'Live flows cleared successfully'}
+
+
+@app.post('/api/clear-devices')
+def clear_devices_endpoint(request: ClearDevicesRequest = ClearDevicesRequest(), auth: dict = Depends(verify_admin_auth)):
+    with engine_lock:
+        clear_device_observations(request.mac)
+        insert_audit_log(
+            actor=auth['actor'],
+            action='CLEAR_OBSERVED_DEVICES',
+            resource=f'device_mac:{request.mac or "all"}',
+            details=json.dumps({'mac': request.mac or 'all'}),
+            client_ip=auth['client_ip'],
+            status='SUCCESS'
+        )
+    return {'status': 'ok', 'message': f'Device observations reset for {request.mac or "all devices"}'}
 
 
 @app.post('/api/switch')

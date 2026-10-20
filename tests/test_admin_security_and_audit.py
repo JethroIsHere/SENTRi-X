@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 @pytest.fixture
 def isolated_db(tmp_path, monkeypatch):
     db_file = tmp_path / "test_security.db"
+    monkeypatch.setenv("SENTRIX_DB_PATH", str(db_file))
     monkeypatch.setattr("database.DB_PATH", str(db_file))
     import database
     database.init_db()
@@ -78,6 +79,7 @@ def test_admin_api_key_persistence(isolated_db):
 
 def test_api_auth_enforcement_and_audit_attribution(tmp_path, monkeypatch):
     db_file = tmp_path / "test_auth_api.db"
+    monkeypatch.setenv("SENTRIX_DB_PATH", str(db_file))
     monkeypatch.setattr("database.DB_PATH", str(db_file))
     monkeypatch.setenv("SENTRIX_REQUIRE_AUTH", "true")
     monkeypatch.setenv("SENTRIX_ADMIN_KEY", "test-secret-admin-key-2026")

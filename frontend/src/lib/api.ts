@@ -72,6 +72,17 @@ export const formatTime = (value?: string | null) => {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString()
 }
 
+export async function clearLiveFlows(): Promise<{ status: string; message: string }> {
+  return api('/api/clear-flows', { method: 'POST' })
+}
+
+export async function clearObservedDevices(mac?: string): Promise<{ status: string; message: string }> {
+  return api('/api/clear-devices', {
+    method: 'POST',
+    body: JSON.stringify({ mac: mac || null }),
+  })
+}
+
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   const controller = new AbortController()
   const cancel = () => controller.abort()

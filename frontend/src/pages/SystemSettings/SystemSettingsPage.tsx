@@ -330,7 +330,7 @@ function AdminSecurityCard({ online }: { online: boolean }) {
         <input
           type={showKey ? 'text' : 'password'}
           value={apiKey}
-          placeholder="Enter Admin API Key (default: sentrix-admin-2026)"
+          placeholder="Enter Admin API Key"
           onChange={e => setApiKeyState(e.target.value)}
           className="w-full rounded-xl border border-border bg-surface px-3 py-2 text-sm font-mono pr-16"
         />
