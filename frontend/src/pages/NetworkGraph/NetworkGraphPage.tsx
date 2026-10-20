@@ -649,108 +649,108 @@ export function NetworkGraphPage() {
             {/* Expanded: Clean, concise 2/4-column compact items with zero real IP addresses */}
             {isLegendExpanded && (
               <div className="p-3.5 pt-2.5 border-t border-border/40 bg-background-soft/30">
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 text-xs">
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2.5 text-xs">
                   {/* Monitored IoT Device */}
-                  <div className="flex items-start gap-2.5 rounded-lg border border-border/50 bg-surface/70 p-2.5">
+                  <div className="flex items-start gap-2.5 rounded-lg border border-border/50 bg-surface/70 p-2.5 min-w-0 overflow-hidden">
                     <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-[#14b8a6] text-[9px] font-bold text-white mt-0.5">
                       IoT
                     </span>
-                    <div>
-                      <div className="font-semibold text-text">Monitored IoT Device</div>
-                      <p className="text-[11px] text-text-muted mt-0.5 leading-snug">
-                        Enrolled smart device tracked via MAC address allowlist.
+                    <div className="min-w-0 flex-1">
+                      <div className="font-semibold text-text truncate">Monitored IoT Device</div>
+                      <p className="text-[11px] text-text-muted mt-0.5 leading-snug break-words">
+                        Enrolled smart device tracked via MAC allowlist.
                       </p>
                     </div>
                   </div>
 
                   {/* Raspberry Pi Sensor */}
-                  <div className="flex items-start gap-2.5 rounded-lg border border-border/50 bg-surface/70 p-2.5">
+                  <div className="flex items-start gap-2.5 rounded-lg border border-border/50 bg-surface/70 p-2.5 min-w-0 overflow-hidden">
                     <span className="inline-flex h-5 w-6 shrink-0 items-center justify-center rounded-full bg-[#8b5cf6] text-[9px] font-bold text-white mt-0.5">
                       Pi
                     </span>
-                    <div>
-                      <div className="font-semibold text-text">Raspberry Pi IDS</div>
-                      <p className="text-[11px] text-text-muted mt-0.5 leading-snug">
-                        Edge sensor capturing passive network telemetry.
+                    <div className="min-w-0 flex-1">
+                      <div className="font-semibold text-text truncate">Raspberry Pi IDS</div>
+                      <p className="text-[11px] text-text-muted mt-0.5 leading-snug break-words">
+                        Edge sensor capturing passive flow telemetry.
                       </p>
                     </div>
                   </div>
 
                   {/* Local Gateway / Router */}
-                  <div className="flex items-start gap-2.5 rounded-lg border border-border/50 bg-surface/70 p-2.5">
+                  <div className="flex items-start gap-2.5 rounded-lg border border-border/50 bg-surface/70 p-2.5 min-w-0 overflow-hidden">
                     <span className="inline-flex h-5 w-5 shrink-0 rotate-45 items-center justify-center bg-[#06b6d4] text-[8px] font-bold text-white mt-0.5">
                       <span className="-rotate-45">GW</span>
                     </span>
-                    <div>
-                      <div className="font-semibold text-text">Network Gateway</div>
-                      <p className="text-[11px] text-text-muted mt-0.5 leading-snug">
-                        Subnet default router handling DHCP and WAN uplink.
+                    <div className="min-w-0 flex-1">
+                      <div className="font-semibold text-text truncate">Network Gateway</div>
+                      <p className="text-[11px] text-text-muted mt-0.5 leading-snug break-words">
+                        Subnet router handling DHCP and WAN uplink.
                       </p>
                     </div>
                   </div>
 
                   {/* Defender Host Workstation */}
-                  <div className="flex items-start gap-2.5 rounded-lg border border-border/50 bg-surface/70 p-2.5">
+                  <div className="flex items-start gap-2.5 rounded-lg border border-border/50 bg-surface/70 p-2.5 min-w-0 overflow-hidden">
                     <span className="inline-flex h-5 w-5.5 shrink-0 items-center justify-center rounded-xs bg-[#3b82f6] text-[9px] font-bold text-white mt-0.5">
                       PC
                     </span>
-                    <div>
-                      <div className="font-semibold text-text">Defender Workstation</div>
-                      <p className="text-[11px] text-text-muted mt-0.5 leading-snug">
-                        Host executing hybrid AI inference and web dashboard.
+                    <div className="min-w-0 flex-1">
+                      <div className="font-semibold text-text truncate">Defender Workstation</div>
+                      <p className="text-[11px] text-text-muted mt-0.5 leading-snug break-words">
+                        Host executing hybrid AI models and dashboard.
                       </p>
                     </div>
                   </div>
 
                   {/* Cloud / Remote Broker */}
-                  <div className="flex items-start gap-2.5 rounded-lg border border-border/50 bg-surface/70 p-2.5">
+                  <div className="flex items-start gap-2.5 rounded-lg border border-border/50 bg-surface/70 p-2.5 min-w-0 overflow-hidden">
                     <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-dashed border-[#0284c7] bg-[#0284c7] text-[8px] font-bold text-white mt-0.5">
                       WAN
                     </span>
-                    <div>
-                      <div className="font-semibold text-text">Cloud Service</div>
-                      <p className="text-[11px] text-text-muted mt-0.5 leading-snug">
-                        External cloud infrastructure syncing with smart devices.
+                    <div className="min-w-0 flex-1">
+                      <div className="font-semibold text-text truncate">Cloud Service</div>
+                      <p className="text-[11px] text-text-muted mt-0.5 leading-snug break-words">
+                        External cloud APIs syncing with smart devices.
                       </p>
                     </div>
                   </div>
 
                   {/* Broadcast / Multicast */}
-                  <div className="flex items-start gap-2.5 rounded-lg border border-border/50 bg-surface/70 p-2.5">
+                  <div className="flex items-start gap-2.5 rounded-lg border border-border/50 bg-surface/70 p-2.5 min-w-0 overflow-hidden">
                     <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-dashed border-[#94a3b8] bg-[#94a3b8] text-[9px] font-bold text-white mt-0.5">
                       BC
                     </span>
-                    <div>
-                      <div className="font-semibold text-text">Broadcast / Multicast</div>
-                      <p className="text-[11px] text-text-muted mt-0.5 leading-snug">
-                        Local discovery and subnet multicast announcements.
+                    <div className="min-w-0 flex-1">
+                      <div className="font-semibold text-text truncate">Broadcast / Multicast</div>
+                      <p className="text-[11px] text-text-muted mt-0.5 leading-snug break-words">
+                        Local discovery and subnet multicast traffic.
                       </p>
                     </div>
                   </div>
 
                   {/* Alert Qualified Link */}
-                  <div className="flex items-start gap-2.5 rounded-lg border border-border/50 bg-surface/70 p-2.5">
-                    <div className="flex items-center gap-1 shrink-0 mt-1">
-                      <span className="w-3 border-t-2 border-dashed border-[#f43f5e]" />
-                      <span className="inline-flex h-4 w-4 items-center justify-center rounded bg-rose-500 text-[9px] font-bold text-white">
+                  <div className="flex items-start gap-2.5 rounded-lg border border-border/50 bg-surface/70 p-2.5 min-w-0 overflow-hidden">
+                    <div className="flex items-center gap-1 shrink-0 mt-0.5">
+                      <span className="w-2.5 border-t-2 border-dashed border-[#f43f5e]" />
+                      <span className="inline-flex h-4.5 w-4.5 items-center justify-center rounded bg-rose-500 text-[10px] font-bold text-white shadow-xs">
                         !
                       </span>
                     </div>
-                    <div>
-                      <div className="font-semibold text-rose-500">Alert Qualified Link</div>
-                      <p className="text-[11px] text-text-muted mt-0.5 leading-snug">
-                        Communication flagged by AI exceeding alert threshold.
+                    <div className="min-w-0 flex-1">
+                      <div className="font-semibold text-rose-500 truncate">Alert Qualified Link</div>
+                      <p className="text-[11px] text-text-muted mt-0.5 leading-snug break-words">
+                        Traffic flagged by AI exceeding alert threshold.
                       </p>
                     </div>
                   </div>
 
                   {/* Normal / Benign Flow */}
-                  <div className="flex items-start gap-2.5 rounded-lg border border-border/50 bg-surface/70 p-2.5">
-                    <span className="w-5 border-t-2 border-solid border-[#475569] shrink-0 mt-2.5" />
-                    <div>
-                      <div className="font-semibold text-text">Benign Link Flow</div>
-                      <p className="text-[11px] text-text-muted mt-0.5 leading-snug">
-                        Normal baseline traffic without anomalous indicators.
+                  <div className="flex items-start gap-2.5 rounded-lg border border-border/50 bg-surface/70 p-2.5 min-w-0 overflow-hidden">
+                    <span className="w-4.5 border-t-2 border-solid border-[#475569] shrink-0 mt-2" />
+                    <div className="min-w-0 flex-1">
+                      <div className="font-semibold text-text truncate">Benign Link Flow</div>
+                      <p className="text-[11px] text-text-muted mt-0.5 leading-snug break-words">
+                        Normal baseline traffic without anomaly flags.
                       </p>
                     </div>
                   </div>
