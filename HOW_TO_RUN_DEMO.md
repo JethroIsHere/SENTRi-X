@@ -10,8 +10,8 @@ This guide provides a step-by-step walkthrough to run a live demonstration of th
 | :--- | :--- | :--- | :--- |
 | **Backend API** | Windows host (WSL2) | `127.0.0.1:8000` / `192.168.254.141:8000` | Port `8000` forwarded from Windows to WSL2 |
 | **Frontend UI** | Windows host | `http://localhost:5173` | React + Vite dashboard |
-| **Edge Sensor** | Raspberry Pi | Mirrored switch port | Sniffs IoT traffic, posts 28-feature flows |
-| **Target Service** | Lab Target machine | `192.168.254.184:8088` | MAC: `b8:27:eb:98:08:95` |
+| **Edge Sensor (Pi)** | Raspberry Pi (`raspy3`) | **`192.168.254.184`** (mDNS: `raspy3.local`) | SSH: `ssh raspy3@192.168.254.184`; sniffs mirrored traffic |
+| **Target Service** | Lab Target device | `192.168.254.184:8088` | MAC: `b8:27:eb:98:08:95` |
 | **Snort IDS** | Windows host (WSL2) | Interface `eth0` | Signature-based baseline comparator |
 
 ---
@@ -61,24 +61,41 @@ The backend hosts the ML inference engines (Random Forest, 1D-CNN, Hybrid) and t
 
 The Pi captures packets at the network edge, extracts 28 flow features, and streams them with a periodic heartbeat to the backend.
 
-1. SSH into the Raspberry Pi:
+1. **SSH directly into the Raspberry Pi:**
    ```bash
-   ssh pi@<PI_IP>
+   ssh raspy3@192.168.254.184
    ```
-2. Navigate to the project directory and start the sensor:
+   *(Or using mDNS hostname: `ssh raspy3@raspy3.local`)*
+   
+   > **Important Details:**
+   > - **Username:** `raspy3`
+   > - **IP Address:** `192.168.254.184`
+   > - **Hostname:** `raspy3.local` (*Do NOT use `raspberrypi.local`, as the Pi hostname is configured as `raspy3`*).
+   > - **Tip (If IP changed via DHCP):** On Windows PowerShell, find the Pi by its Raspberry Pi MAC address prefix:
+   >   ```powershell
+   >   Get-NetNeighbor | Where-Object { $_.LinkLayerAddress -like "b8-27-eb*" }
+   >   ```
+
+2. **Start the Sensor on the Pi:**
+   ```bash
+   # Option A: If your sensor script is in the home directory:
+   sudo python3 ~/sentrix_sensor.py
+   ```
+   *Option B: If running from the cloned repository on the Pi:*
    ```bash
    cd ~/SENTRi-X
    source venv/bin/activate
 
-   # Explicitly set the host backend URL (Host IP: 192.168.254.141)
+   # Explicitly set the host backend URL (Defending host IP: 192.168.254.141 or 192.168.254.156)
    SENTRIX_BACKEND_URL="http://192.168.254.141:8000/api/ingest-flow" \
    SENTRIX_HEARTBEAT_URL="http://192.168.254.141:8000/api/heartbeat" \
    sudo -E python3 edge/sentrix_sensor.py
    ```
+
 3. **Check Connection**:
-   - The Pi console will display flow transmission summaries.
+   - The Pi console will display flow transmission summaries (`[FLOW] Sent flow ... 200 OK`).
    - On the web dashboard, the status badge will turn green (**"Sensor Online"**).
-   - `curl.exe http://127.0.0.1:8000/api/status` will show `"is_hardware_live": true`.
+   - `curl.exe http://127.0.0.1:8000/api/status` will show `"is_hardware_live": true` and `"node_status": "Active Sensor"`.
 
 ---
 
@@ -96,14 +113,18 @@ If you are including Snort in the live comparison matrix:
 
 ## Step 5: Start the Lab Target Service
 
-The lab target is a lightweight HTTP service running on the monitored machine whose traffic is mirrored to the Pi sensor.
+The lab target is a lightweight HTTP service running on the monitored machine (`192.168.254.184`) whose traffic is mirrored to the Pi sensor.
 
-1. On the lab target device (`192.168.254.184`):
+1. **SSH into the Target Device (Raspberry Pi):**
    ```bash
-   cd attack_scripts/TestKit
-   python lab_target.py --bind 192.168.254.184 --port 8088 --log target_evidence/service.jsonl
+   ssh raspy3@192.168.254.184
    ```
-2. Verify the port is listening and accessible from the generator host.
+2. **Start the target service:**
+   ```bash
+   cd ~/SENTRi-X/attack_scripts/TestKit   # or ~/sentrix_lab if extracted separately
+   python3 lab_target.py --bind 192.168.254.184 --port 8088 --log target_evidence/service.jsonl
+   ```
+3. Verify the port is listening and accessible from the generator host.
 
 ---
 
