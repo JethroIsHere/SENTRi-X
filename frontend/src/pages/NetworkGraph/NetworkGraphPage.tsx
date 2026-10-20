@@ -594,196 +594,165 @@ export function NetworkGraphPage() {
             )}
           </div>
 
-          {/* Expandable & Highly Legible Accessibility Legend */}
-          <div className="mt-4 rounded-xl border border-border/70 bg-surface/50 overflow-hidden shadow-xs transition-all">
+          {/* Sleek, Address-Free Topology Legend */}
+          <div className="mt-4 rounded-xl border border-border/60 bg-surface/40 overflow-hidden text-xs">
             <button
               type="button"
               onClick={toggleLegend}
-              className="w-full flex items-center justify-between p-3.5 text-left hover:bg-surface/80 transition-colors cursor-pointer"
+              className="w-full flex items-center justify-between px-3.5 py-2.5 text-left hover:bg-surface/80 transition-colors cursor-pointer select-none"
               aria-expanded={isLegendExpanded}
             >
-              <div className="flex items-center gap-2.5">
-                <span className="flex h-5 w-5 items-center justify-center rounded-md bg-primary/10 text-primary text-xs font-bold">
-                  ℹ
-                </span>
-                <div>
-                  <span className="font-semibold text-sm text-text">Device & Link Legend</span>
-                  <span className="ml-2 text-xs text-text-muted">
-                    ({isLegendExpanded ? 'Click to collapse' : 'Click to expand full role details'})
-                  </span>
-                </div>
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-text">Topology Legend</span>
+                <span className="text-[11px] text-text-muted">· Node roles & link patterns</span>
               </div>
-              <div className="flex items-center gap-1.5 text-xs font-medium text-primary">
-                <span>{isLegendExpanded ? 'Collapse' : 'Expand Details'}</span>
-                <span className={`inline-block transition-transform duration-200 ${isLegendExpanded ? 'rotate-180' : ''}`}>
+              <div className="flex items-center gap-1.5 text-xs text-primary font-medium">
+                <span>{isLegendExpanded ? 'Hide Guide' : 'Show Guide'}</span>
+                <span className={`inline-block text-[10px] transition-transform duration-200 ${isLegendExpanded ? 'rotate-180' : ''}`}>
                   ▼
                 </span>
               </div>
             </button>
 
-            {/* Collapsed State: Neat Quick-Pill Preview */}
+            {/* Collapsed Bar: Single-line clean badge summary */}
             {!isLegendExpanded && (
-              <div className="px-3.5 pb-3 flex flex-wrap gap-2 text-xs text-text-muted border-t border-border/40 pt-2.5">
-                <span className="inline-flex items-center gap-1.5 bg-background-soft px-2 py-0.5 rounded-md border border-border/60">
-                  <span className="inline-block h-2.5 w-2.5 rounded-sm bg-[#14b8a6]" />
-                  <span className="text-text font-medium">IoT Device</span>
+              <div className="px-3.5 pb-2.5 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-text-muted border-t border-border/30 pt-2">
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-xs bg-[#14b8a6] text-[8px] font-bold text-white">IoT</span>
+                  <span>Monitored IoT</span>
                 </span>
-                <span className="inline-flex items-center gap-1.5 bg-background-soft px-2 py-0.5 rounded-md border border-border/60">
-                  <span className="inline-block h-2.5 w-3.5 rounded-full bg-[#8b5cf6]" />
-                  <span className="text-text font-medium">Raspberry Pi</span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="inline-flex h-3 w-4.5 items-center justify-center rounded-full bg-[#8b5cf6] text-[8px] font-bold text-white">Pi</span>
+                  <span>IDS Sensor</span>
                 </span>
-                <span className="inline-flex items-center gap-1.5 bg-background-soft px-2 py-0.5 rounded-md border border-border/60">
-                  <span className="inline-block h-2.5 w-2.5 rotate-45 bg-[#06b6d4]" />
-                  <span className="text-text font-medium">Gateway</span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="inline-flex h-3 w-3 rotate-45 items-center justify-center bg-[#06b6d4] text-[7px] font-bold text-white">
+                    <span className="-rotate-45">GW</span>
+                  </span>
+                  <span>Gateway</span>
                 </span>
-                <span className="inline-flex items-center gap-1.5 bg-background-soft px-2 py-0.5 rounded-md border border-border/60">
-                  <span className="inline-block h-2.5 w-3 rounded-xs bg-[#3b82f6]" />
-                  <span className="text-text font-medium">Defender PC</span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="inline-flex h-3 w-3.5 items-center justify-center rounded-xs bg-[#3b82f6] text-[8px] font-bold text-white">PC</span>
+                  <span>Defender PC</span>
                 </span>
-                <span className="inline-flex items-center gap-1.5 bg-background-soft px-2 py-0.5 rounded-md border border-border/60">
-                  <span className="inline-block h-2.5 w-2.5 rounded-full border border-dashed border-[#0284c7] bg-[#0284c7]" />
-                  <span className="text-text font-medium">Cloud Broker</span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full border border-dashed border-[#0284c7] bg-[#0284c7] text-[7px] font-bold text-white">WAN</span>
+                  <span>Cloud Service</span>
                 </span>
-                <span className="inline-flex items-center gap-1.5 bg-background-soft px-2 py-0.5 rounded-md border border-border/60">
-                  <span className="inline-block w-3.5 border-t-2 border-dashed border-[#f43f5e]" />
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="inline-block w-4 border-t-2 border-dashed border-[#f43f5e]" />
                   <span className="text-rose-500 font-bold">! Alert</span>
                 </span>
               </div>
             )}
 
-            {/* Expanded State: Full, Spacious, Highly Legible Cards */}
+            {/* Expanded: Clean, concise 2/4-column compact items with zero real IP addresses */}
             {isLegendExpanded && (
-              <div className="p-4 pt-2 border-t border-border/60 bg-background-soft/40 space-y-3">
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+              <div className="p-3.5 pt-2.5 border-t border-border/40 bg-background-soft/30">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 text-xs">
                   {/* Monitored IoT Device */}
-                  <div className="rounded-lg border border-border/70 bg-surface p-3 flex flex-col justify-between">
+                  <div className="flex items-start gap-2.5 rounded-lg border border-border/50 bg-surface/70 p-2.5">
+                    <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-[#14b8a6] text-[9px] font-bold text-white mt-0.5">
+                      IoT
+                    </span>
                     <div>
-                      <div className="flex items-center gap-2 mb-1.5">
-                        <span className="inline-flex h-5 w-5 items-center justify-center rounded bg-[#14b8a6] text-[9px] font-bold text-white shadow-xs">
-                          IoT
-                        </span>
-                        <strong className="text-text text-sm">Monitored IoT Device</strong>
-                      </div>
-                      <p className="text-text-muted leading-relaxed">
-                        Enrolled smart devices (smart sockets, bulbs, cameras) detected by the Raspberry Pi sensor via MAC allowlist.
+                      <div className="font-semibold text-text">Monitored IoT Device</div>
+                      <p className="text-[11px] text-text-muted mt-0.5 leading-snug">
+                        Enrolled smart device tracked via MAC address allowlist.
                       </p>
                     </div>
-                    <span className="mt-2 inline-block text-[10px] font-mono font-medium text-teal-400">Teal Rounded Square</span>
                   </div>
 
                   {/* Raspberry Pi Sensor */}
-                  <div className="rounded-lg border border-border/70 bg-surface p-3 flex flex-col justify-between">
+                  <div className="flex items-start gap-2.5 rounded-lg border border-border/50 bg-surface/70 p-2.5">
+                    <span className="inline-flex h-5 w-6 shrink-0 items-center justify-center rounded-full bg-[#8b5cf6] text-[9px] font-bold text-white mt-0.5">
+                      Pi
+                    </span>
                     <div>
-                      <div className="flex items-center gap-2 mb-1.5">
-                        <span className="inline-flex h-4.5 w-6 items-center justify-center rounded-full bg-[#8b5cf6] text-[9px] font-bold text-white shadow-xs">
-                          Pi
-                        </span>
-                        <strong className="text-text text-sm">Raspberry Pi IDS</strong>
-                      </div>
-                      <p className="text-text-muted leading-relaxed">
-                        Hardware sensor node (192.168.254.184) running sentrix_sensor.py for promiscuous capture and feature extraction.
+                      <div className="font-semibold text-text">Raspberry Pi IDS</div>
+                      <p className="text-[11px] text-text-muted mt-0.5 leading-snug">
+                        Edge sensor capturing passive network telemetry.
                       </p>
                     </div>
-                    <span className="mt-2 inline-block text-[10px] font-mono font-medium text-purple-400">Purple Capsule / Pill</span>
                   </div>
 
                   {/* Local Gateway / Router */}
-                  <div className="rounded-lg border border-border/70 bg-surface p-3 flex flex-col justify-between">
+                  <div className="flex items-start gap-2.5 rounded-lg border border-border/50 bg-surface/70 p-2.5">
+                    <span className="inline-flex h-5 w-5 shrink-0 rotate-45 items-center justify-center bg-[#06b6d4] text-[8px] font-bold text-white mt-0.5">
+                      <span className="-rotate-45">GW</span>
+                    </span>
                     <div>
-                      <div className="flex items-center gap-2 mb-1.5">
-                        <span className="inline-flex h-5 w-5 rotate-45 items-center justify-center bg-[#06b6d4] text-[8.5px] font-bold text-white shadow-xs">
-                          <span className="-rotate-45">GW</span>
-                        </span>
-                        <strong className="text-text text-sm">Local Gateway</strong>
-                      </div>
-                      <p className="text-text-muted leading-relaxed">
-                        Subnet default router (192.168.254.254 or .1) providing DHCP leases, WAN uplink, and local broadcast routing.
+                      <div className="font-semibold text-text">Network Gateway</div>
+                      <p className="text-[11px] text-text-muted mt-0.5 leading-snug">
+                        Subnet default router handling DHCP and WAN uplink.
                       </p>
                     </div>
-                    <span className="mt-2 inline-block text-[10px] font-mono font-medium text-cyan-400">Cyan Diamond</span>
                   </div>
 
                   {/* Defender Host Workstation */}
-                  <div className="rounded-lg border border-border/70 bg-surface p-3 flex flex-col justify-between">
+                  <div className="flex items-start gap-2.5 rounded-lg border border-border/50 bg-surface/70 p-2.5">
+                    <span className="inline-flex h-5 w-5.5 shrink-0 items-center justify-center rounded-xs bg-[#3b82f6] text-[9px] font-bold text-white mt-0.5">
+                      PC
+                    </span>
                     <div>
-                      <div className="flex items-center gap-2 mb-1.5">
-                        <span className="inline-flex h-5 w-5 items-center justify-center rounded-xs bg-[#3b82f6] text-[9px] font-bold text-white shadow-xs">
-                          PC
-                        </span>
-                        <strong className="text-text text-sm">Defender Workstation</strong>
-                      </div>
-                      <p className="text-text-muted leading-relaxed">
-                        Administrator host (192.168.254.156) hosting the SENTRi-X hybrid inference engine and telemetry dashboard.
+                      <div className="font-semibold text-text">Defender Workstation</div>
+                      <p className="text-[11px] text-text-muted mt-0.5 leading-snug">
+                        Host executing hybrid AI inference and web dashboard.
                       </p>
                     </div>
-                    <span className="mt-2 inline-block text-[10px] font-mono font-medium text-blue-400">Blue Workstation Rect</span>
                   </div>
 
                   {/* Cloud / Remote Broker */}
-                  <div className="rounded-lg border border-border/70 bg-surface p-3 flex flex-col justify-between">
+                  <div className="flex items-start gap-2.5 rounded-lg border border-border/50 bg-surface/70 p-2.5">
+                    <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-dashed border-[#0284c7] bg-[#0284c7] text-[8px] font-bold text-white mt-0.5">
+                      WAN
+                    </span>
                     <div>
-                      <div className="flex items-center gap-2 mb-1.5">
-                        <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-dashed border-[#0284c7] bg-[#0284c7] text-[8px] font-bold text-white shadow-xs">
-                          WAN
-                        </span>
-                        <strong className="text-text text-sm">Remote Cloud Broker</strong>
-                      </div>
-                      <p className="text-text-muted leading-relaxed">
-                        Whitelisted external MQTT/HTTPS services (Tuya Cloud, AWS IoT, NTP) that smart devices legitimately sync with.
+                      <div className="font-semibold text-text">Cloud Service</div>
+                      <p className="text-[11px] text-text-muted mt-0.5 leading-snug">
+                        External cloud infrastructure syncing with smart devices.
                       </p>
                     </div>
-                    <span className="mt-2 inline-block text-[10px] font-mono font-medium text-sky-400">Sky Concentric Ring</span>
                   </div>
 
                   {/* Broadcast / Multicast */}
-                  <div className="rounded-lg border border-border/70 bg-surface p-3 flex flex-col justify-between">
+                  <div className="flex items-start gap-2.5 rounded-lg border border-border/50 bg-surface/70 p-2.5">
+                    <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-dashed border-[#94a3b8] bg-[#94a3b8] text-[9px] font-bold text-white mt-0.5">
+                      BC
+                    </span>
                     <div>
-                      <div className="flex items-center gap-2 mb-1.5">
-                        <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-dashed border-[#94a3b8] bg-[#94a3b8] text-[9px] font-bold text-white shadow-xs">
-                          BC
-                        </span>
-                        <strong className="text-text text-sm">Broadcast / Multicast</strong>
-                      </div>
-                      <p className="text-text-muted leading-relaxed">
-                        Subnet broadcast (255.255.255.255) and local discovery protocols (mDNS 224.0.0.251, SSDP 239.255.255.250).
+                      <div className="font-semibold text-text">Broadcast / Multicast</div>
+                      <p className="text-[11px] text-text-muted mt-0.5 leading-snug">
+                        Local discovery and subnet multicast announcements.
                       </p>
                     </div>
-                    <span className="mt-2 inline-block text-[10px] font-mono font-medium text-slate-400">Slate Dashed Circle</span>
                   </div>
 
                   {/* Alert Qualified Link */}
-                  <div className="rounded-lg border border-border/70 bg-surface p-3 flex flex-col justify-between">
+                  <div className="flex items-start gap-2.5 rounded-lg border border-border/50 bg-surface/70 p-2.5">
+                    <div className="flex items-center gap-1 shrink-0 mt-1">
+                      <span className="w-3 border-t-2 border-dashed border-[#f43f5e]" />
+                      <span className="inline-flex h-4 w-4 items-center justify-center rounded bg-rose-500 text-[9px] font-bold text-white">
+                        !
+                      </span>
+                    </div>
                     <div>
-                      <div className="flex items-center gap-2 mb-1.5">
-                        <span className="inline-flex h-4 w-6 items-center justify-center">
-                          <span className="w-full border-t-2 border-dashed border-[#f43f5e]" />
-                        </span>
-                        <span className="inline-flex h-4 w-4 items-center justify-center rounded bg-rose-500 text-[10px] font-bold text-white">
-                          !
-                        </span>
-                        <strong className="text-rose-500 text-sm">Alert Qualified Link</strong>
-                      </div>
-                      <p className="text-text-muted leading-relaxed">
-                        Network flow flagged by the active AI model (Random Forest + 1D-CNN) exceeding the alert confidence threshold.
+                      <div className="font-semibold text-rose-500">Alert Qualified Link</div>
+                      <p className="text-[11px] text-text-muted mt-0.5 leading-snug">
+                        Communication flagged by AI exceeding alert threshold.
                       </p>
                     </div>
-                    <span className="mt-2 inline-block text-[10px] font-mono font-medium text-rose-400">Red Dashed + Warning Diamond</span>
                   </div>
 
                   {/* Normal / Benign Flow */}
-                  <div className="rounded-lg border border-border/70 bg-surface p-3 flex flex-col justify-between">
+                  <div className="flex items-start gap-2.5 rounded-lg border border-border/50 bg-surface/70 p-2.5">
+                    <span className="w-5 border-t-2 border-solid border-[#475569] shrink-0 mt-2.5" />
                     <div>
-                      <div className="flex items-center gap-2 mb-1.5">
-                        <span className="inline-flex h-4 w-6 items-center justify-center">
-                          <span className="w-full border-t-2 border-solid border-[#475569]" />
-                        </span>
-                        <strong className="text-text text-sm">Benign Link Flow</strong>
-                      </div>
-                      <p className="text-text-muted leading-relaxed">
-                        Verified normal traffic passing baseline network security checks without anomalous classification flags.
+                      <div className="font-semibold text-text">Benign Link Flow</div>
+                      <p className="text-[11px] text-text-muted mt-0.5 leading-snug">
+                        Normal baseline traffic without anomalous indicators.
                       </p>
                     </div>
-                    <span className="mt-2 inline-block text-[10px] font-mono font-medium text-slate-400">Solid Slate Line</span>
                   </div>
                 </div>
               </div>
