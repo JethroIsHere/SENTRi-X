@@ -103,3 +103,71 @@ def test_clear_endpoints_auth_and_audit(clean_db):
     flow_log = next(log for log in clean_db.get_audit_logs(limit=5) if log["action"] == "CLEAR_LIVE_FLOWS")
     assert flow_log["status"] == "SUCCESS"
     assert flow_log["resource"] == "Network_Flows"
+
+
+def test_remove_observed_device_database(clean_db):
+    # Enroll monitored device
+    clean_db.add_monitored_device("22:33:44:55:66:77", "SmartBulb")
+    assert len(clean_db.get_monitored_devices()) == 1
+
+    # Insert live flow for this device
+    clean_db.insert_network_flow(
+        "192.168.1.77", "192.168.1.1", "TCP",
+        data_source="live_hardware", device_name="SmartBulb", device_mac="22:33:44:55:66:77"
+    )
+    assert len(clean_db.get_device_summaries()) == 1
+
+    # Remove observed device with unenroll
+    res = clean_db.remove_observed_device("22:33:44:55:66:77", unenroll=True)
+    assert res["flows_deleted"] == 1
+    assert res["monitored_deleted"] is True
+
+    # Device is gone from both summaries and monitored inventory
+    assert len(clean_db.get_device_summaries()) == 0
+    assert len(clean_db.get_monitored_devices()) == 0
+
+
+def test_remove_device_endpoints_auth_and_audit(clean_db):
+    import main
+    client = TestClient(main.app)
+
+    clean_db.add_monitored_device("33:44:55:66:77:88", "SmartLock")
+    clean_db.insert_network_flow(
+        "192.168.1.88", "192.168.1.1", "UDP",
+        data_source="live_hardware", device_name="SmartLock", device_mac="33:44:55:66:77:88"
+    )
+
+    # 1. Unauthenticated DELETE /api/devices/{mac} returns 401
+    res_unauth = client.delete("/api/devices/33:44:55:66:77:88")
+    assert res_unauth.status_code == 401
+
+    # 2. Authenticated DELETE /api/devices/{mac} succeeds
+    res_auth = client.delete(
+        "/api/devices/33:44:55:66:77:88",
+        headers={"X-API-Key": "test-admin-key-2026"}
+    )
+    assert res_auth.status_code == 200
+    assert "removed" in res_auth.json()["message"]
+    assert len(clean_db.get_device_summaries()) == 0
+    assert len(clean_db.get_monitored_devices()) == 0
+
+    # Verify audit log
+    audit_logs = clean_db.get_audit_logs(limit=5)
+    rem_log = next(log for log in audit_logs if log["action"] == "REMOVE_OBSERVED_DEVICE")
+    assert rem_log["status"] == "SUCCESS"
+    assert "33:44:55:66:77:88" in rem_log["resource"]
+
+    # 3. Authenticated DELETE /api/devices (remove all)
+    clean_db.add_monitored_device("44:55:66:77:88:99", "PlugA")
+    clean_db.insert_network_flow(
+        "192.168.1.99", "192.168.1.1", "TCP",
+        data_source="live_hardware", device_name="PlugA", device_mac="44:55:66:77:88:99"
+    )
+    res_all = client.delete(
+        "/api/devices",
+        headers={"X-API-Key": "test-admin-key-2026"}
+    )
+    assert res_all.status_code == 200
+    assert len(clean_db.get_device_summaries()) == 0
+    assert len(clean_db.get_monitored_devices()) == 0
+

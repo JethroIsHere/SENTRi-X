@@ -34,6 +34,8 @@ from database import (
     clear_all_alerts,
     clear_all_flows,
     clear_device_observations,
+    remove_observed_device,
+    remove_all_observed_devices,
     get_database_stats, get_recent_flows, get_device_summaries, get_alert_counts,
     load_settings, save_settings, utc_now,
     get_monitored_devices, add_monitored_device, remove_monitored_device,
@@ -843,6 +845,36 @@ def get_flows(limit: int = Query(100, ge=1, le=500),
 @app.get('/api/devices')
 def get_devices():
     return {'devices': get_device_summaries()}
+
+
+@app.delete('/api/devices/{mac}')
+def delete_observed_device_endpoint(mac: str, auth: dict = Depends(verify_admin_auth)):
+    with engine_lock:
+        res = remove_observed_device(mac, unenroll=True)
+        insert_audit_log(
+            actor=auth['actor'],
+            action='REMOVE_OBSERVED_DEVICE',
+            resource=f'device_mac:{mac}',
+            details=json.dumps(res),
+            client_ip=auth['client_ip'],
+            status='SUCCESS'
+        )
+    return {'status': 'ok', 'result': res, 'message': f'Device {mac} removed'}
+
+
+@app.delete('/api/devices')
+def delete_all_observed_devices_endpoint(auth: dict = Depends(verify_admin_auth)):
+    with engine_lock:
+        res = remove_all_observed_devices(unenroll=True)
+        insert_audit_log(
+            actor=auth['actor'],
+            action='REMOVE_ALL_OBSERVED_DEVICES',
+            resource='device_mac:all',
+            details=json.dumps(res),
+            client_ip=auth['client_ip'],
+            status='SUCCESS'
+        )
+    return {'status': 'ok', 'result': res, 'message': 'All observed devices removed'}
 
 
 class MonitoredDeviceRequest(BaseModel):

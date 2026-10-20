@@ -83,6 +83,14 @@ export async function clearObservedDevices(mac?: string): Promise<{ status: stri
   })
 }
 
+export async function removeObservedDevice(mac: string): Promise<{ status: string; message: string }> {
+  return api(`/api/devices/${encodeURIComponent(mac)}`, { method: 'DELETE' })
+}
+
+export async function removeAllObservedDevices(): Promise<{ status: string; message: string }> {
+  return api('/api/devices', { method: 'DELETE' })
+}
+
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   const controller = new AbortController()
   const cancel = () => controller.abort()

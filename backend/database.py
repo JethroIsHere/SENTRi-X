@@ -249,6 +249,43 @@ def clear_device_observations(mac=None):
             )
 
 
+def remove_observed_device(mac: str, unenroll: bool = True) -> dict:
+    """Completely remove an observed device by deleting its flows and optionally unenrolling from Monitored_Devices."""
+    mac = mac.strip().lower()
+    with closing(get_db_connection()) as conn, conn:
+        flows_cur = conn.execute(
+            "DELETE FROM Network_Flows WHERE lower(device_mac) = ?", (mac,)
+        )
+        monitored_deleted = False
+        if unenroll:
+            mon_cur = conn.execute("DELETE FROM Monitored_Devices WHERE lower(mac) = ?", (mac,))
+            monitored_deleted = mon_cur.rowcount > 0
+            conn.execute("DELETE FROM Whitelisted_Device_Ports WHERE lower(mac) = ?", (mac,))
+        return {
+            "mac": mac,
+            "flows_deleted": flows_cur.rowcount,
+            "monitored_deleted": monitored_deleted,
+        }
+
+
+def remove_all_observed_devices(unenroll: bool = True) -> dict:
+    """Remove all observed devices by deleting their flows and optionally unenrolling all from Monitored_Devices."""
+    with closing(get_db_connection()) as conn, conn:
+        flows_cur = conn.execute(
+            "DELETE FROM Network_Flows WHERE device_mac IS NOT NULL AND device_mac != ''"
+        )
+        monitored_count = 0
+        if unenroll:
+            mon_cur = conn.execute("DELETE FROM Monitored_Devices")
+            monitored_count = mon_cur.rowcount
+            conn.execute("DELETE FROM Whitelisted_Device_Ports")
+        return {
+            "flows_deleted": flows_cur.rowcount,
+            "monitored_deleted": monitored_count,
+        }
+
+
+
 
 def load_settings(defaults):
     result = dict(defaults)

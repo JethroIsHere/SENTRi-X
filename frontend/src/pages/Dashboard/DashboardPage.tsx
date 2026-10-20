@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useSystem } from '../../context/SystemContext'
-import { api, clearLiveFlows, clearObservedDevices, formatTime, sourceLabel, useApiPoll } from '../../lib/api'
+import { api, clearLiveFlows, clearObservedDevices, removeObservedDevice, removeAllObservedDevices, formatTime, sourceLabel, useApiPoll } from '../../lib/api'
 import type { Alert, Device, Flow } from '../../lib/api'
 import { DeviceCards, FlowTable, panelClass, RequestState } from '../../components/LiveTelemetry'
 import { XaiPreviewModal } from '../../components/XaiPreviewModal'
@@ -19,6 +19,8 @@ export function DashboardPage() {
   const [clearingFlows, setClearingFlows] = useState(false)
   const [clearingDevices, setClearingDevices] = useState(false)
   const [resettingDeviceMac, setResettingDeviceMac] = useState<string | null>(null)
+  const [removingMac, setRemovingMac] = useState<string | null>(null)
+  const [removingAllDevices, setRemovingAllDevices] = useState(false)
   const previousAlert = useRef<string | null | undefined>(undefined)
   const latest = alerts.data?.logs[0] || null
   useEffect(() => {
@@ -76,7 +78,7 @@ export function DashboardPage() {
   }
 
   async function handleClearSingleDevice(mac: string, name: string) {
-    const prompt = `Reset observation records for ${name} (${mac})?`
+    const prompt = `Reset observation records for ${name} (${mac})? Stored device enrollment is kept.`
     if (!window.confirm(prompt)) return
     setResettingDeviceMac(mac); setActionError(null); setMessage('')
     try {
@@ -87,6 +89,36 @@ export function DashboardPage() {
       setActionError(error instanceof Error ? error.message : `Resetting device ${name} failed.`)
     } finally {
       setResettingDeviceMac(null)
+    }
+  }
+
+  async function handleRemoveSingleDevice(mac: string, name: string) {
+    const prompt = `Remove ${name} (${mac}) completely? This clears its observed flows and unenrolls it from monitored devices.`
+    if (!window.confirm(prompt)) return
+    setRemovingMac(mac); setActionError(null); setMessage('')
+    try {
+      await removeObservedDevice(mac)
+      setMessage(`Device ${name} removed.`)
+      devices.refresh(); flows.refresh(); refresh()
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : `Removing device ${name} failed.`)
+    } finally {
+      setRemovingMac(null)
+    }
+  }
+
+  async function handleRemoveAllDevices() {
+    const prompt = 'Remove all observed IoT devices? This clears all device flow records and unenrolls them from monitored devices.'
+    if (!window.confirm(prompt)) return
+    setRemovingAllDevices(true); setActionError(null); setMessage('')
+    try {
+      await removeAllObservedDevices()
+      setMessage('All observed devices removed.')
+      devices.refresh(); flows.refresh(); refresh()
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Removing devices failed.')
+    } finally {
+      setRemovingAllDevices(false)
     }
   }
   const live = online && !!status?.is_hardware_live
@@ -137,24 +169,36 @@ export function DashboardPage() {
       <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-semibold">Observed IoT Devices</h2>
-          <p className="mt-1 text-xs text-text-muted">Identity and last observation from saved live flows. Stored totals persist across counter resets; a quiet device is not necessarily offline.</p>
+          <p className="mt-1 text-xs text-text-muted">Identity and last observation from saved live flows. Reset clears flow counters while keeping device enrollment; Remove completely unenrolls and clears the device.</p>
         </div>
         {devices.data?.devices && devices.data.devices.length > 0 && (
-          <button
-            disabled={clearingDevices || !online}
-            onClick={() => void handleClearAllDevices()}
-            className="rounded-xl border border-rose-500/40 px-3 py-1.5 text-xs text-rose-500 hover:bg-rose-500/10 disabled:opacity-50"
-            title="Clear all observed IoT device history and counts"
-          >
-            {clearingDevices ? 'Resetting…' : 'Reset Observed Devices'}
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              disabled={clearingDevices || removingAllDevices || !online}
+              onClick={() => void handleClearAllDevices()}
+              className="rounded-xl border border-amber-500/40 px-3 py-1.5 text-xs text-amber-600 dark:text-amber-400 hover:bg-amber-500/10 disabled:opacity-50"
+              title="Reset observation counts for all devices (retains device enrollment)"
+            >
+              {clearingDevices ? 'Resetting…' : 'Reset All Counts'}
+            </button>
+            <button
+              disabled={clearingDevices || removingAllDevices || !online}
+              onClick={() => void handleRemoveAllDevices()}
+              className="rounded-xl border border-rose-500/40 px-3 py-1.5 text-xs text-rose-500 hover:bg-rose-500/10 disabled:opacity-50"
+              title="Remove all devices, unenroll them, and clear observations"
+            >
+              {removingAllDevices ? 'Removing…' : 'Remove All Devices'}
+            </button>
+          </div>
         )}
       </div>
       <RequestState error={devices.error} loading={devices.loading} />
       <DeviceCards
         devices={devices.data?.devices || []}
         onResetDevice={(mac, name) => void handleClearSingleDevice(mac, name)}
+        onRemoveDevice={(mac, name) => void handleRemoveSingleDevice(mac, name)}
         resettingMac={resettingDeviceMac}
+        removingMac={removingMac}
       />
     </section>
     <section className={panelClass}>
