@@ -198,6 +198,21 @@ export function NetworkGraphPage() {
   const [resettingMac, setResettingMac] = useState<string | null>(null)
   const [removingMac, setRemovingMac] = useState<string | null>(null)
 
+  // Expandable Legend state with persistent preference in localStorage
+  const [isLegendExpanded, setIsLegendExpanded] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true
+    const saved = localStorage.getItem('sentrix_legend_expanded')
+    return saved === null ? true : saved === 'true'
+  })
+
+  const toggleLegend = () => {
+    setIsLegendExpanded(prev => {
+      const next = !prev
+      localStorage.setItem('sentrix_legend_expanded', String(next))
+      return next
+    })
+  }
+
   const devices = useMemo(() => devicePoll.data?.devices || [], [devicePoll.data])
   const customLabels = useMemo(() => labelsPoll.data?.labels || {}, [labelsPoll.data])
   const whitelistedDests = useMemo(() => whitelistPoll.data?.destinations || [], [whitelistPoll.data])
@@ -375,7 +390,7 @@ export function NetworkGraphPage() {
                           </title>
                         </line>
                         {edge.alert && (
-                          <g transform={`translate(${midX}, ${midY})`}>
+                          <g transform={`translate(${midX}, ${midY})`} pointerEvents="none">
                             <polygon points="0,-8 8,0 0,8 -8,0" fill="#f43f5e" stroke="#ffffff" strokeWidth="1.2" />
                             <text y="3" textAnchor="middle" fill="#ffffff" fontSize="9" fontWeight="bold">
                               !
@@ -387,7 +402,7 @@ export function NetworkGraphPage() {
                     )
                   })}
 
-                  {/* Device / Host Nodes */}
+                  {/* Device / Host Nodes (No transforms to avoid any oscillation or violent shaking) */}
                   {graph.nodes.map(node => {
                     const info = classifyEndpoint(node.ip, devices, customLabels, whitelistedDests)
                     const isSelected = selected === node.ip
@@ -405,19 +420,20 @@ export function NetworkGraphPage() {
                             setSelected(node.ip)
                           }
                         }}
-                        className="cursor-pointer transition-transform duration-150 hover:scale-105"
+                        className="cursor-pointer select-none outline-none group"
                       >
-                        {/* Selected Outer Glow / Indicator */}
+                        {/* Selected Outer Accent Ring (Static coordinates, pointer-events none) */}
                         {isSelected && (
                           <circle
                             cx={node.x}
                             cy={node.y}
-                            r="28"
+                            r="26"
                             fill="none"
                             stroke="#f59e0b"
                             strokeWidth="2.5"
                             strokeDasharray="4 3"
-                            opacity="0.8"
+                            opacity="0.9"
+                            pointerEvents="none"
                           />
                         )}
 
@@ -431,7 +447,8 @@ export function NetworkGraphPage() {
                             rx="8"
                             fill={info.color}
                             stroke={isSelected ? '#f59e0b' : info.strokeColor}
-                            strokeWidth={isSelected ? '3.5' : '2'}
+                            strokeWidth={isSelected ? '3' : '2'}
+                            className="transition-colors group-hover:brightness-110"
                           />
                         )}
 
@@ -440,7 +457,8 @@ export function NetworkGraphPage() {
                             points={`${node.x},${node.y - 21} ${node.x + 21},${node.y} ${node.x},${node.y + 21} ${node.x - 21},${node.y}`}
                             fill={info.color}
                             stroke={isSelected ? '#f59e0b' : info.strokeColor}
-                            strokeWidth={isSelected ? '3.5' : '2'}
+                            strokeWidth={isSelected ? '3' : '2'}
+                            className="transition-colors group-hover:brightness-110"
                           />
                         )}
 
@@ -453,7 +471,8 @@ export function NetworkGraphPage() {
                             rx="12"
                             fill={info.color}
                             stroke={isSelected ? '#f59e0b' : info.strokeColor}
-                            strokeWidth={isSelected ? '3.5' : '2'}
+                            strokeWidth={isSelected ? '3' : '2'}
+                            className="transition-colors group-hover:brightness-110"
                           />
                         )}
 
@@ -466,7 +485,8 @@ export function NetworkGraphPage() {
                             rx="5"
                             fill={info.color}
                             stroke={isSelected ? '#f59e0b' : info.strokeColor}
-                            strokeWidth={isSelected ? '3.5' : '2'}
+                            strokeWidth={isSelected ? '3' : '2'}
+                            className="transition-colors group-hover:brightness-110"
                           />
                         )}
 
@@ -481,6 +501,7 @@ export function NetworkGraphPage() {
                               strokeWidth="1.5"
                               strokeDasharray="3 2"
                               opacity="0.8"
+                              pointerEvents="none"
                             />
                             <circle
                               cx={node.x}
@@ -488,7 +509,8 @@ export function NetworkGraphPage() {
                               r="15"
                               fill={info.color}
                               stroke={isSelected ? '#f59e0b' : info.strokeColor}
-                              strokeWidth={isSelected ? '3.5' : '2'}
+                              strokeWidth={isSelected ? '3' : '2'}
+                              className="transition-colors group-hover:brightness-110"
                             />
                           </g>
                         )}
@@ -500,8 +522,9 @@ export function NetworkGraphPage() {
                             r="16"
                             fill={info.color}
                             stroke={isSelected ? '#f59e0b' : info.strokeColor}
-                            strokeWidth={isSelected ? '3.5' : '2'}
+                            strokeWidth={isSelected ? '3' : '2'}
                             strokeDasharray="4 2"
+                            className="transition-colors group-hover:brightness-110"
                           />
                         )}
 
@@ -512,7 +535,8 @@ export function NetworkGraphPage() {
                             r="15"
                             fill={info.color}
                             stroke={isSelected ? '#f59e0b' : info.strokeColor}
-                            strokeWidth={isSelected ? '3.5' : '2'}
+                            strokeWidth={isSelected ? '3' : '2'}
+                            className="transition-colors group-hover:brightness-110"
                           />
                         )}
 
@@ -539,6 +563,7 @@ export function NetworkGraphPage() {
                           fontSize="10.5"
                           fontWeight={isSelected ? '700' : '600'}
                           className="font-mono text-text"
+                          pointerEvents="none"
                         >
                           {node.ip}
                         </text>
@@ -551,6 +576,7 @@ export function NetworkGraphPage() {
                           fill={info.textColor}
                           fontSize="9.5"
                           fontWeight="600"
+                          pointerEvents="none"
                         >
                           {info.friendlyName.length > 22
                             ? `${info.friendlyName.slice(0, 20)}…`
@@ -568,79 +594,200 @@ export function NetworkGraphPage() {
             )}
           </div>
 
-          {/* Interactive Accessibility Legend */}
-          <div className="mt-4 rounded-xl border border-border/60 bg-surface/40 p-3.5 text-xs text-text-muted">
-            <p className="font-semibold text-text mb-2.5">Device Types & Network Role Legend:</p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
-              <span className="inline-flex items-center gap-2">
-                <span className="inline-flex h-4 w-4 items-center justify-center rounded bg-[#14b8a6] text-[8px] font-bold text-white shadow-xs">
-                  IoT
+          {/* Expandable & Highly Legible Accessibility Legend */}
+          <div className="mt-4 rounded-xl border border-border/70 bg-surface/50 overflow-hidden shadow-xs transition-all">
+            <button
+              type="button"
+              onClick={toggleLegend}
+              className="w-full flex items-center justify-between p-3.5 text-left hover:bg-surface/80 transition-colors cursor-pointer"
+              aria-expanded={isLegendExpanded}
+            >
+              <div className="flex items-center gap-2.5">
+                <span className="flex h-5 w-5 items-center justify-center rounded-md bg-primary/10 text-primary text-xs font-bold">
+                  ℹ
                 </span>
-                <span className="truncate">
-                  <strong className="text-text">Square:</strong> Monitored IoT
+                <div>
+                  <span className="font-semibold text-sm text-text">Device & Link Legend</span>
+                  <span className="ml-2 text-xs text-text-muted">
+                    ({isLegendExpanded ? 'Click to collapse' : 'Click to expand full role details'})
+                  </span>
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5 text-xs font-medium text-primary">
+                <span>{isLegendExpanded ? 'Collapse' : 'Expand Details'}</span>
+                <span className={`inline-block transition-transform duration-200 ${isLegendExpanded ? 'rotate-180' : ''}`}>
+                  ▼
                 </span>
-              </span>
+              </div>
+            </button>
 
-              <span className="inline-flex items-center gap-2">
-                <span className="inline-flex h-3.5 w-5 items-center justify-center rounded-full bg-[#8b5cf6] text-[8px] font-bold text-white shadow-xs">
-                  Pi
+            {/* Collapsed State: Neat Quick-Pill Preview */}
+            {!isLegendExpanded && (
+              <div className="px-3.5 pb-3 flex flex-wrap gap-2 text-xs text-text-muted border-t border-border/40 pt-2.5">
+                <span className="inline-flex items-center gap-1.5 bg-background-soft px-2 py-0.5 rounded-md border border-border/60">
+                  <span className="inline-block h-2.5 w-2.5 rounded-sm bg-[#14b8a6]" />
+                  <span className="text-text font-medium">IoT Device</span>
                 </span>
-                <span className="truncate">
-                  <strong className="text-text">Capsule:</strong> Raspberry Pi IDS
+                <span className="inline-flex items-center gap-1.5 bg-background-soft px-2 py-0.5 rounded-md border border-border/60">
+                  <span className="inline-block h-2.5 w-3.5 rounded-full bg-[#8b5cf6]" />
+                  <span className="text-text font-medium">Raspberry Pi</span>
                 </span>
-              </span>
+                <span className="inline-flex items-center gap-1.5 bg-background-soft px-2 py-0.5 rounded-md border border-border/60">
+                  <span className="inline-block h-2.5 w-2.5 rotate-45 bg-[#06b6d4]" />
+                  <span className="text-text font-medium">Gateway</span>
+                </span>
+                <span className="inline-flex items-center gap-1.5 bg-background-soft px-2 py-0.5 rounded-md border border-border/60">
+                  <span className="inline-block h-2.5 w-3 rounded-xs bg-[#3b82f6]" />
+                  <span className="text-text font-medium">Defender PC</span>
+                </span>
+                <span className="inline-flex items-center gap-1.5 bg-background-soft px-2 py-0.5 rounded-md border border-border/60">
+                  <span className="inline-block h-2.5 w-2.5 rounded-full border border-dashed border-[#0284c7] bg-[#0284c7]" />
+                  <span className="text-text font-medium">Cloud Broker</span>
+                </span>
+                <span className="inline-flex items-center gap-1.5 bg-background-soft px-2 py-0.5 rounded-md border border-border/60">
+                  <span className="inline-block w-3.5 border-t-2 border-dashed border-[#f43f5e]" />
+                  <span className="text-rose-500 font-bold">! Alert</span>
+                </span>
+              </div>
+            )}
 
-              <span className="inline-flex items-center gap-2">
-                <span className="inline-flex h-4 w-4 rotate-45 items-center justify-center bg-[#06b6d4] text-[8px] font-bold text-white shadow-xs">
-                  <span className="-rotate-45">GW</span>
-                </span>
-                <span className="truncate">
-                  <strong className="text-text">Diamond:</strong> Local Gateway
-                </span>
-              </span>
+            {/* Expanded State: Full, Spacious, Highly Legible Cards */}
+            {isLegendExpanded && (
+              <div className="p-4 pt-2 border-t border-border/60 bg-background-soft/40 space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+                  {/* Monitored IoT Device */}
+                  <div className="rounded-lg border border-border/70 bg-surface p-3 flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <span className="inline-flex h-5 w-5 items-center justify-center rounded bg-[#14b8a6] text-[9px] font-bold text-white shadow-xs">
+                          IoT
+                        </span>
+                        <strong className="text-text text-sm">Monitored IoT Device</strong>
+                      </div>
+                      <p className="text-text-muted leading-relaxed">
+                        Enrolled smart devices (smart sockets, bulbs, cameras) detected by the Raspberry Pi sensor via MAC allowlist.
+                      </p>
+                    </div>
+                    <span className="mt-2 inline-block text-[10px] font-mono font-medium text-teal-400">Teal Rounded Square</span>
+                  </div>
 
-              <span className="inline-flex items-center gap-2">
-                <span className="inline-flex h-4 w-4 items-center justify-center rounded-sm bg-[#3b82f6] text-[8px] font-bold text-white shadow-xs">
-                  PC
-                </span>
-                <span className="truncate">
-                  <strong className="text-text">Rect:</strong> Defender Host
-                </span>
-              </span>
+                  {/* Raspberry Pi Sensor */}
+                  <div className="rounded-lg border border-border/70 bg-surface p-3 flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <span className="inline-flex h-4.5 w-6 items-center justify-center rounded-full bg-[#8b5cf6] text-[9px] font-bold text-white shadow-xs">
+                          Pi
+                        </span>
+                        <strong className="text-text text-sm">Raspberry Pi IDS</strong>
+                      </div>
+                      <p className="text-text-muted leading-relaxed">
+                        Hardware sensor node (192.168.254.184) running sentrix_sensor.py for promiscuous capture and feature extraction.
+                      </p>
+                    </div>
+                    <span className="mt-2 inline-block text-[10px] font-mono font-medium text-purple-400">Purple Capsule / Pill</span>
+                  </div>
 
-              <span className="inline-flex items-center gap-2">
-                <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-dashed border-[#0284c7] bg-[#0284c7] text-[7.5px] font-bold text-white">
-                  WAN
-                </span>
-                <span className="truncate">
-                  <strong className="text-text">Cloud Ring:</strong> Remote Broker
-                </span>
-              </span>
+                  {/* Local Gateway / Router */}
+                  <div className="rounded-lg border border-border/70 bg-surface p-3 flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <span className="inline-flex h-5 w-5 rotate-45 items-center justify-center bg-[#06b6d4] text-[8.5px] font-bold text-white shadow-xs">
+                          <span className="-rotate-45">GW</span>
+                        </span>
+                        <strong className="text-text text-sm">Local Gateway</strong>
+                      </div>
+                      <p className="text-text-muted leading-relaxed">
+                        Subnet default router (192.168.254.254 or .1) providing DHCP leases, WAN uplink, and local broadcast routing.
+                      </p>
+                    </div>
+                    <span className="mt-2 inline-block text-[10px] font-mono font-medium text-cyan-400">Cyan Diamond</span>
+                  </div>
 
-              <span className="inline-flex items-center gap-2">
-                <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-dashed border-[#94a3b8] bg-[#94a3b8] text-[8px] font-bold text-white">
-                  BC
-                </span>
-                <span className="truncate">
-                  <strong className="text-text">Dashed:</strong> Broadcast
-                </span>
-              </span>
+                  {/* Defender Host Workstation */}
+                  <div className="rounded-lg border border-border/70 bg-surface p-3 flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <span className="inline-flex h-5 w-5 items-center justify-center rounded-xs bg-[#3b82f6] text-[9px] font-bold text-white shadow-xs">
+                          PC
+                        </span>
+                        <strong className="text-text text-sm">Defender Workstation</strong>
+                      </div>
+                      <p className="text-text-muted leading-relaxed">
+                        Administrator host (192.168.254.156) hosting the SENTRi-X hybrid inference engine and telemetry dashboard.
+                      </p>
+                    </div>
+                    <span className="mt-2 inline-block text-[10px] font-mono font-medium text-blue-400">Blue Workstation Rect</span>
+                  </div>
 
-              <span className="inline-flex items-center gap-2">
-                <span className="inline-block w-5 border-t-2 border-dashed border-[#f43f5e]" />
-                <span className="text-rose-500 font-bold">!</span>
-                <span className="truncate">
-                  <strong className="text-text">Dashed Red:</strong> Alert Flow
-                </span>
-              </span>
+                  {/* Cloud / Remote Broker */}
+                  <div className="rounded-lg border border-border/70 bg-surface p-3 flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-dashed border-[#0284c7] bg-[#0284c7] text-[8px] font-bold text-white shadow-xs">
+                          WAN
+                        </span>
+                        <strong className="text-text text-sm">Remote Cloud Broker</strong>
+                      </div>
+                      <p className="text-text-muted leading-relaxed">
+                        Whitelisted external MQTT/HTTPS services (Tuya Cloud, AWS IoT, NTP) that smart devices legitimately sync with.
+                      </p>
+                    </div>
+                    <span className="mt-2 inline-block text-[10px] font-mono font-medium text-sky-400">Sky Concentric Ring</span>
+                  </div>
 
-              <span className="inline-flex items-center gap-2">
-                <span className="inline-block w-5 border-t-2 border-solid border-[#475569]" />
-                <span className="truncate">
-                  <strong className="text-text">Solid Line:</strong> Normal Flow
-                </span>
-              </span>
-            </div>
+                  {/* Broadcast / Multicast */}
+                  <div className="rounded-lg border border-border/70 bg-surface p-3 flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-dashed border-[#94a3b8] bg-[#94a3b8] text-[9px] font-bold text-white shadow-xs">
+                          BC
+                        </span>
+                        <strong className="text-text text-sm">Broadcast / Multicast</strong>
+                      </div>
+                      <p className="text-text-muted leading-relaxed">
+                        Subnet broadcast (255.255.255.255) and local discovery protocols (mDNS 224.0.0.251, SSDP 239.255.255.250).
+                      </p>
+                    </div>
+                    <span className="mt-2 inline-block text-[10px] font-mono font-medium text-slate-400">Slate Dashed Circle</span>
+                  </div>
+
+                  {/* Alert Qualified Link */}
+                  <div className="rounded-lg border border-border/70 bg-surface p-3 flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <span className="inline-flex h-4 w-6 items-center justify-center">
+                          <span className="w-full border-t-2 border-dashed border-[#f43f5e]" />
+                        </span>
+                        <span className="inline-flex h-4 w-4 items-center justify-center rounded bg-rose-500 text-[10px] font-bold text-white">
+                          !
+                        </span>
+                        <strong className="text-rose-500 text-sm">Alert Qualified Link</strong>
+                      </div>
+                      <p className="text-text-muted leading-relaxed">
+                        Network flow flagged by the active AI model (Random Forest + 1D-CNN) exceeding the alert confidence threshold.
+                      </p>
+                    </div>
+                    <span className="mt-2 inline-block text-[10px] font-mono font-medium text-rose-400">Red Dashed + Warning Diamond</span>
+                  </div>
+
+                  {/* Normal / Benign Flow */}
+                  <div className="rounded-lg border border-border/70 bg-surface p-3 flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <span className="inline-flex h-4 w-6 items-center justify-center">
+                          <span className="w-full border-t-2 border-solid border-[#475569]" />
+                        </span>
+                        <strong className="text-text text-sm">Benign Link Flow</strong>
+                      </div>
+                      <p className="text-text-muted leading-relaxed">
+                        Verified normal traffic passing baseline network security checks without anomalous classification flags.
+                      </p>
+                    </div>
+                    <span className="mt-2 inline-block text-[10px] font-mono font-medium text-slate-400">Solid Slate Line</span>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {graph.omitted > 0 && (
@@ -750,7 +897,7 @@ export function NetworkGraphPage() {
                     <button
                       onClick={handleClearLabel}
                       disabled={isSavingLabel}
-                      className="w-full text-center text-xs text-rose-500 hover:underline pt-1"
+                      className="w-full text-center text-xs text-rose-500 hover:underline pt-1 cursor-pointer"
                     >
                       Reset to default label
                     </button>
