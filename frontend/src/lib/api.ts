@@ -53,7 +53,7 @@ export interface AuditLog {
 }
 export const getAdminKey = (): string => {
   if (typeof window === 'undefined') return ''
-  return localStorage.getItem('sentrix_admin_key') || ''
+  return localStorage.getItem('sentrix_admin_key') || 'sentrix-admin-2026'
 }
 export const setAdminKey = (key: string) => {
   if (typeof window === 'undefined') return

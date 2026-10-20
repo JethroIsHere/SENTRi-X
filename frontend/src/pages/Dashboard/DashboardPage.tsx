@@ -21,6 +21,10 @@ export function DashboardPage() {
   const [resettingDeviceMac, setResettingDeviceMac] = useState<string | null>(null)
   const [removingMac, setRemovingMac] = useState<string | null>(null)
   const [removingAllDevices, setRemovingAllDevices] = useState(false)
+  const [deviceActionError, setDeviceActionError] = useState<string | null>(null)
+  const [deviceMessage, setDeviceMessage] = useState('')
+  const [flowActionError, setFlowActionError] = useState<string | null>(null)
+  const [flowMessage, setFlowMessage] = useState('')
   const previousAlert = useRef<string | null | undefined>(undefined)
   const latest = alerts.data?.logs[0] || null
   useEffect(() => {
@@ -50,13 +54,13 @@ export function DashboardPage() {
   async function handleClearFlows() {
     const prompt = 'Reset recent live flows? Stored network flow records will be deleted and flow arrival rates reset.'
     if (!window.confirm(prompt)) return
-    setClearingFlows(true); setActionError(null); setMessage('')
+    setClearingFlows(true); setFlowActionError(null); setFlowMessage('')
     try {
       await clearLiveFlows()
-      setMessage('Live flows cleared. Table and arrival rate counters reset.')
+      setFlowMessage('Live flows cleared. Table and arrival rate counters reset.')
       refresh(); flows.refresh(); devices.refresh()
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : 'Resetting live flows failed.')
+      setFlowActionError(error instanceof Error ? error.message : 'Resetting live flows failed.')
     } finally {
       setClearingFlows(false)
     }
@@ -65,13 +69,13 @@ export function DashboardPage() {
   async function handleClearAllDevices() {
     const prompt = 'Reset all observed IoT devices? Observation counts will be cleared; configured monitored devices are retained and will repopulate as new traffic arrives.'
     if (!window.confirm(prompt)) return
-    setClearingDevices(true); setActionError(null); setMessage('')
+    setClearingDevices(true); setDeviceActionError(null); setDeviceMessage('')
     try {
       await clearObservedDevices()
-      setMessage('Observed IoT device records reset.')
+      setDeviceMessage('Observed IoT device records reset.')
       devices.refresh(); flows.refresh()
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : 'Resetting observed devices failed.')
+      setDeviceActionError(error instanceof Error ? error.message : 'Resetting observed devices failed.')
     } finally {
       setClearingDevices(false)
     }
@@ -80,13 +84,13 @@ export function DashboardPage() {
   async function handleClearSingleDevice(mac: string, name: string) {
     const prompt = `Reset observation records for ${name} (${mac})? Stored device enrollment is kept.`
     if (!window.confirm(prompt)) return
-    setResettingDeviceMac(mac); setActionError(null); setMessage('')
+    setResettingDeviceMac(mac); setDeviceActionError(null); setDeviceMessage('')
     try {
       await clearObservedDevices(mac)
-      setMessage(`Observation records reset for ${name}.`)
+      setDeviceMessage(`Observation records reset for ${name}.`)
       devices.refresh(); flows.refresh()
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : `Resetting device ${name} failed.`)
+      setDeviceActionError(error instanceof Error ? error.message : `Resetting device ${name} failed.`)
     } finally {
       setResettingDeviceMac(null)
     }
@@ -95,13 +99,13 @@ export function DashboardPage() {
   async function handleRemoveSingleDevice(mac: string, name: string) {
     const prompt = `Remove ${name} (${mac}) completely? This clears its observed flows and unenrolls it from monitored devices.`
     if (!window.confirm(prompt)) return
-    setRemovingMac(mac); setActionError(null); setMessage('')
+    setRemovingMac(mac); setDeviceActionError(null); setDeviceMessage('')
     try {
       await removeObservedDevice(mac)
-      setMessage(`Device ${name} removed.`)
+      setDeviceMessage(`Device ${name} removed.`)
       devices.refresh(); flows.refresh(); refresh()
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : `Removing device ${name} failed.`)
+      setDeviceActionError(error instanceof Error ? error.message : `Removing device ${name} failed.`)
     } finally {
       setRemovingMac(null)
     }
@@ -110,13 +114,13 @@ export function DashboardPage() {
   async function handleRemoveAllDevices() {
     const prompt = 'Remove all observed IoT devices? This clears all device flow records and unenrolls them from monitored devices.'
     if (!window.confirm(prompt)) return
-    setRemovingAllDevices(true); setActionError(null); setMessage('')
+    setRemovingAllDevices(true); setDeviceActionError(null); setDeviceMessage('')
     try {
       await removeAllObservedDevices()
-      setMessage('All observed devices removed.')
+      setDeviceMessage('All observed devices removed.')
       devices.refresh(); flows.refresh(); refresh()
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : 'Removing devices failed.')
+      setDeviceActionError(error instanceof Error ? error.message : 'Removing devices failed.')
     } finally {
       setRemovingAllDevices(false)
     }
@@ -193,6 +197,8 @@ export function DashboardPage() {
         )}
       </div>
       <RequestState error={devices.error} loading={devices.loading} />
+      {deviceActionError && <p role="alert" className="my-2 rounded-xl border border-rose-500/40 p-2.5 text-xs text-rose-500">{deviceActionError}</p>}
+      {deviceMessage && <p role="status" className="my-2 text-xs text-accent-dark">{deviceMessage}</p>}
       <DeviceCards
         devices={devices.data?.devices || []}
         onResetDevice={(mac, name) => void handleClearSingleDevice(mac, name)}
@@ -220,6 +226,8 @@ export function DashboardPage() {
       </div>
       <p className="mb-3 text-xs text-text-muted">Latest 10 saved windows, including benign traffic. RF/CNN values are attack scores; confidence refers to the predicted class.</p>
       <RequestState error={flows.error} loading={flows.loading} />
+      {flowActionError && <p role="alert" className="my-2 rounded-xl border border-rose-500/40 p-2.5 text-xs text-rose-500">{flowActionError}</p>}
+      {flowMessage && <p role="status" className="my-2 text-xs text-accent-dark">{flowMessage}</p>}
       <FlowTable flows={flows.data?.flows || []} />
     </section>
     <section className={panelClass}><h2 className="mb-3 text-lg font-semibold">Latest Saved Alert</h2>
