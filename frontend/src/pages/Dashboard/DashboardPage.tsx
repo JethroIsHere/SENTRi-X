@@ -151,8 +151,8 @@ export function DashboardPage() {
     <div className="flex flex-wrap gap-3 text-xs text-text-muted">
       <span>Live alerts: {status?.alert_counts.live_hardware ?? '—'}</span>
       <span>Connection: {online ? status?.node_status ?? (live ? 'Pi connected' : 'Waiting for Pi') : 'Offline'}</span>
-      <span>RF: {online ? status?.rf_online ? 'enabled and loaded' : 'inactive' : 'unknown'}</span>
-      <span>CNN: {online ? status?.cnn_online ? 'enabled and loaded' : 'inactive' : 'unknown'}</span>
+      <span>RF: {online ? status?.rf_online ? 'enabled and loaded' : status?.rf_loaded ? 'loaded (explainer)' : 'inactive' : 'unknown'}</span>
+      <span>CNN: {online ? status?.cnn_online ? 'enabled and loaded' : status?.cnn_loaded ? 'loaded (standby)' : 'inactive' : 'unknown'}</span>
     </div>
     {status?.engine_error && <RequestState error={`Inference issue: ${status.engine_error}`} />}
     {status?.ingest_error && <RequestState error={status.ingest_error} />}

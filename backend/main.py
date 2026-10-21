@@ -709,6 +709,18 @@ def record_threat_alert(packet_data, inference_df, confidence, source, flow_id=N
         "shap_target_class": shap_res["target_class"],
         "reason": "",
     }
+    # Provenance: SHAP/LIME always describe the Random Forest component. In
+    # CNN-only mode the RF did not make this decision, so disclose that the
+    # explanations are the RF component's assessment of the same flow, not an
+    # explanation of the CNN's internal decision (Objective 3 scope).
+    metadata["explainer_scope"] = "rf_component"
+    metadata["decision_model"] = engine.execution_mode
+    if engine.execution_mode == "cnn":
+        metadata["explanation_note"] = (
+            "Decision by the 1D CNN. The feature explanations below are the "
+            "Random Forest component's assessment of the same flow - SHAP and "
+            "LIME are RF-oriented and do not explain the CNN's internal decision."
+        )
     # Plain-English attack narrative for thesis evaluation and operator review.
     # Generated from flow fields + SHAP-ranked features; describes observed
     # behavior, not assumed intent.
@@ -875,6 +887,8 @@ def get_status():
                       inference_samples=len(INFERENCE_MS_SAMPLES))
     else:
         result.update(inference_ms_last=None, inference_ms_avg=None, inference_samples=0)
+    result.update(rf_loaded=engine.rf_model is not None,
+                  cnn_loaded=engine.cnn_model is not None)
     result.update(gpu=detect_gpu())
     sensor_resources = engine.sensor_resources or {}
     result.update(sensor_cpu_usage=sensor_resources.get('cpu_usage'),

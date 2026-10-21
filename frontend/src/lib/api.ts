@@ -17,6 +17,7 @@ export interface SystemStatus {
   execution_mode: Mode; data_source: Source; is_hardware_live: boolean; simulation_active: boolean
   processed_flows: number; simulated_events: number; inference_errors: number; counter_epoch: string
   threats_detected: number; alert_counts: Record<Source, number>; rf_online: boolean; cnn_online: boolean
+  rf_loaded: boolean; cnn_loaded: boolean
   cpu_usage: number | null; memory_usage: number | null; memory_total_bytes: number | null
   memory_used_bytes: number | null; cpu_count: number | null; resource_error: string | null
   inference_ms_last: number | null; inference_ms_avg: number | null; inference_samples: number
@@ -33,7 +34,8 @@ export interface Alert {
   sensor_id?: string | null; device_mac?: string | null; flow_id?: number | null
   attack_type_source?: string; shap_values?: Feature[]; lime_values?: Feature[]
   explanation_meta?: { shap_method?: string; shap_model?: string; shap_target_class?: number | null
-    reference_index?: number; lime_method?: string; lime_model?: string; lime_target_class?: number | null; reason?: string }
+    reference_index?: number; lime_method?: string; lime_model?: string; lime_target_class?: number | null; reason?: string
+    explainer_scope?: string; decision_model?: string; explanation_note?: string }
 }
 export interface Flow {
   id: number; timestamp: string; sensor_id: string; device_name: string | null; device_mac: string | null
