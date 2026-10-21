@@ -92,7 +92,7 @@ This single script runs the complete 3-Act live demonstration covering **all dat
 cd C:\Users\LENOVO\SENTRi-X\attack_scripts\TestKit
 python run_live_demo.py
 ```
-*(Tip: Add `--auto` if you prefer automated 5-second countdown transitions instead of pressing Enter between acts).*
+*(Runs completely hands-free by default across all 3 Acts; pass `--manual` if you prefer to pause and press Enter between acts).*
 
 ##### The 3-Act Choreography & Talking Points:
 
