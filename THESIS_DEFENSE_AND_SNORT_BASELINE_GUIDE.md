@@ -106,4 +106,9 @@ The live flow tables display **TCP** and **UDP** (often misread as *DCP* due to 
 
 ### Question 4: *"What is the primary advantage of SENTRi-X over a traditional tool like Snort?"*
 > **Answer**:
+
+### Question 5: *"Can the sensor see attacks on the wireless IoT devices, like the smart plug?"*
+> **Answer**:
+> *"A passive sensor only judges traffic that physically arrives at its port — placement decides what it is shown, and that rule binds Snort and Suricata too. In this testbed the wired segment is mirrored and the Raspberry Pi is also a monitored node, so attacks addressed to it are captured directly, and a wireless device's outbound and broadcast traffic does reach the sensor — a compromised device scanning or exfiltrating could be flagged. What the sensor cannot see is an inbound attack delivered point-to-point to a wireless device: the access point hands that unicast to the device alone, and no copy reaches the sensor. Covering that segment means mirroring the AP's uplink port or capturing at the gateway — identified deployment work, alongside the scored-trial program in Recommendation #1. The manuscript scopes the sensor to mirrored traffic; it does not claim whole-network visibility from a single port."*
+
 > *"The detection basis is different. Snort is deterministic and rule-bound: it can only fire when traffic matches a pre-written signature. SENTRi-X scores the statistical behavior of each flow with a hybrid Random Forest and 1D-CNN ensemble, so traffic that resembles attack behavior in the training data can be flagged without a matching rule. It also integrates an Explainable AI layer — SHAP and LIME show which flow features most influenced the Random Forest component's score for a given alert. To be precise about scope: this study does not establish detection of novel or zero-day attacks — the performance claims come from held-out benchmark evaluation, and a scored head-to-head comparison with Snort remains future work."*
