@@ -11,7 +11,7 @@ if str(ROOT_DIR) not in sys.path:
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from fastapi import FastAPI, HTTPException, Query, Request, Depends
+from fastapi import FastAPI, HTTPException, Query, Request, Depends, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, Literal
@@ -879,6 +879,15 @@ def delete_all_observed_devices_endpoint(auth: dict = Depends(verify_admin_auth)
             status='SUCCESS'
         )
     return {'status': 'ok', 'result': res, 'message': 'All observed devices removed'}
+
+
+@app.get('/api/sensor-script')
+def get_sensor_script():
+    """Serves the latest edge sensor script directly to the Raspberry Pi over LAN."""
+    sensor_file = ROOT_DIR / 'edge' / 'sentrix_sensor.py'
+    if not sensor_file.exists():
+        raise HTTPException(404, 'Sensor script not found')
+    return Response(content=sensor_file.read_text(encoding='utf-8'), media_type='text/x-python')
 
 
 class MonitoredDeviceRequest(BaseModel):
