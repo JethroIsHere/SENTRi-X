@@ -364,8 +364,8 @@ def process_packet(packet):
         proto = "TCP"
         packet_src_port = int(packet[TCP].sport)
         packet_dst_port = int(packet[TCP].dport)
-        # Never monitor the sensor's own communication with the backend API
-        if packet_src_port == 8000 or packet_dst_port == 8000:
+        # Never monitor the sensor's own communication with the backend API or administrative SSH
+        if packet_src_port in (22, 8000) or packet_dst_port in (22, 8000):
             return
 
     elif UDP in packet:
@@ -662,7 +662,8 @@ def main():
     # dashboard afterwards are enforced by the Python-side allowlist check
     # in process_packet(), but their traffic won't reach the sensor until
     # restart (kernel-level filter). Removals take effect immediately.
-    bpf_filter = " or ".join(f"ether host {mac}" for mac, _ in startup_macs) if startup_macs else "ether host 00:00:00:00:00:00"
+    mac_filter = " or ".join(f"ether host {mac}" for mac, _ in startup_macs) if startup_macs else "ether host 00:00:00:00:00:00"
+    bpf_filter = f"({mac_filter}) and not port 22 and not port 8000"
     workers = []
 
     def start_workers():

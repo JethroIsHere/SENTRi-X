@@ -759,8 +759,11 @@ def hardware_live():
     return engine.last_hardware_ping > 0 and time.time() - engine.last_hardware_ping < HARDWARE_LIVE_TIMEOUT
 
 
-def alert_allowed(prediction, confidence, dst_ip=None, sni=None, mac=None, dst_port=None):
+def alert_allowed(prediction, confidence, dst_ip=None, sni=None, mac=None, dst_port=None, src_port=None):
     if not (settings['active_alerting'] and prediction == 1 and confidence > settings['alert_threshold']):
+        return False
+    # Suppress alerts for administrative SSH traffic (port 22) and API traffic (port 8000)
+    if dst_port in (22, 8000) or src_port in (22, 8000):
         return False
     # Suppress alerts for whitelisted destination IPs (known IoT cloud endpoints)
     if dst_ip and is_destination_whitelisted(dst_ip):
@@ -1423,7 +1426,8 @@ def ingest_live_flow(flow: dict):
             dst_ip=str(flow.get('dst_ip', '')), 
             sni=flow.get('sni'),
             mac=flow.get('device_mac'),
-            dst_port=flow.get('dst_port')
+            dst_port=flow.get('dst_port'),
+            src_port=flow.get('src_port')
         )
         try:
             flow_id = insert_network_flow(
