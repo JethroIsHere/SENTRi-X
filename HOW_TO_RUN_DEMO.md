@@ -107,7 +107,7 @@ If you are including Snort in the live comparison matrix:
    ```bash
    sudo /usr/sbin/snort -m 027 -D -d -l /var/log/snort -u snort -g snort -c /etc/snort/snort.conf -i eth0
    ```
-2. *Note:* If running the demo without Snort, simply add the `--no-snort` flag to the matrix command in Step 6.
+2. *Note:* If running the demo without Snort, simply add the `--no-snort` flag to the matrix command in Step 6. *(For a detailed breakdown of why Snort is only an offline/manuscript baseline and ready-to-use defense presentation scripts, see [THESIS_DEFENSE_AND_SNORT_BASELINE_GUIDE.md](THESIS_DEFENSE_AND_SNORT_BASELINE_GUIDE.md)).*
 
 ---
 
