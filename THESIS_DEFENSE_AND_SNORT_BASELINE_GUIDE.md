@@ -12,6 +12,8 @@ This document clarifies the role of **Snort** in the research manuscript versus 
   **No.** For the live demonstration, the panel evaluates the proposed **SENTRi-X** system (real-time edge capture, hybrid ML inference, live alerts, and Explainable AI).
 * **What was Snort's role in the study?**
   Snort ran as a **second observer engine** in the Chapter 4 hardware trials, watching the same lab traffic as SENTRi-X. Those trial observations were recorded but **left unscored for both systems**, because scoring requires an independent review of ground truth, exposure, and alert timing. The manuscript therefore makes **no claim** that SENTRi-X outperforms Snort. A matched, scored comparison is **Recommendation #1** in Chapter 5.
+* **Is there any scored live evidence?**
+  **Supplementary only.** On 21 October, six small demonstration trials (B0 ×2, S1 ×2, S2 ×2) were run and scored under the protocol fixed in advance in `attack_scripts/TestKit/SCORED_DEMO_PROTOCOL.md`: 4 of 4 attack runs produced an alert in-window; both passive windows recorded false positives caused by the operator's own SSH administration sessions with the Pi (identified source). That sheet is supplementary material proposed for the revision — it does not change the status of the 43 Chapter 4 observations, which remain unscored, and it is not manuscript content.
 * **Can the entire testbed run with only one laptop?**
   **Yes.** A second laptop is **not** required. The user's laptop acts as the **Attacker** (running attack scripts) and the **Dashboard Host**, while the physical smart device acts as the **Victim / Protected Asset**, and the Raspberry Pi 3B+ acts as the **Edge Sensor / Defender probe**.
 
