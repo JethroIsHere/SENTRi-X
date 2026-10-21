@@ -80,27 +80,49 @@ Open your browser to:
 
 ### Step 4: Run the Live Attack Demonstration
 
-You can demonstrate detection live using either an on-the-spot single attack trial or the automated 6-trial demonstration suite.
+You can run the demonstration using either the **single-command choreographed suite** (recommended for the 5–10 minute defense window), on-the-spot individual attack commands, or the full 6-trial scored evaluation protocol.
 
-#### Method A: Live Single-Attack Demonstration (Recommended for Panel Demo)
-To demonstrate instantaneous detection in front of your panel, trigger an attack from your Windows laptop while showing the Threat Logs dashboard:
+---
+
+#### Method A: Choreographed All-Model Live Demonstration (Recommended for Panel Defense)
+
+This single script runs the complete 3-Act live demonstration covering **all datasets (`omni`, `ton_iot`, `bot_iot`)**, **all engine architectures (`hybrid`, `cnn`, `rf`)**, real-time latency (~312 ms), hardware telemetry, and transparent XAI provenance within **5 to 10 minutes**:
+
+```powershell
+cd C:\Users\LENOVO\SENTRi-X\attack_scripts\TestKit
+python run_live_demo.py
+```
+*(Tip: Add `--auto` if you prefer automated 5-second countdown transitions instead of pressing Enter between acts).*
+
+##### The 3-Act Choreography & Talking Points:
+
+| Phase | Duration | Configuration | Traffic Pattern | Live Panel Talking Points |
+| :--- | :--- | :--- | :--- | :--- |
+| **Act 1** | ~2 min | `omni`<br>`hybrid` | **S1 (TCP Port Scan)**<br>50 target ports | • Point to **Arrival Rate Graph**: Real-time traffic spike.<br>• Point to **Inference Latency Card**: Shows **~312 ms avg** per flow on CPU.<br>• Point to **Hardware Telemetry**: Honest CPU state (CUDA disabled, no GPU required).<br>• Click alert in **Threat Logs**: Show **TreeSHAP** and **Local LIME** feature attributions. |
+| **Act 2** | ~2 min | `omni`<br>`cnn` | **S1 (TCP Port Scan)**<br>50 target ports | • Point to **Model Status**: RF reads **`Loaded — explainer only (CNN-only mode)`**.<br>• Open Alert Modal: Highlight visible **Amber Provenance Box**:<br>&nbsp;&nbsp;*"Decision by 1D CNN. Feature explanations below are the RF component's assessment..."*<br>• Directly addresses **Recommendation #3 & #4** (transparent explainer provenance). |
+| **Act 3** | ~2 min | `ton_iot` $\rightarrow$<br>`bot_iot`<br>`hybrid` | **S2 (HTTP Probe)**<br>20 credential attempts | • Shows cross-dataset adaptation using **ToN-IoT** and **BoT-IoT** domain weights.<br>• Point to **AI Engine Status page**: Shows verified offline benchmark metrics (99.8% Accuracy, 99.7% F1).<br>• Conclude: *"For our complete 39-trial statistical matrix across all models, refer to Chapter 4."* |
+
+---
+
+#### Method B: On-the-Spot Single Attack Demonstration
+To demonstrate an isolated single attack without switching models:
 
 * **Demonstrate Case S1 (Port Scanning):**
   ```powershell
   cd C:\Users\LENOVO\SENTRi-X\attack_scripts\TestKit
   python run_trial.py --config config.demo.json --case S1 --engine hybrid --trial-id LIVE-DEMO-S1 --execute
   ```
-  *Watch the dashboard:* Instantaneous alert generation with critical confidence, displaying LIME feature attribution (`proto_tcp`, packet rate).
 
-* **Demonstrate Case S2 (HTTP Credential Probing):**
+* **Demonstrate Case S2 (HTTP Credential Probing on Port 8088):**
   ```powershell
   cd C:\Users\LENOVO\SENTRi-X\attack_scripts\TestKit
   python run_trial.py --config config.demo.json --case S2 --engine hybrid --trial-id LIVE-DEMO-S2 --execute
   ```
-  *Watch the dashboard:* 20 auth probes land on port 8088, triggering hybrid alerts within 5 seconds.
 
-#### Method B: Automated 6-Trial Scored Demonstration Protocol
-To reproduce the complete formal evaluation suite:
+---
+
+#### Method C: Formal 6-Trial Scored Demonstration Protocol
+To reproduce the 25-minute formal demonstration evaluation suite:
 ```powershell
 cd C:\Users\LENOVO\SENTRi-X\attack_scripts\TestKit
 python run_scored_protocol.py
