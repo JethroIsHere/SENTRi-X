@@ -2,13 +2,14 @@
 
 **Project**: SENTRi-X (Hybrid NIDS for IoT Networks)  
 **Date**: 21 October 2026  
-**Status**: Verified Live Hardware Evaluation  
+**Status**: Live Hardware Trial Observations — candidate alerts, unscored pending independent review  
+> **Wording note (revised 21 October 2026):** An earlier draft described trial outputs as "detected alerts" with a "detection latency." That overstated the evidence state. Per the project's evidence discipline (EVIDENCE_CORRECTIONS.md), trial outputs are candidate alerts and the outcome remains unscored until independent review.
 
 ---
 
 ## Executive Summary
 
-During live hardware evaluation trials using the automated test harness (`demo_matrix.py` and `run_trial.py`), critical networking, sensor-filtering, and detection dynamics were identified and validated. Most notably, **Trial `TEST-LIVE-S1` (Bounded TCP Connect Port Scan against the Raspberry Pi target node) achieved 50 detected alerts in the scoring window with up to 0.99 Critical confidence**, confirming the end-to-end functionality of the SENTRi-X live pipeline.
+During live hardware evaluation trials using the automated test harness (`demo_matrix.py` and `run_trial.py`), critical networking, sensor-filtering, and detection dynamics were identified and validated. Most notably, **Trial `TEST-LIVE-S1` (Bounded TCP Connect Port Scan against the Raspberry Pi target node) produced 50 candidate alerts in the scoring window, with dashboard confidence up to 0.99**, exercising the end-to-end SENTRi-X live pipeline. These are candidate alerts; the trial outcome remains unscored pending independent review.
 
 This document details the network architecture constraints, kernel BPF filter requirements, and defense-ready justification scripts.
 
@@ -52,7 +53,7 @@ bpf_filter = " or ".join(f"ether host {mac}" for mac, _ in startup_macs)
 
 ---
 
-## 3. Live Hardware Verification Results: Trial `TEST-LIVE-S1`
+## 3. Live Hardware Trial Observation: Trial `TEST-LIVE-S1`
 
 * **Case**: S1 (Bounded TCP connect port scan, 50 ports)
 * **Target**: `192.168.254.184:8088` (Raspberry Pi target node)
@@ -65,7 +66,7 @@ bpf_filter = " or ".join(f"ether host {mac}" for mac, _ in startup_macs)
 * **Scoring Window**: 120 seconds
 * **Candidate Alerts in Scoring Window**: **50 alerts**
 * **Threat Classification**: `Critical` (Confidence: `0.99`) and `High packet rate (heuristic)`
-* **Detection Latency**: First alert logged at `1.52s` into the scoring window
+* **First Candidate Alert**: Observed at `1.52s` into the scoring window (candidate timing only — not a reviewed detection latency; detector latency cannot be derived from unreviewed candidate delay)
 
 > [!NOTE]
 > **Understanding the TestKit Disclaimer**:  
@@ -77,8 +78,8 @@ bpf_filter = " or ".join(f"ether host {mac}" for mac, _ in startup_macs)
 
 ### Q1: *"Why does your evaluation attack the Raspberry Pi node instead of attacking the smart plug directly over Wi-Fi?"*
 > **Candidate Response:**  
-> *"In consumer network topologies without enterprise managed switches supporting SPAN port mirroring, Layer-2 switching and WPA2 pairwise encryption prevent a passive third-party sensor from capturing unicast traffic passing between two other hosts. In our physical testbed, the Raspberry Pi acts as both the edge sensor and the monitored IoT target node. This guarantees that 100% of the attack packets physically traverse the sensor interface for flow extraction and neural network inference without requiring synthetic simulation or ARP poisoning."*
+> *"In consumer network topologies without enterprise managed switches supporting SPAN port mirroring, Layer-2 switching and WPA2 pairwise encryption prevent a passive third-party sensor from capturing unicast traffic passing between two other hosts. In our physical testbed, the Raspberry Pi acts as both the edge sensor and the monitored IoT target node. Because the workloads are addressed to the Pi itself, the attack packets physically traverse the sensor's interface for flow extraction and model inference — no synthetic simulation or ARP poisoning is involved."*
 
 ### Q2: *"Why does the TestKit report say 'Detection outcome remains blank'?"*
 > **Candidate Response:**  
-> *"The SENTRi-X lab evaluation harness strictly enforces scientific separation between automated data acquisition and ground-truth validation. The kit logs candidate alerts in real time—50 alerts were triggered in Trial S1 with 0.99 confidence—while keeping the final verdict cell blank until packet timestamps and service logs are independently verified."*
+> *"The SENTRi-X lab evaluation harness strictly enforces scientific separation between automated data acquisition and ground-truth validation. The kit logs candidate alerts in real time—50 candidate alerts were logged in Trial S1, with dashboard confidence up to 0.99—while keeping the final verdict cell blank until packet timestamps and service logs are independently verified."*
