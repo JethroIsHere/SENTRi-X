@@ -59,17 +59,17 @@ trial's scoring window**, against the pre-trial baseline. That count is the elig
 
 ## Results (Executed on Live Physical Testbed)
 
-| Trial ID | Case | Eligible Alerts | First Alert ID | First Alert Latency | Outcome | Physical Testbed Notes |
+| Trial ID | Case | Eligible Alerts | First Alert ID | First Candidate Observed | Outcome | Physical Testbed Notes |
 |---|---|---|---|---|---|---|
 | SCORED-B0-01 | B0 | 11 | `5878ec50` | +6.31s | **False positive (Background)** | Pi node (`192.168.254.184:22`) active SSH admin traffic to tester laptop (`192.168.254.156:58780`) flagged by behavioral heuristic/RF burst rate. |
 | SCORED-B0-02 | B0 | 13 | `5a7c1146` | +3.86s | **False positive (Background)** | Pi node active SSH admin traffic flagged by behavioral heuristic/RF burst rate. |
-| SCORED-S1-01 | S1 | 44 | `b9a7f0a3` | +8.53s | **Detection** | 40/50 TCP connect scan ports swept within 30s action window; all targeted flows triggered hybrid RF+CNN detection. |
-| SCORED-S1-02 | S1 | 45 | `7e4034f0` | +0.07s | **Detection** | 40/50 TCP connect scan ports swept within 30s action window; immediate detection on initial SYN packets. |
+| SCORED-S1-01 | S1 | 44 | `b9a7f0a3` | +8.53s | **Detection** | 40/50 TCP connect scan ports swept within 30s action window; candidate alerts recorded in-window. |
+| SCORED-S1-02 | S1 | 45 | `7e4034f0` | +0.07s | **Detection** | 40/50 TCP connect scan ports swept within 30s action window; first candidate observed on the initial scan flows. |
 | SCORED-S2-01 | S2 | 27 | `984f437f` | +5.42s | **Detection** | 20/20 HTTP credential probing requests against port 8088 successfully sent and detected. |
 | SCORED-S2-02 | S2 | 27 | `6f61b47e` | +0.06s | **Detection** | 20/20 HTTP credential probing requests against port 8088 successfully sent and detected. |
 
-**Summary line (verified live hardware counts):**
-"Of 4 attack runs, 4 produced in-window detections (100% attack recall on physical hardware, mean detection latency 3.5s); of 2 passive windows, 0 stayed quiet due to unsuppressed background SSH administrative sessions on port 22."
+**Summary line (counts only, as this protocol requires):**
+"Of 4 attack runs, 4 produced an alert in-window; of 2 passive windows, 0 stayed quiet. Both passive windows contained alerts attributed to the operator's own SSH administration sessions with the Pi on port 22 — benign traffic with an identified source, recorded as false positives."
 
 > [!NOTE]
 > **Observer Audit & Protocol Rigor Note:**
@@ -81,8 +81,7 @@ trial's scoring window**, against the pre-trial baseline. That count is the elig
 > "In addition to the manuscript, last night we ran a small set of six demonstration
 > trials under the same review protocol our corrections file documents — one case at
 > a time, on a quiet lab network, so ground truth is known by construction. All six
-> results are on this sheet, including [the miss / the false positive — name whatever
-> happened]. We present them as a scored demonstration, not a validation study, and
+> results are on this sheet, including both false-positive windows, which were caused by our own SSH administration sessions with the Pi. We present them as a scored demonstration, not a validation study, and
 > we propose including them in the revision. The full review of the original 43
 > trials remains Recommendation #1."
 
