@@ -20,8 +20,8 @@ Prepared 21 October 2026.
 - [ ] Backend running on latest pulled code; `GET /api/status` shows threshold **0.50**,
       model **omni / hybrid**, sensor **live**
 - [ ] Pi sensor running and heartbeating (dashboard shows live flows)
-- [ ] `lab_target.py` running at the config target (192.168.254.184:8088) or IoT target device
-- [ ] Target MAC (b8:27:eb:98:08:95 or IoT device MAC) registered in Monitored Devices
+- [ ] Smart Plug target device powered on at **192.168.254.100** (or fallback `lab_target.py` on Pi at 192.168.254.184:8088)
+- [ ] Target MAC (**68:57:2d:db:39:7d** for Smart Plug or `b8:27:eb:98:08:95` for Pi) registered in Monitored Devices
 - [ ] Lab network quiet: no other attack tools, no downloads/streaming on the lab devices
 - [ ] Working from `attack_scripts/TestKit` with `config.demo.json`
 

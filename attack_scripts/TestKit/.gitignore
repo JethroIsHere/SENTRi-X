@@ -5,3 +5,4 @@ target_evidence/
 snort_logs/
 resource_evidence/
 lab_config.json
+demo_*/

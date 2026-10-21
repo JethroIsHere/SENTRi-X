@@ -119,6 +119,8 @@ def validate_config(raw, smoke=False):
         "poll_interval_seconds": 0.5,
         "scan_ports": DEFAULT_PORTS,
         "http_attempts": 20,
+        "target_type": "disposable",
+        "unmanaged_target": False,
     }
     if not isinstance(raw, dict):
         raise ConfigError("The configuration must be a JSON object.")
@@ -252,6 +254,26 @@ def get_backend_json(cfg, path):
 
 
 def target_preflight(cfg):
+    # Support physical IoT devices (e.g. smart plug) without requiring lab_target.py daemon
+    if cfg.get("unmanaged_target") or cfg.get("target_type") == "physical":
+        target_ip = cfg["target_ip"]
+        safe_ipv4(target_ip)
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect((target_ip, int(cfg.get("service_port", 80) or 80)))
+            client_ip = s.getsockname()[0]
+        except Exception:
+            client_ip = "127.0.0.1"
+        finally:
+            s.close()
+        return {
+            "application": "physical_device",
+            "kit_version": VERSION,
+            "client_ip": client_ip,
+            "client_local_ip": client_ip,
+            "target_ip": target_ip,
+        }
+
     result = http_get(cfg["target_ip"], cfg["service_port"],
                       "/__sentrix_lab__/health", timeout=cfg["timeout_seconds"])
     if result["status"] != 200:

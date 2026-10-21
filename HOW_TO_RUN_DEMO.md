@@ -14,7 +14,7 @@ In this testbed, **your laptop** acts as the **Attacker** (injecting traffic via
 | **Backend API** | Defender Core | Windows host (WSL2) | `127.0.0.1:8000` / `192.168.254.141:8000` | Random Forest + 1D-CNN + XAI API |
 | **Frontend UI** | Monitoring Station | Windows host (Your Laptop) | `http://localhost:5173` | React + Vite live dashboard |
 | **Edge Sensor (Pi)** | Defender Probe | Raspberry Pi (`raspy3`) | **`192.168.254.184`** (mDNS: `raspy3.local`) | SSH: `ssh raspy3@192.168.254.184`; sniffs subnet traffic |
-| **Target Device (IoT)** | Victim / Protected Asset | Physical Smart Socket / Plug | `192.168.254.xxx` | Protected smart device (or Pi target port `8088`) |
+| **Target Device (IoT)** | Victim / Protected Asset | Physical Smart Plug (`smart_plug`) | **`192.168.254.100`** (MAC `68:57:2d:db:39:7d`) | Pre-enrolled in `Monitored_Devices`; real always-on IoT target |
 | **Snort IDS** | Baseline Comparator | Windows host (WSL2) | Interface `eth0` | Manuscript baseline comparator (optional; use `--no-snort`) |
 
 ---
@@ -114,34 +114,41 @@ The Pi captures packets at the network edge, extracts 28 flow features, and stre
 
 ---
 
-## Step 5: Configure the Target Device (Physical IoT Device or Pi Service)
+## Step 5: Configure the Target Device
 
-You can direct attack traffic toward either a **real physical smart device** (recommended for defense impact) or the **Raspberry Pi target service**:
+For live evaluation, attack workloads are directed toward the **Raspberry Pi monitored target node** (`192.168.254.184:8088`).
 
-### Option A: Physical IoT Device as Target (Recommended)
-1. **Find Smart Device IP and MAC**:
-   - Look at the **Observed Devices** section in the SENTRi-X dashboard (`http://localhost:5173`) or your Wi-Fi router.
-   - Example: IP `192.168.254.210`, MAC `d8:1f:12:34:56:78`.
-2. **Ensure Device is Enrolled**:
-   - Go to **System Settings** (`/system-settings`) and ensure the device MAC is listed in **Monitored Devices** so the sensor attributes and tracks its flows.
-3. **Set Target in `config.demo.json`**:
-   - In `attack_scripts/TestKit/config.demo.json`, update `target_ip` and `target_mac`:
-     ```json
-     "target_ip": "192.168.254.210",
-     "target_mac": "d8:1f:12:34:56:78",
-     ```
-   *(Physical smart devices are always on; no target daemon needs to be launched on the plug itself).*
+> [!NOTE]
+> **Why the Pi Target Node is Required for Live Evaluation:**  
+> On consumer switched LANs without an enterprise SPAN/port-mirroring switch, switches and Wi-Fi APs never deliver unicast traffic between two endpoints (Laptop -> Smart Plug) to a third-party sensor port. Directing evaluation traffic to `192.168.254.184` guarantees that 100% of attack packets physically traverse the sensor interface for flow extraction and ML classification.  
+> *(See full architectural explanation in [PHYSICAL_TESTBED_NETWORK_AND_EVALUATION_FINDINGS.md](PHYSICAL_TESTBED_NETWORK_AND_EVALUATION_FINDINGS.md)).*
 
-### Option B: Raspberry Pi Target Service (Automated Alternative)
-If the smart plug is unavailable or you want a dedicated HTTP test service:
-1. **SSH into the Raspberry Pi:**
+### Active Configuration: Raspberry Pi Monitored Node (`config.demo.json`)
+
+1. **Target Parameters**:
+   - **Target Device**: Raspberry Pi 3B+ (`target_pi_node`)
+   - **IP Address**: `192.168.254.184`
+   - **MAC Address**: `b8:27:eb:98:08:95` (Enrolled in `Monitored_Devices`)
+   - **Service Port**: `8088`
+
+2. **Verify Configuration in `attack_scripts/TestKit/config.demo.json`**:
+   ```json
+   {
+     "target_ip": "192.168.254.184",
+     "target_mac": "b8:27:eb:98:08:95",
+     "service_port": 8088,
+     "target_type": "physical",
+     "unmanaged_target": true,
+     "backend_url": "http://127.0.0.1:8000",
+     "model_domain": "omni"
+   }
+   ```
+
+3. **(Optional) Run Target Service on Pi**:
+   If testing HTTP authentication probing (Case S2), spin up the lab service on the Pi:
    ```bash
    ssh raspy3@192.168.254.184
-   ```
-2. **Start the target service:**
-   ```bash
-   cd ~/SENTRi-X/attack_scripts/TestKit
-   python3 lab_target.py --bind 192.168.254.184 --port 8088 --log target_evidence/service.jsonl
+   python3 ~/SENTRi-X/attack_scripts/TestKit/lab_target.py --bind 192.168.254.184 --port 8088 --log target_evidence/service.jsonl
    ```
 
 ---
@@ -200,24 +207,29 @@ python demo_matrix.py --config config.demo.json --backend http://127.0.0.1:8000 
 
 For a structured, verifiable evaluation protocol (prepared for supplementary defense materials), execute the 6 controlled trials detailed in [SCORED_DEMO_PROTOCOL.md](attack_scripts/TestKit/SCORED_DEMO_PROTOCOL.md):
 
-```bash
-cd attack_scripts/TestKit
+```powershell
+cd C:\Users\LENOVO\SENTRi-X\attack_scripts\TestKit
 
 # 2x Benign Baseline Trials (B0)
-python3 run_trial.py --config config.demo.json --case B0 --engine hybrid --trial-id SCORED-B0-01 --execute
-python3 run_trial.py --config config.demo.json --case B0 --engine hybrid --trial-id SCORED-B0-02 --execute
+python run_trial.py --config config.demo.json --case B0 --engine hybrid --trial-id SCORED-B0-01 --execute
+python run_trial.py --config config.demo.json --case B0 --engine hybrid --trial-id SCORED-B0-02 --execute
 
 # 2x Bounded Port Scan Trials (S1)
-python3 run_trial.py --config config.demo.json --case S1 --engine hybrid --trial-id SCORED-S1-01 --execute
-python3 run_trial.py --config config.demo.json --case S1 --engine hybrid --trial-id SCORED-S1-02 --execute
+python run_trial.py --config config.demo.json --case S1 --engine hybrid --trial-id SCORED-S1-01 --execute
+python run_trial.py --config config.demo.json --case S1 --engine hybrid --trial-id SCORED-S1-02 --execute
 
 # 2x HTTP Brute-Force Trials (S2)
-python3 run_trial.py --config config.demo.json --case S2 --engine hybrid --trial-id SCORED-S2-01 --execute
-python3 run_trial.py --config config.demo.json --case S2 --engine hybrid --trial-id SCORED-S2-02 --execute
+python run_trial.py --config config.demo.json --case S2 --engine hybrid --trial-id SCORED-S2-01 --execute
+python run_trial.py --config config.demo.json --case S2 --engine hybrid --trial-id SCORED-S2-02 --execute
 ```
+*(Note: If running in Linux/WSL, use `python3 run_trial.py`)*
 
 - Each trial runs ~3.5 minutes (60s warmup + 30s action + 120s scoring window).
 - Summarize results as raw counts: *"Of 4 attack runs, X produced an alert in-window; of 2 passive windows, Y stayed quiet."*
+
+> [!TIP]
+> **Understanding the Trial Output:**  
+> The terminal output `"Detection outcome remains blank until independent evidence and alert scope are reviewed"` is normal design behavior. The TestKit does not auto-score verdicts to avoid confirmation bias. Check `evidence/<trial_id>/summary.json` to verify the actual alert count recorded under `"new_alerts_observed"` (e.g. 50 candidate alerts in Trial S1).
 
 ---
 
