@@ -133,6 +133,8 @@ export function DashboardPage() {
     ['Alerts Recorded', status?.threats_detected.toLocaleString() ?? '—', 'Saved alerts across live, simulation and older records'],
     ['Backend Host CPU', online && status?.cpu_usage != null ? `${status.cpu_usage.toFixed(1)}%` : '—', 'CPU of the environment running the backend'],
     ['Backend Host Memory', online && status?.memory_usage != null ? `${status.memory_usage.toFixed(1)}%` : '—', 'Host memory usage; not Pi memory or packet buffers'],
+    ['Inference Latency', online && status?.inference_ms_avg != null ? `${status.inference_ms_avg.toFixed(1)} ms avg` : '—', `Mean model inference time per live flow (last ${status?.inference_samples ?? 0}); last flow ${status?.inference_ms_last != null ? `${status.inference_ms_last.toFixed(1)} ms` : '—'}`],
+    ['Pi Sensor CPU / Memory', online && status?.sensor_cpu_usage != null ? `${status.sensor_cpu_usage.toFixed(1)}% / ${status?.sensor_memory_usage?.toFixed(1)}%` : '—', 'Raspberry Pi sensor resources, reported with its heartbeat'],
   ]
   return <div className="space-y-6">
     <header className="flex flex-wrap items-start justify-between gap-4">

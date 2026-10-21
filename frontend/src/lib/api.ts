@@ -19,6 +19,9 @@ export interface SystemStatus {
   threats_detected: number; alert_counts: Record<Source, number>; rf_online: boolean; cnn_online: boolean
   cpu_usage: number | null; memory_usage: number | null; memory_total_bytes: number | null
   memory_used_bytes: number | null; cpu_count: number | null; resource_error: string | null
+  inference_ms_last: number | null; inference_ms_avg: number | null; inference_samples: number
+  gpu: { name: string; utilization_percent: number; memory_used_mb: number; memory_total_mb: number } | null
+  sensor_cpu_usage: number | null; sensor_memory_usage: number | null; sensor_resources_at: string | null
   settings: Settings; classification_threshold: number; engine_error: string | null; ingest_error: string | null; switching: boolean
   last_flow_at: string | null; last_heartbeat_at: string | null; started_at: string
 }

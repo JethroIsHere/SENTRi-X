@@ -36,6 +36,11 @@ import queue
 import signal
 import requests
 
+try:
+    import psutil
+except Exception:  # psutil is optional on the Pi; heartbeats omit resources without it
+    psutil = None
+
 from scapy.all import sniff, IP, TCP, UDP, DNS, DNSQR, Ether, Raw
 
 
@@ -616,8 +621,17 @@ def heartbeat_worker():
     with requests.Session() as session:
         while not stop_event.is_set():
             try:
+                payload = {"sensor_id": SENSOR_ID}
+                if psutil is not None:
+                    try:
+                        payload["resources"] = {
+                            "cpu_percent": psutil.cpu_percent(interval=None),
+                            "memory_percent": psutil.virtual_memory().percent,
+                        }
+                    except Exception:
+                        pass
                 result = post_json(
-                    session, HEARTBEAT_URL, {"sensor_id": SENSOR_ID},
+                    session, HEARTBEAT_URL, payload,
                     HEARTBEAT_POST_TIMEOUT, "ok",
                 )
                 count("heartbeats_accepted")

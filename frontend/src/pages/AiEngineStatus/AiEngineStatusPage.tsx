@@ -17,13 +17,16 @@ export function AiEngineStatusPage() {
     <div className="grid gap-5 md:grid-cols-2"><section className={panelClass}><h2 className="mb-4 text-lg font-semibold">Backend Host Resources</h2>
       <p className="text-sm">CPU usage: <strong>{online && status?.cpu_usage != null ? `${status.cpu_usage.toFixed(1)}%` : 'Unavailable'}</strong></p>
       <p className="mt-3 text-sm">Memory usage: <strong>{online && status?.memory_usage != null ? `${status.memory_usage.toFixed(1)}%` : 'Unavailable'}</strong></p>
+      <p className="mt-3 text-sm">GPU: <strong>{online && status?.gpu ? `${status.gpu.name} · ${status.gpu.utilization_percent.toFixed(0)}% · ${(status.gpu.memory_used_mb / 1024).toFixed(1)} / ${(status.gpu.memory_total_mb / 1024).toFixed(1)} GiB` : 'Not present — inference runs on CPU'}</strong></p>
+      <p className="mt-3 text-sm">Inference latency: <strong>{online && status?.inference_ms_avg != null ? `avg ${status.inference_ms_avg.toFixed(1)} ms · last ${status.inference_ms_last?.toFixed(1)} ms (per flow, last ${status.inference_samples})` : 'No live flows measured yet'}</strong></p>
       <p className="mt-2 text-sm">Used / total memory: {memory}</p><p className="mt-2 text-sm">Logical CPU count: {online ? status?.cpu_count ?? 'Unavailable' : 'Unavailable'}</p>
-      <p className="mt-4 text-xs text-text-muted">These measurements come from the backend runtime, including its WSL or container environment when applicable. Pi resource telemetry is not collected.</p>
+      <p className="mt-4 text-xs text-text-muted">These measurements come from the backend runtime, including its WSL or container environment when applicable. Pi sensor CPU and memory arrive with the sensor heartbeat (psutil on the Pi) and are shown with the sensor connection below.</p>
       {status?.resource_error && <RequestState error="Host resource telemetry is unavailable." />}
     </section><section className={panelClass}><h2 className="mb-4 text-lg font-semibold">Models & Sensor Connection</h2>
       <p className="text-sm">Random Forest: {online ? status?.rf_online ? 'Loaded and enabled' : 'Inactive or unavailable' : 'Unknown'}</p>
       <p className="mt-3 text-sm">1D CNN: {online ? status?.cnn_online ? 'Loaded and enabled' : 'Inactive or unavailable' : 'Unknown'}</p>
       <p className="mt-3 text-sm">Pi connection: {online ? status?.is_hardware_live ? 'Recent heartbeat or flow received' : 'No recent heartbeat' : 'Unknown'}</p>
+      <p className="mt-3 text-sm">Pi CPU usage: <strong>{online && status?.sensor_cpu_usage != null ? `${status.sensor_cpu_usage.toFixed(1)}%` : 'Unavailable'}</strong> · Pi memory usage: <strong>{online && status?.sensor_memory_usage != null ? `${status.sensor_memory_usage.toFixed(1)}%` : 'Unavailable'}</strong></p>
       <p className="mt-3 text-xs text-text-muted">Last contact: {formatTime(status?.last_heartbeat_at)}</p><p className="mt-2 text-xs text-text-muted">Last live flow: {formatTime(status?.last_flow_at)}</p>
       <p className="mt-3 text-xs text-text-muted">Loaded models and received heartbeats are availability signals. Detection quality requires labelled evaluation.</p>
     </section></div>

@@ -23,6 +23,8 @@ import time
 import asyncio
 import joblib
 import psutil
+import subprocess
+from collections import deque
 import numpy as np
 import json
 import importlib
@@ -130,6 +132,8 @@ class ActiveEngine:
         self.execution_mode = "hybrid"  # "hybrid" | "rf" | "cnn"
         self.data_source = "live_hardware"
         self.last_hardware_ping = 0.0
+        self.sensor_resources = None
+        self.sensor_resources_at = 0.0
         self.row_idx = 0
         self.last_flow_received = 0.0
         self.last_error = None
@@ -187,6 +191,38 @@ system_status = {
     "counter_epoch": str(uuid4()), "started_at": utc_now(), "ingest_error": None,
     "chart_data": [], "latest_shap": [], "latest_lime": [],
 }
+
+# Rolling window of live inference latencies (milliseconds per flow), used by
+# /api/status so the dashboard can show inference latency (50% defense
+# recommendation: "add inference latency time in the dashboard").
+INFERENCE_MS_SAMPLES = deque(maxlen=200)
+
+_gpu_cache = {"at": 0.0, "value": None}
+
+
+def detect_gpu():
+    """Best-effort NVIDIA GPU status via nvidia-smi (cached 15 s).
+
+    Returns None when no NVIDIA GPU is present. SENTRi-X inference is
+    CPU-based (CUDA is disabled at startup), so None is the expected state
+    on the current hardware, not an error."""
+    now = time.time()
+    if now - _gpu_cache["at"] < 15:
+        return _gpu_cache["value"]
+    value = None
+    try:
+        out = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name,utilization.gpu,memory.used,memory.total",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=2)
+        line = out.stdout.strip().splitlines()[0]
+        name, util, used, total = [part.strip() for part in line.split(",")]
+        value = {"name": name, "utilization_percent": float(util),
+                 "memory_used_mb": float(used), "memory_total_mb": float(total)}
+    except Exception:
+        value = None
+    _gpu_cache.update(at=now, value=value)
+    return value
 
 
 def classify_threat_level(confidence: float) -> str:
@@ -831,6 +867,20 @@ def get_status():
     except Exception as exc:
         result.update(cpu_usage=None, memory_usage=None, memory_total_bytes=None,
                       memory_used_bytes=None, cpu_count=None, resource_error=str(exc))
+    # Inference latency (50% defense recommendation) + GPU + Pi sensor resources
+    # (hardware status, incl. during attacks, is read from this endpoint).
+    if INFERENCE_MS_SAMPLES:
+        result.update(inference_ms_last=INFERENCE_MS_SAMPLES[-1],
+                      inference_ms_avg=round(sum(INFERENCE_MS_SAMPLES) / len(INFERENCE_MS_SAMPLES), 2),
+                      inference_samples=len(INFERENCE_MS_SAMPLES))
+    else:
+        result.update(inference_ms_last=None, inference_ms_avg=None, inference_samples=0)
+    result.update(gpu=detect_gpu())
+    sensor_resources = engine.sensor_resources or {}
+    result.update(sensor_cpu_usage=sensor_resources.get('cpu_usage'),
+                  sensor_memory_usage=sensor_resources.get('memory_usage'),
+                  sensor_resources_at=(datetime.fromtimestamp(engine.sensor_resources_at, timezone.utc).isoformat()
+                                       if engine.sensor_resources_at > 0 else None))
     return result
 
 
@@ -1401,6 +1451,15 @@ def update_admin_api_key(request: SetApiKeyRequest, auth: dict = Depends(verify_
 @app.post('/api/heartbeat')
 def hardware_heartbeat(heartbeat: Optional[dict] = None):
     engine.last_hardware_ping = time.time()
+    # The sensor may attach its own CPU/memory usage (when psutil is available
+    # on the Pi); /api/status surfaces it as sensor resource telemetry.
+    resources = (heartbeat or {}).get('resources')
+    if isinstance(resources, dict):
+        engine.sensor_resources = {
+            'cpu_usage': resources.get('cpu_percent'),
+            'memory_usage': resources.get('memory_percent'),
+        }
+        engine.sensor_resources_at = time.time()
     # The Pi sensor refreshes its monitored-MAC allowlist from this response,
     # so devices added/removed in the dashboard take effect without editing
     # the sensor file or restarting it.
@@ -1422,9 +1481,13 @@ def ingest_live_flow(flow: dict):
         system_status['processed_flows'] += 1
         prediction = confidence = p_rf = p_cnn = None
         failure = None
+        inference_ms = None
         frame = prepare_feature_dataframe(flow)
         try:
+            started = time.perf_counter()
             prediction, confidence, p_rf, p_cnn = run_inference(frame)
+            inference_ms = round((time.perf_counter() - started) * 1000.0, 2)
+            INFERENCE_MS_SAMPLES.append(inference_ms)
             engine.last_error = None
         except Exception as exc:
             failure = str(exc)
@@ -1448,7 +1511,7 @@ def ingest_live_flow(flow: dict):
                 sensor_id=str(flow.get('sensor_id', 'rpi3b-edge-01')), device_name=flow.get('device_name'),
                 device_mac=flow.get('device_mac'), src_port=flow.get('src_port'), dst_port=flow.get('dst_port'),
                 prediction=prediction, p_rf=p_rf, p_cnn=p_cnn, data_source='live_hardware', inference_error=failure,
-                sni=flow.get('sni'))
+                sni=flow.get('sni'), inference_ms=inference_ms)
             if is_alert:
                 record_threat_alert(flow, frame, confidence, 'live_hardware', flow_id)
         except Exception as exc:
@@ -1458,7 +1521,8 @@ def ingest_live_flow(flow: dict):
         if failure:
             raise HTTPException(503, f'Flow saved without a prediction: {failure}')
         return dict(status='success', flow_id=flow_id, prediction=prediction, confidence=confidence,
-                    p_rf=p_rf, p_cnn=p_cnn, mode=engine.execution_mode, model=engine.current_model)
+                    p_rf=p_rf, p_cnn=p_cnn, mode=engine.execution_mode, model=engine.current_model,
+                    inference_ms=inference_ms)
 
 
 

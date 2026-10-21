@@ -79,7 +79,7 @@ def init_db():
                 'dst_port': 'INTEGER', 'prediction': 'INTEGER', 'p_rf': 'REAL',
                 'p_cnn': 'REAL', 'execution_mode': 'TEXT',
                 'data_source': "TEXT NOT NULL DEFAULT 'unknown'", 'inference_error': 'TEXT',
-                'sni': 'TEXT'},
+                'sni': 'TEXT', 'inference_ms': 'REAL'},
             'Alert_Logs': {
                 'data_source': "TEXT NOT NULL DEFAULT 'unknown'", 'sensor_id': 'TEXT',
                 'device_name': 'TEXT', 'device_mac': 'TEXT', 'flow_id': 'INTEGER',
@@ -105,7 +105,7 @@ def insert_network_flow(src_ip, dst_ip, proto='TCP', duration=0, src_bytes=0,
                src_pkts=src_pkts, dst_pkts=dst_pkts, is_anomaly=is_anomaly,
                model_used=model_used, confidence=confidence)
     for key in ('device_name', 'device_mac', 'src_port', 'dst_port', 'prediction', 'p_rf',
-                'p_cnn', 'execution_mode', 'data_source', 'inference_error', 'sni'):
+                'p_cnn', 'execution_mode', 'data_source', 'inference_error', 'sni', 'inference_ms'):
         row[key] = metadata.get(key, 'unknown' if key == 'data_source' else None)
     if row['device_mac']:
         row['device_mac'] = str(row['device_mac']).lower()
