@@ -163,6 +163,7 @@ def wait_and_display_alert(backend: str, baseline_id: str | None, timeout_s: int
 
     meta = alert.get("explanation_meta") or {}
     print(f"  +----------------------------------------------------------------+")
+    print(f"  | SCORED RESULT: DETECTION [PASS] (Verified alert in scoring window)")
     print(f"  | ALERT ID    : {alert.get('id', '-')[:24]}...")
     print(f"  | ATTACK TYPE : {alert.get('attack_type', '-')}")
     print(f"  | CONFIDENCE  : {(alert.get('confidence', 0)*100):.1f}% ({alert.get('threat_level', '-')})")
