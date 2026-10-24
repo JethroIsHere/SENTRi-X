@@ -1,5 +1,11 @@
 # SENTRi-X: Cross-Domain Hybrid Intrusion Detection System
 
+> **Notebook rebuild:** Start with [01_ToN_IoT_Baseline.ipynb](notebooks/01_ToN_IoT_Baseline.ipynb).
+> It trains RF and a real CNN using one shared ToN split and saves their evaluation evidence.
+> Follow the [notebook instructions](notebooks/README.md) for the initial smoke run.
+> Earlier ToN notebooks are preserved in `notebooks/archive/ton_iot/`.
+> BoT/CIC/Omni and XAI notebook rebuilds remain pending; historical results below are not new validation.
+
 > Current pipeline status: the canonical `sentrix_ml/` training protocol (see [PROMPT_1_VERIFICATION_REPORT.md](PROMPT_1_VERIFICATION_REPORT.md)) has been validated on **synthetic fixtures only** — all smoke-run metrics are synthetic and the test suite passes against fixtures. The historical accuracy figures below have **not** been re-established with this pipeline; research metrics from a full real-data retrain are still pending. The current backend uses live hardware ingestion; the old simulation instructions below do not apply.
 
 SENTRi-X is an adaptive, Explainable AI (XAI)-powered Intrusion Detection System. It leverages a Hybrid Ensemble Engine—fusing the high-speed tabular precision of Random Forests with the spatial feature extraction of Convolutional Neural Networks (CNNs).

@@ -1,21 +1,13 @@
-"""Source model training routine for ToN-IoT dataset.
+"""ToN-IoT baseline helpers shared by the notebook and command-line entry point.
 
-Pipeline:
-1. Validates environment dependencies (TensorFlow required for full run)
-2. Ingests raw ToN-IoT CSVs through canonical adapter (no leakage)
-3. Stratified train/val/test split (disjoint holdout)
-4. Fits PreprocessingPipeline strictly on training partition
-5. Trains Random Forest on train split
-6. Trains 1D CNN with explicit validation data
-7. Evaluates RF, CNN, and Hybrid modes on independent holdout
-8. Exports prediction-level evidence CSV
-9. Assembles and validates candidate model package
+The notebook shows each stage. This module keeps splitting and candidate export
+consistent with the CLI; both require a real TensorFlow CNN, even for smoke runs.
+Metrics describe the sampled, group-disjoint holdout, not a population estimate.
 """
-
 from __future__ import annotations
 
 import argparse
-import sys
+import platform
 import tempfile
 import time
 from pathlib import Path
@@ -24,15 +16,18 @@ import joblib
 import numpy as np
 import pandas as pd
 
-from sentrix_ml.schema import NUM_FEATURES, EXPECTED_FEATURES
 from sentrix_ml.provenance import sampling_audit
 from sentrix_ml.balancing import balance_training_rows
 from sentrix_ml.adapters.ton_iot import load_ton_iot
 from sentrix_ml.splits import stratified_split
 from sentrix_ml.preprocessing import PreprocessingPipeline
-from sentrix_ml.training import train_rf, build_cnn_model, train_cnn
+from sentrix_ml.training import train_rf, train_cnn
+from sentrix_ml.inference import hybrid_predict
 from sentrix_ml.evaluation import compute_multimode_metrics, save_prediction_evidence
 from sentrix_ml.packaging import create_package, validate_package, file_sha256
+
+SOURCE_PROTOCOL = "ton_baseline_v1"
+SOURCE_EVALUATION_SPLIT = "sampled_group_disjoint_holdout"
 
 
 def parse_args(args=None):
@@ -52,196 +47,133 @@ def parse_args(args=None):
     return parser.parse_args(args)
 
 
+def split_source_data(X, y, info, *, test_fraction=.20, val_fraction=.10, seed=42):
+    """The same declared ToN split for notebook, CLI and source preflight.
+
+    Retain distinct source records and labels, including conflicting labels.
+    Duplicate/session groups stay together. Fractions target group counts.
+    """
+    return stratified_split(
+        X, y, metadata=info["metadata"], test_fraction=test_fraction,
+        val_fraction=val_fraction, seed=seed, domain="ton_iot",
+        duplicate_group_policy="retain_and_group_disjoint",
+        conflict_policy="retain_and_group", require_class_support=True,
+        source_file_hashes=info["source_file_hashes"],
+        exclusion_reasons=info.get("exclusion_reasons"),
+        sampling_metadata=sampling_audit(info),
+    )
+
+
+def save_source_candidate(*, args, rf_model, cnn_model, pipeline, split_manifest,
+                          X_test, y_test, p_rf, p_cnn, p_hybrid, balancing_audit):
+    """Export already-trained models and bind evidence to their exact artifacts.
+
+    This function does not train, select a threshold, resplit, or activate models.
+    Ingestion inclusion probabilities are evidence metadata only; group allocation
+    does not establish final test-set inclusion probabilities for the population.
+    """
+    if list(X_test.index) != split_manifest.test_indices or not X_test.index.equals(y_test.index):
+        raise ValueError("Holdout rows must match the frozen split manifest in exact order")
+    if split_manifest.duplicate_group_policy != "retain_and_group_disjoint":
+        raise ValueError("The ToN baseline requires the declared retain-and-group policy")
+    y_true = y_test.to_numpy(dtype=int)
+    for name, values in (("RF", p_rf), ("CNN", p_cnn), ("Hybrid", p_hybrid)):
+        values = np.asarray(values)
+        if (values.shape != y_true.shape or not np.isfinite(values).all()
+                or ((values < 0) | (values > 1)).any()):
+            raise ValueError(f"{name} probabilities must be finite, in [0, 1], and aligned to the holdout")
+    if not np.allclose(p_hybrid, (np.asarray(p_rf) + np.asarray(p_cnn)) / 2, rtol=0, atol=1e-12):
+        raise ValueError("Hybrid must be the arithmetic mean of RF and CNN probabilities")
+    records = pd.DataFrame(split_manifest.test_records)
+    if len(records) != len(y_true):
+        raise ValueError("Missing holdout source lineage")
+
+    import tensorflow as tf
+    import sklearn
+    config = dict(vars(args), protocol=SOURCE_PROTOCOL, balancing=balancing_audit,
+                  decision_threshold=.5, fusion="arithmetic_mean",
+                  evaluation_scope="Empirical metrics on sampled holdout records; no population estimates",
+                  weight_scope="CSV inclusion_probability and sampling_weight describe ingestion only; metrics are unweighted",
+                  environment={"python": platform.python_version(), "numpy": np.__version__,
+                               "pandas": pd.__version__, "scikit-learn": sklearn.__version__,
+                               "tensorflow": tf.__version__})
+    config = {k: str(v) if isinstance(v, Path) else v for k, v in config.items()}
+    with tempfile.TemporaryDirectory(prefix="sentrix-source-export-") as td:
+        stage = Path(td)
+        rf_path, cnn_path = stage / "rf_model.joblib", stage / "cnn_model.h5"
+        pipe_path, split_path = stage / "pipeline.joblib", stage / "split_manifest.json"
+        evidence_path, eval_path = stage / "prediction_evidence.csv", stage / "evaluation_metrics.json"
+        joblib.dump(rf_model, rf_path)
+        cnn_model.save(cnn_path)
+        pipeline.save(pipe_path)
+        split_manifest.save(split_path)
+        evidence_hash = save_prediction_evidence(
+            evidence_path, y_true=y_true, p_rf=p_rf, p_cnn=p_cnn, p_hybrid=p_hybrid,
+            sample_ids=split_manifest.test_flow_ids,
+            domain_labels=["ton_iot"] * len(y_true),
+            source_files=records.source_file.tolist(),
+            source_row_indices=records.source_row_index.tolist(),
+            group_ids=split_manifest.test_group_ids,
+            inclusion_probabilities=records.get("inclusion_probability", pd.Series(1., index=records.index)).tolist(),
+            sampling_weights=records.get("sampling_weight", pd.Series(1., index=records.index)).tolist(),
+        )
+        evaluation = compute_multimode_metrics(
+            y_true, p_rf=p_rf, p_cnn=p_cnn, p_hybrid=p_hybrid,
+            domain="ton_iot", run_type=args.run_type, dataset="ton_iot",
+            evaluation_split=SOURCE_EVALUATION_SPLIT,
+            rf_hash=file_sha256(rf_path), cnn_hash=file_sha256(cnn_path),
+            preprocessor_hash=file_sha256(pipe_path),
+            split_manifest_file=split_path.name, split_manifest_hash=file_sha256(split_path),
+            evidence_file=evidence_path.name, evidence_hash=evidence_hash,
+        )
+        evaluation.save(eval_path)
+        create_package(
+            output_dir=args.output_dir, domain="ton_iot", rf_path=rf_path, cnn_path=cnn_path,
+            pipeline_path=pipe_path, split_manifest_path=split_path,
+            evaluation_path=eval_path, evidence_path=evidence_path,
+            training_config=config, run_type=args.run_type, is_mock=False,
+            notes=f"{SOURCE_PROTOCOL}; real RF and CNN; candidate only; {SOURCE_EVALUATION_SPLIT}",
+        )
+    return validate_package(args.output_dir, strict_deployable=(args.run_type == "full"))
+
+
 def run_train_source(args=None):
     if args is None or isinstance(args, list):
         args = parse_args(args)
-
-    start_time = time.time()
-    print("=" * 70)
-    print("      SENTRi-X: Source Model Training Pipeline (ToN-IoT)")
-    print(f"      Run Type: {args.run_type.upper()} | Seed: {args.seed}")
-    print("=" * 70)
-
-    # Step 0: Dependency check
     try:
         import tensorflow as tf
-        has_tf = True
-        # Set seeds for determinism
-        tf.random.set_seed(args.seed)
-    except ImportError:
-        has_tf = False
-        if args.run_type == "full":
-            print("\nFATAL ERROR: TensorFlow is required for full model training.", file=sys.stderr)
-            print("Cannot substitute a mock CNN for a full training run.", file=sys.stderr)
-            print("Please run this command in an environment with TensorFlow installed (e.g. WSL venv).", file=sys.stderr)
-            sys.exit(1)
-        else:
-            print("\nWARNING: TensorFlow not installed. Running in mock smoke mode.")
-
-    np.random.seed(args.seed)
-
-    # 1. Ingestion
-    print(f"\n[Step 1] Loading raw ToN-IoT data from {args.data_dir} (sample_n={args.sample_n})...")
-    X_encoded, y_binary, info = load_ton_iot(
-        args.data_dir,
-        max_files=args.max_files,
-        sample_n=args.sample_n,
-        seed=args.seed,
+    except ImportError as exc:
+        raise RuntimeError("TensorFlow is required for source training, including smoke runs. "
+                           "Select the project's TensorFlow environment; no placeholder CNN is used.") from exc
+    if Path(args.output_dir).exists() and any(Path(args.output_dir).iterdir()):
+        raise ValueError("Candidate output already contains files; choose a new output directory")
+    start = time.monotonic()
+    tf.keras.backend.clear_session()
+    tf.keras.utils.set_random_seed(args.seed)
+    print(f"ToN-IoT baseline | {args.run_type} | seed={args.seed}")
+    X, y, info = load_ton_iot(args.data_dir, max_files=args.max_files,
+                             sample_n=args.sample_n, seed=args.seed)
+    X_train, X_val, X_test, y_train, y_val, y_test, manifest = split_source_data(
+        X, y, info, test_fraction=args.test_fraction, val_fraction=args.val_fraction, seed=args.seed,
     )
-    print(f"Data ingested: {len(X_encoded)} rows, class counts: {info.get('class_counts')}")
-
-    # 2. Split
-    X_train, X_val, X_test, y_train, y_val, y_test, split_manifest = stratified_split(
-        X_encoded,
-        y_binary,
-        metadata=info.get("metadata"),
-        test_fraction=args.test_fraction,
-        val_fraction=args.val_fraction,
-        seed=args.seed,
-        domain="ton_iot",
-        source_file_hashes=info.get("source_file_hashes"),
-        exclusion_reasons=info.get("exclusion_reasons"),
-        sampling_metadata=sampling_audit(info),
-        require_class_support=True,
-    )
-    print(f"Partitions: Train={len(X_train)}, Val={len(X_val)}, Test={len(X_test)}")
-
-    # 3. Preprocessing (Fit on train ONLY)
-    print("\n[Step 3] Fitting PreprocessingPipeline strictly on training partition...")
+    print(f"Original partitions: train={len(X_train)}, validation={len(X_val)}, test={len(X_test)}")
     pipeline = PreprocessingPipeline().fit(X_train)
     X_train_scaled = pipeline.transform(X_train)
     X_val_scaled = pipeline.transform(X_val)
     X_test_scaled = pipeline.transform(X_test)
-    print("Transform complete: Train/Val/Test scaled without target leakage.")
-
-    X_fit, y_fit, balancing_audit = balance_training_rows(X_train_scaled, y_train, seed=args.seed)
-
-    # 4. Train RF
-    print(f"\n[Step 4] Training Random Forest (n_estimators={args.rf_estimators})...")
-    rf_model = train_rf(
-        X_fit,
-        y_fit,
-        n_estimators=args.rf_estimators,
-        max_depth=args.rf_depth,
-        random_state=args.seed,
+    X_fit, y_fit, balancing = balance_training_rows(X_train_scaled, y_train, seed=args.seed)
+    rf = train_rf(X_fit, y_fit, n_estimators=args.rf_estimators,
+                  max_depth=args.rf_depth, random_state=args.seed)
+    cnn, history = train_cnn(X_fit, y_fit, X_val_scaled, y_val,
+                             epochs=args.cnn_epochs, batch_size=args.batch_size, verbose=1)
+    _, p_hybrid, p_rf, p_cnn = hybrid_predict(X_test_scaled, rf_model=rf, cnn_model=cnn)
+    saved = save_source_candidate(
+        args=args, rf_model=rf, cnn_model=cnn, pipeline=pipeline, split_manifest=manifest,
+        X_test=X_test, y_test=y_test, p_rf=p_rf, p_cnn=p_cnn, p_hybrid=p_hybrid,
+        balancing_audit=balancing,
     )
-    print("Random Forest training complete.")
-
-    # 5. Train CNN
-    print(f"\n[Step 5] Training 1D-CNN (epochs={args.cnn_epochs}, batch_size={args.batch_size})...")
-    if has_tf:
-        cnn_model, history = train_cnn(
-            X_fit,
-            y_fit,
-            X_val_scaled,
-            y_val,
-            epochs=args.cnn_epochs,
-            batch_size=args.batch_size,
-            verbose=1,
-        )
-    else:
-        class MockCNN:
-            def predict(self, X_3d, verbose=0):
-                return np.ones((len(X_3d), 1)) * 0.5
-        cnn_model = MockCNN()
-
-    # 6. Multi-Mode Independent Holdout Evaluation
-    print("\n[Step 6] Evaluating RF, CNN, and Hybrid modes on independent test holdout...")
-    p_rf = rf_model.predict_proba(X_test_scaled)[:, 1]
-    if has_tf:
-        X_test_3d = X_test_scaled.reshape(X_test_scaled.shape[0], NUM_FEATURES, 1)
-        p_cnn = cnn_model.predict(X_test_3d, verbose=0).reshape(-1)
-    else:
-        p_cnn = np.ones(len(X_test_scaled)) * 0.5
-    p_hybrid = (p_rf + p_cnn) / 2.0
-
-    y_test_arr = y_test.to_numpy(dtype=int)
-
-    # 7. Package Candidate in Temporary Staging Area
-    out_dir = Path(args.output_dir)
-    print(f"\n[Step 7] Assembling and hashing model package into: {out_dir}")
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmp_path = Path(tmpdir)
-        rf_path = tmp_path / "rf_model.joblib"
-        cnn_path = tmp_path / "cnn_model.h5"
-        pipe_path = tmp_path / "pipeline.joblib"
-        split_path = tmp_path / "split_manifest.json"
-        evidence_path = tmp_path / "prediction_evidence.csv"
-        eval_path = tmp_path / "evaluation_metrics.json"
-
-        joblib.dump(rf_model, rf_path)
-        if has_tf:
-            cnn_model.save(cnn_path)
-        else:
-            cnn_path.write_bytes(b"mock_cnn_smoke_placeholder")
-
-        pipeline.save(pipe_path)
-        split_manifest.save(split_path)
-
-        rf_hash = file_sha256(rf_path)
-        cnn_hash = file_sha256(cnn_path)
-        pipe_hash = file_sha256(pipe_path)
-        split_hash = file_sha256(split_path)
-
-        # Save prediction-level evidence CSV
-        evidence_hash = save_prediction_evidence(
-            evidence_path,
-            y_true=y_test_arr,
-            p_rf=p_rf,
-            p_cnn=p_cnn,
-            p_hybrid=p_hybrid,
-            sample_ids=list(X_test.index),
-        )
-
-        # Compute multi-mode metrics with bound artifact hashes
-        eval_result = compute_multimode_metrics(
-            y_true=y_test_arr,
-            p_rf=p_rf,
-            p_cnn=p_cnn,
-            p_hybrid=p_hybrid,
-            domain="ton_iot",
-            run_type=args.run_type,
-            dataset="ton_iot",
-            evaluation_split="independent_test_holdout",
-            rf_hash=rf_hash,
-            cnn_hash=cnn_hash,
-            preprocessor_hash=pipe_hash,
-            split_manifest_file="split_manifest.json",
-            split_manifest_hash=split_hash,
-            evidence_file="prediction_evidence.csv",
-            evidence_hash=evidence_hash,
-        )
-        eval_result.save(eval_path)
-
-        for m_name in ("rf", "cnn", "hybrid"):
-            m = eval_result.modes[m_name]
-            print(f"  * Mode [{m_name.upper():6s}]: Acc={m['accuracy']:.4f}, Prec={m['precision']:.4f}, Rec={m['recall']:.4f}, F1={m['f1']:.4f}, AUC={m['roc_auc']}")
-
-        manifest = create_package(
-            output_dir=out_dir,
-            domain="ton_iot",
-            rf_path=rf_path,
-            cnn_path=cnn_path,
-            pipeline_path=pipe_path,
-            split_manifest_path=split_path,
-            evaluation_path=eval_path,
-            evidence_path=evidence_path,
-            training_config=dict(vars(args), balancing=balancing_audit),
-            run_type=args.run_type,
-            is_mock=not has_tf,
-            notes=f"Source ToN-IoT candidate trained with seed {args.seed}",
-        )
-
-    # 8. Validate Package
-    print("\n[Step 8] Validating package integrity...")
-    validated = validate_package(out_dir, strict_deployable=(args.run_type == "full"))
-    print(f"Validation SUCCESS! Package manifest verified in {out_dir}")
-
-    elapsed = time.time() - start_time
-    print("=" * 70)
-    print(f"TRAINING COMPLETE in {elapsed:.2f}s | Output: {out_dir}")
-    print("=" * 70)
-    return validated
+    print(f"Candidate saved in {time.monotonic() - start:.1f}s: {args.output_dir}")
+    return saved
 
 
 if __name__ == "__main__":

@@ -89,13 +89,18 @@ def _check(data_dir, domain, *, sample_n=50000, seed=42, test_fraction=.20,
         kwargs = dict(metadata=info["metadata"], seed=seed, domain=domain,
                       source_file_hashes=info["source_file_hashes"], sampling_metadata=audit,
                       exclusion_reasons=info["exclusion_reasons"], require_class_support=True)
-        if domain in ("ton_iot", "omni"):
+        if domain == "ton_iot":
+            from sentrix_ml.train_source import split_source_data
+            parts = split_source_data(X, y, info, test_fraction=test_fraction,
+                                      val_fraction=val_fraction, seed=seed)
+        elif domain == "omni":
             parts = stratified_split(X, y, test_fraction=test_fraction, val_fraction=val_fraction, **kwargs)
         else:
             parts = adaptation_split(X, y, study_fraction=study_fraction,
                                      val_fraction_of_study=val_fraction, **kwargs)
         manifest = parts[-1]
         result.update(status="READY", partition_class_counts=manifest.partition_support,
+                      duplicate_group_policy=manifest.duplicate_group_policy,
                       duplicate_rows_excluded=manifest.duplicate_rows_excluded,
                       unique_groups=manifest.unique_groups_count,
                       actual_partition_rows={"train": manifest.train_count, "validation": manifest.val_count, "test": manifest.test_count},
