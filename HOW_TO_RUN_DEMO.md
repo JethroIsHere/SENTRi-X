@@ -12,8 +12,8 @@ In this setup, your laptop acts as the **Attacker** and hosts the **SENTRi-X ML 
 
 | Component | Role | Host / Device | IP / Address | Notes |
 | :--- | :--- | :--- | :--- | :--- |
-| **Attacker Generator** | Attacker | Windows / WSL2 (Laptop) | `192.168.254.156` | Injects attack traffic (S1 port scans, S2 auth probes) |
-| **Defender Core API** | Backend | WSL2 Ubuntu (Laptop) | `127.0.0.1:8000` / `192.168.254.141:8000` | Hybrid RF+CNN inference engine & telemetry API |
+| **Attacker Generator** | Attacker | Windows / WSL2 (Laptop) | `192.168.254.157` | Injects attack traffic (S1 port scans, S2 auth probes) |
+| **Defender Core API** | Backend | WSL2 Ubuntu (Laptop) | `127.0.0.1:8000` / `192.168.254.157:8000` | Hybrid RF+CNN inference engine & telemetry API |
 | **Monitoring Dashboard**| Web UI | Windows (Laptop) | `http://localhost:5173` | React + Vite real-time threat monitor & XAI logs |
 | **Sensor & Target Node**| Probe & Victim | Raspberry Pi (`raspy3`) | `192.168.254.184` | Sniffs edge traffic; hosts lab target on port `8088` |
 
@@ -26,12 +26,10 @@ In this setup, your laptop acts as the **Attacker** and hosts the **SENTRi-X ML 
 ## 2. Step-by-Step Live Execution Procedure
 
 ### Step 1: Start the Backend (WSL2)
-Open an Ubuntu terminal in WSL2 (or run from Windows PowerShell):
+Open an Ubuntu terminal in WSL2:
 ```bash
 cd /mnt/c/Users/LENOVO/SENTRi-X
-source wsl_venv/bin/activate
-cd backend
-python -u -m uvicorn main:app --host 0.0.0.0 --port 8000
+bash backend/start_backend.sh
 ```
 **Verify:** In a PowerShell terminal, run:
 ```powershell
@@ -60,19 +58,15 @@ Open your browser to:
    ssh raspy3@192.168.254.184
    ```
 
-2. **Terminal 1 on Pi: Start the Target Service (for HTTP Probes)**
+2. **Terminal 1 on Pi (Optional): Start HTTP Listener on Port 8088** *(Not required since `config.demo.json` sets `"unmanaged_target": true`, or run Python's built-in HTTP server)*:
    ```bash
-   cd ~/SENTRi-X
-   python3 attack_scripts/TestKit/lab_target.py --bind 192.168.254.184 --port 8088
+   # Built-in HTTP listener on port 8088 (no repo files needed on Pi)
+   python3 -m http.server 8088 --bind 192.168.254.184
    ```
 
 3. **Terminal 2 on Pi: Start the Edge Sensor**
    ```bash
-   cd ~/SENTRi-X
-   source venv/bin/activate
-   SENTRIX_BACKEND_URL="http://192.168.254.141:8000/api/ingest-flow" \
-   SENTRIX_HEARTBEAT_URL="http://192.168.254.141:8000/api/heartbeat" \
-   sudo -E python3 edge/sentrix_sensor.py
+   sudo python ~/sentrix_sensor.py
    ```
    *The dashboard will turn green with `"Sensor Online"` and begin displaying real-time live flow counts.*
 

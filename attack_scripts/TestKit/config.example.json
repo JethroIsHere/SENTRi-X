@@ -4,7 +4,7 @@
   "target_ip": "SET_LAB_TARGET_IPV4",
   "target_mac": "SET_LAB_TARGET_MAC",
   "service_port": 8088,
-  "backend_url": "http://192.168.254.156:8000",
+  "backend_url": "http://192.168.254.157:8000",
   "model_domain": "omni",
   "expected_alert_threshold": 0.87,
   "snort_json_file": "snort_logs/alert_json.txt",
