@@ -1,0 +1,51 @@
+# Appendix D — Recorded laboratory observations
+
+The matrix preserves 43 recorded runs, including repeats. B0 denotes a baseline; S1 and S2 are two controlled study scenarios. A candidate is an event recorded by the logger. The count, execution state, and exit code do not establish a true positive, false positive, miss, or time to detection. All records require independent review before scoring. These observations are separate from the six-run demonstration reported in Chapter 4.
+
+[Download the matrix as CSV](data/lab-observations.csv)
+
+| Trial | Detector / mode / scenario | Candidate count | Exit code | Execution | Review state |
+| --- | --- | --- | --- | --- | --- |
+| CH4-OMNI-RF-B0-9257 | Omni / RF / B0 | 34 | 3 | completed | inconclusive |
+| CH4-OMNI-RF-S1-9444 | Omni / RF / S1 | 49 | 3 | completed | inconclusive |
+| CH4-OMNI-RF-S2-9631 | Omni / RF / S2 | 34 | 3 | completed | inconclusive |
+| CH4-OMNI-CNN-B0-9819 | Omni / CNN / B0 | 33 | 3 | completed | inconclusive |
+| CH4-OMNI-CNN-S1-0006 | Omni / CNN / S1 | 52 | 3 | completed | inconclusive |
+| CH4-OMNI-CNN-S2-0193 | Omni / CNN / S2 | 32 | 3 | completed | inconclusive |
+| CH4-OMNI-HYBRID-B0-0380 | Omni / HYBRID / B0 | 31 | 3 | completed | inconclusive |
+| CH4-OMNI-HYBRID-S1-0568 | Omni / HYBRID / S1 | 51 | 3 | completed | inconclusive |
+| CH4-OMNI-HYBRID-S2-0755 | Omni / HYBRID / S2 | Not eligible | 2 | preflight_failed | inconclusive |
+| CH4-TON_IOT-RF-B0-0779 | ToN-IoT / RF / B0 | 29 | 3 | completed | inconclusive |
+| CH4-TON_IOT-RF-S1-0967 | ToN-IoT / RF / S1 | 50 | 3 | completed | inconclusive |
+| CH4-TON_IOT-RF-S2-1155 | ToN-IoT / RF / S2 | 32 | 3 | completed | inconclusive |
+| CH4-TON_IOT-CNN-B0-1342 | ToN-IoT / CNN / B0 | 24 | 3 | completed | inconclusive |
+| CH4-TON_IOT-CNN-S1-1529 | ToN-IoT / CNN / S1 | Not eligible | 2 | preflight_failed | inconclusive |
+| CH4-TON_IOT-CNN-S2-1537 | ToN-IoT / CNN / S2 | 26 | 3 | completed | inconclusive |
+| CH4-TON_IOT-HYBRID-B0-1724 | ToN-IoT / HYBRID / B0 | 30 | 3 | completed | inconclusive |
+| CH4-TON_IOT-HYBRID-S1-1911 | ToN-IoT / HYBRID / S1 | 44 | 3 | completed | inconclusive |
+| CH4-TON_IOT-HYBRID-S2-2099 | ToN-IoT / HYBRID / S2 | 28 | 3 | completed | inconclusive |
+| CH4-BOT_IOT-RF-B0-2294 | BoT-IoT / RF / B0 | 25 | 3 | completed | inconclusive |
+| CH4-BOT_IOT-RF-S1-2481 | BoT-IoT / RF / S1 | 43 | 3 | completed | inconclusive |
+| CH4-BOT_IOT-RF-S2-2669 | BoT-IoT / RF / S2 | 27 | 3 | completed | inconclusive |
+| CH4-BOT_IOT-CNN-B0-2856 | BoT-IoT / CNN / B0 | 0 | 3 | completed | inconclusive |
+| CH4-BOT_IOT-CNN-S1-3044 | BoT-IoT / CNN / S1 | 0 | 3 | completed | inconclusive |
+| CH4-BOT_IOT-CNN-S2-3231 | BoT-IoT / CNN / S2 | 0 | 0 | completed | pending_review |
+| CH4-BOT_IOT-HYBRID-B0-3419 | BoT-IoT / HYBRID / B0 | 0 | 3 | completed | inconclusive |
+| CH4-BOT_IOT-HYBRID-S1-3606 | BoT-IoT / HYBRID / S1 | 0 | 3 | completed | inconclusive |
+| CH4-BOT_IOT-HYBRID-S2-3794 | BoT-IoT / HYBRID / S2 | 0 | 0 | completed | pending_review |
+| CH4-CIC_IDS2017-RF-B0-3991 | CIC-IDS2017 / RF / B0 | 0 | 0 | completed | pending_review |
+| CH4-CIC_IDS2017-RF-S1-4178 | CIC-IDS2017 / RF / S1 | 0 | 3 | completed | inconclusive |
+| CH4-CIC_IDS2017-RF-S2-4366 | CIC-IDS2017 / RF / S2 | 0 | 0 | completed | pending_review |
+| CH4-CIC_IDS2017-CNN-B0-4553 | CIC-IDS2017 / CNN / B0 | 26 | 3 | completed | inconclusive |
+| CH4-CIC_IDS2017-CNN-S1-4740 | CIC-IDS2017 / CNN / S1 | 44 | 3 | completed | inconclusive |
+| CH4-CIC_IDS2017-CNN-S2-4927 | CIC-IDS2017 / CNN / S2 | 27 | 3 | completed | inconclusive |
+| CH4-CIC_IDS2017-HYBRID-B0-5114 | CIC-IDS2017 / HYBRID / B0 | 4 | 3 | completed | inconclusive |
+| CH4-CIC_IDS2017-HYBRID-S1-5302 | CIC-IDS2017 / HYBRID / S1 | 37 | 3 | completed | inconclusive |
+| CH4-CIC_IDS2017-HYBRID-S2-5489 | CIC-IDS2017 / HYBRID / S2 | 4 | 3 | completed | inconclusive |
+| CH4-SNORT-B0-5676 | Snort / B0 | 0 | 0 | completed | pending_review |
+| CH4-SNORT-S1-5862 | Snort / S1 | 0 | 3 | completed | inconclusive |
+| CH4-SNORT-S2-6049 | Snort / S2 | 0 | 0 | completed | pending_review |
+| CH4-RERUN-OMNI-HYBRID-S2 | Omni / HYBRID / S2 | 32 | 0 | completed | pending_review |
+| CH4-RERUN-TON-CNN-S1 | ToN-IoT / CNN / S1 | 44 | 0 | completed | pending_review |
+| CH4-RERUN-OMNI-HYBRID-B0 | Omni / HYBRID / B0 | 15 | 0 | completed | pending_review |
+| CH4-RERUN-OMNI-HYBRID-S1 | Omni / HYBRID / S1 | 51 | 0 | completed | pending_review |

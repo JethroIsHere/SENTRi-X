@@ -1,0 +1,3 @@
+# Appendix F — Academic attribution and disclaimer
+
+This undergraduate thesis was submitted to the College of Information and Communications Technology, West Visayas State University, in partial fulfillment of the requirements for the Bachelor of Science in Computer Science. The project and documentation are the authors’ work except where attribution is given. The manuscript disclaimer grants the College permission to use, reproduce, publish, or distribute the project and documentation with acknowledgment. The signed or execution copy belongs in the university submission records. This entry does not grant a new software or third-party dataset license.

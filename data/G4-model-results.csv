@@ -1,0 +1,10 @@
+Model,Class,Accuracy,Precision,Recall,F1-Score
+Random Forest,Normal,98.89%,0.9933,0.9931,0.9932
+Random Forest,Attack,98.89%,0.9695,0.9705,0.9700
+Random Forest,Macro Average,98.89%,0.9814,0.9818,0.9816
+1D CNN,Normal,91.86%,0.9180,0.9885,0.9519
+1D CNN,Attack,91.86%,0.9229,0.6101,0.7346
+1D CNN,Macro Average,91.86%,0.9205,0.7993,0.8433
+Hybrid RF-CNN,Normal,98.83%,0.9904,0.9954,0.9929
+Hybrid RF-CNN,Attack,98.83%,0.9790,0.9573,0.9680
+Hybrid RF-CNN,Macro Average,98.83%,0.9847,0.9763,0.9804
